@@ -243,6 +243,7 @@ import {
   resetMutationAuthorityRuntimeForTests,
   type ZoteroHostMutationCallerScope,
 } from "./zoteroHostMutationAuthority";
+import { createWorkflowPreparedImageScope } from "../workflows/workflowNoteImagePreparation";
 import {
   createRuntimeBoundZoteroHostPreparedFiles,
   type PreparedStoredAttachment,
@@ -5432,6 +5433,12 @@ async function upsertNotePayloadAttachment(
               );
             });
             removedAttachment = oldAttachmentEvidence;
+            beforeEffect?.markRemoved([
+              { kind: "item", ref: oldAttachmentEvidence.ref },
+            ]);
+            beforeEffect?.markWritten([
+              { kind: "item", ref: canonicalItemRef(note) },
+            ]);
           } catch (error) {
             const residualRef = {
               kind: "item" as const,
@@ -8363,6 +8370,126 @@ async function executeCanonicalMutationEffects(
   }
 }
 
+async function prepareManagedScoreRadar(
+  payload: JsonValue,
+  control?: WorkflowCallControl,
+): Promise<{ html: string; bindings: ResolvedNoteImageBinding[] }> {
+  const images = createWorkflowPreparedImageScope({
+    runScopeId: "managed-score-radar",
+  });
+  try {
+    const score = normalizeLiteratureScore(payload);
+    const image = await images.prepareLiteratureScoreRadar(
+      score.dimensions.map(({ name, score }) => ({ name, score })),
+      control,
+    );
+    return {
+      html: '<img data-zs-score-radar="v1" data-zotero-agents-image-slot="radar" alt="Literature score radar" width="640" height="520">',
+      bindings: [{ slot: "radar", blob: images.resolve(image.ref).blob }],
+    };
+  } catch (error) {
+    const code = (error as { code?: string })?.code;
+    if (
+      !control?.signal?.aborted &&
+      (code === "unavailable" || code === "execution_failed")
+    )
+      return { html: "", bindings: [] };
+    const canceled = control?.signal?.aborted || code === "canceled";
+    const limited = code === "resource_limited";
+    throw new MutationAuthorityExecutionError(
+      canceled ? "canceled" : "failed",
+      canceled ? "canceled" : limited ? "resource_limited" : "execution_failed",
+      "staging",
+      canceled ? "none" : "retry_same_operation",
+      canceled
+        ? { reason: "caller_signal" }
+        : limited
+          ? (
+              error as {
+                details: WorkflowHostErrorDetailsByCode["resource_limited"];
+              }
+            ).details
+          : { phase: "staging", recovery: "retry_same_operation" },
+      error instanceof Error ? error.message : "Score radar preparation failed",
+    );
+  } finally {
+    images.dispose();
+  }
+}
+
+async function cleanupManagedScoreRadar(
+  note: Zotero.Item,
+  oldHtml: string,
+  operationId: string,
+  control?: WorkflowCallControl,
+  beforeEffect?: CanonicalMutationEffectGuard,
+): Promise<MutationChangeDto[]> {
+  const keys = new Set<string>();
+  for (const [tag] of oldHtml.matchAll(/<img\b[^>]*>/gi)) {
+    if (!/\sdata-zs-score-radar\s*=\s*(?:"v1"|'v1')/i.test(tag)) continue;
+    const key = tag.match(
+      /\sdata-attachment-key\s*=\s*(?:"([^"]+)"|'([^']+)')/i,
+    );
+    if (key) keys.add(key[1] || key[2]);
+  }
+  if (!keys.size) return [];
+  const retained = await withZoteroHostSlice(control, () =>
+    managedNoteImageKeys(String(note.getNote?.() || "")),
+  );
+  const payloadKeys = new Set(
+    (await listMutationPayloadBlocks(note, control)).map(
+      (block) => block.attachmentKey,
+    ),
+  );
+  const changes: MutationChangeDto[] = [];
+  for (const key of keys) {
+    if (retained.has(key) || payloadKeys.has(key)) continue;
+    await withZoteroHostSlice(control, async () => {
+      const attachment = resolveZotero().Items.getByLibraryAndKey?.(
+        normalizeLibraryId(note.libraryID),
+        key,
+      );
+      if (!attachment || Number(attachment.parentID) !== Number(note.id))
+        return;
+      const ref = canonicalItemRef(attachment);
+      const before = canonicalItemVersion(attachment);
+      try {
+        await beforeEffect?.("effect");
+        await brokerMutationPrimitives.item.remove(attachment);
+        beforeEffect?.markRemoved([{ kind: "item", ref }]);
+        beforeEffect?.markWritten([
+          { kind: "item", ref: canonicalItemRef(note) },
+        ]);
+      } catch (error) {
+        throw new MutationAuthorityExecutionError(
+          "repair_required",
+          "execution_failed",
+          "cleanup",
+          "manual_repair",
+          { phase: "cleanup", recovery: "manual_repair" },
+          error instanceof Error ? error.message : "Score radar cleanup failed",
+          [{ kind: "item", ref: canonicalItemRef(note) }],
+          [{ kind: "item", ref }],
+        );
+      }
+      changes.push({
+        entity: { kind: "item", ref },
+        effect: "deleted",
+        before,
+        after: {
+          revision: hashSynthesisContractCanonicalJson({
+            ref,
+            state: "deleted",
+            operationId,
+          }),
+          state: "deleted",
+        },
+      });
+    });
+  }
+  return changes;
+}
+
 async function executeManagedSemanticMutationEffects(
   request: ManagedSemanticRequest,
   scope: ZoteroHostMutationCallerScope,
@@ -8377,7 +8504,7 @@ async function executeManagedSemanticMutationEffects(
     mapManagedOwnerError(error);
   }
 
-  const normalized = prepared!;
+  let normalized = prepared!;
   const operationId = trimText(request.operationId, 129);
   if (!operationId || operationId.length > 128) {
     throw capabilityError("invalid_request", "operationId is invalid", {
@@ -8405,6 +8532,24 @@ async function executeManagedSemanticMutationEffects(
         }
       },
       execute: async () => {
+        const radar =
+          normalized.kind === "literature-score"
+            ? await prepareManagedScoreRadar(normalized.publicPayload, control)
+            : undefined;
+        if (radar) {
+          const rendered = managedArtifactContent(
+            "literature-score",
+            normalized.title,
+            normalized.publicPayload,
+            undefined,
+            radar.html,
+          );
+          normalized = {
+            ...normalized,
+            content: rendered.content,
+            payload: rendered.payload,
+          };
+        }
         let target = normalized.target;
         let parent: Zotero.Item | null = null;
         let note: Zotero.Item | null = null;
@@ -8560,17 +8705,71 @@ async function executeManagedSemanticMutationEffects(
         const currentHtml = await withZoteroHostSlice(control, () =>
           String(note!.getNote?.() || ""),
         );
-        if (currentHtml !== normalized.content) {
-          await withZoteroHostSlice(control, async () => {
-            await beforeEffect?.("effect");
-            await brokerMutationPrimitives.note.update(
+        let radarAttachments: Zotero.Item[] = [];
+        if (radar?.bindings.length) {
+          try {
+            const imported = await importPreparedNoteImages(
               note!,
-              normalized.content,
+              radar.bindings,
+              control,
+              beforeEffect,
             );
-            beforeEffect?.markWritten([
-              { kind: "item", ref: canonicalItemRef(note!) },
+            radarAttachments = imported.attachments;
+            normalized = {
+              ...normalized,
+              content: bindNoteImageSlots(
+                normalized.content,
+                imported.attachmentKeys,
+              ),
+            };
+          } catch (error) {
+            if (!before) {
+              const residualRefs = await cleanupNoteMutationItems([note!]);
+              if (residualRefs.length)
+                throw new MutationAuthorityExecutionError(
+                  "repair_required",
+                  "execution_failed",
+                  "cleanup",
+                  "manual_repair",
+                  { phase: "cleanup", recovery: "manual_repair" },
+                  "Score note cleanup failed",
+                  [{ kind: "item", ref: canonicalItemRef(note!) }],
+                  residualRefs,
+                );
+            }
+            throw error;
+          }
+        }
+        if (currentHtml !== normalized.content) {
+          try {
+            await withZoteroHostSlice(control, async () => {
+              await beforeEffect?.("effect");
+              await brokerMutationPrimitives.note.update(
+                note!,
+                normalized.content,
+              );
+              beforeEffect?.markWritten([
+                { kind: "item", ref: canonicalItemRef(note!) },
+              ]);
+            });
+          } catch (error) {
+            const residualRefs = await cleanupNoteMutationItems([
+              ...radarAttachments,
+              ...(!before && radar ? [note!] : []),
             ]);
-          });
+            if (residualRefs.length)
+              throw new MutationAuthorityExecutionError(
+                "repair_required",
+                "execution_failed",
+                "commit",
+                "manual_repair",
+                { phase: "commit", recovery: "manual_repair" },
+                "Score image write cleanup failed",
+                [{ kind: "item", ref: canonicalItemRef(note!) }],
+                residualRefs,
+              );
+            throw error;
+          }
         }
 
         let payloadResult: Awaited<
@@ -8590,6 +8789,31 @@ async function executeManagedSemanticMutationEffects(
             beforeEffect,
           );
         } catch (error) {
+          if (
+            radar &&
+            (!(error instanceof MutationAuthorityExecutionError) ||
+              error.status === "failed")
+          ) {
+            if (before)
+              await withZoteroHostSlice(undefined, () =>
+                brokerMutationPrimitives.note.update(note!, currentHtml),
+              );
+            const residualRefs = await cleanupNoteMutationItems([
+              ...radarAttachments,
+              ...(!before ? [note!] : []),
+            ]);
+            if (residualRefs.length)
+              throw new MutationAuthorityExecutionError(
+                "repair_required",
+                "execution_failed",
+                "cleanup",
+                "manual_repair",
+                { phase: "cleanup", recovery: "manual_repair" },
+                "Score note cleanup failed",
+                [{ kind: "item", ref: canonicalItemRef(note!) }],
+                residualRefs,
+              );
+          }
           if (error instanceof MutationAuthorityExecutionError) throw error;
           throw new MutationAuthorityExecutionError(
             "failed",
@@ -8640,6 +8864,24 @@ async function executeManagedSemanticMutationEffects(
         }
         const created = !before;
         const attachmentChanges: MutationChangeDto[] = [];
+        for (const attachment of radarAttachments) {
+          attachmentChanges.push({
+            entity: { kind: "item", ref: canonicalItemRef(attachment) },
+            effect: "created",
+            before: null,
+            after: canonicalItemVersion(attachment),
+          });
+        }
+        if (radar)
+          attachmentChanges.push(
+            ...(await cleanupManagedScoreRadar(
+              note!,
+              currentHtml,
+              operationId,
+              control,
+              beforeEffect,
+            )),
+          );
         if (payloadResult.createdAttachment) {
           attachmentChanges.push({
             entity: {
@@ -8669,7 +8911,9 @@ async function executeManagedSemanticMutationEffects(
         }
         return {
           outcome:
-            created || payloadResult.outcome !== "unchanged"
+            created ||
+            (radar !== undefined && currentHtml !== normalized.content) ||
+            payloadResult.outcome !== "unchanged"
               ? "committed"
               : "unchanged",
           changes: [
@@ -8677,7 +8921,8 @@ async function executeManagedSemanticMutationEffects(
               entity: { kind: "item", ref: committed.ref },
               effect: created
                 ? "created"
-                : payloadResult.outcome !== "unchanged"
+                : (radar !== undefined && currentHtml !== normalized.content) ||
+                    payloadResult.outcome !== "unchanged"
                   ? "updated"
                   : "unchanged",
               before,
@@ -10814,6 +11059,11 @@ async function executeManagedParentSetMutation(
                 }
               }
               let built: { content: string; payload: LogicalNotePayloadDto };
+              const radar =
+                artifactKind === "literature-score" &&
+                entry.visibleHtml === undefined
+                  ? await prepareManagedScoreRadar(entry.payload, control)
+                  : undefined;
               if (
                 artifactKind === "custom" ||
                 artifactKind === "conversation-note"
@@ -10925,6 +11175,7 @@ async function executeManagedParentSetMutation(
                         entry.title,
                         entry.payload,
                         entry.visibleHtml,
+                        radar?.html,
                       ),
                     ),
                   );
@@ -11245,13 +11496,15 @@ async function executeManagedParentSetMutation(
                 payloadBlocks: [],
                 legacyPayloadBlocks: [],
                 auxiliaryPayloads: preparedAuxiliaryPayloads,
-                ...(imageContent
+                ...(imageContent || radar?.bindings.length
                   ? {
-                      imageContent: imageContent.value,
-                      imageBindings: resolveNoteImageBindings(
-                        imageContent,
-                        scope,
-                      ),
+                      imageContent: imageContent?.value || plannedContent,
+                      imageBindings: [
+                        ...(radar?.bindings || []),
+                        ...(imageContent
+                          ? resolveNoteImageBindings(imageContent, scope)
+                          : []),
+                      ],
                     }
                   : {}),
               });
@@ -12071,6 +12324,29 @@ async function executeManagedParentSetMutation(
                   });
                 }
               }
+            }
+            for (const { attachments } of imageAttachments) {
+              for (const attachment of attachments) {
+                changes.push({
+                  entity: { kind: "item", ref: canonicalItemRef(attachment) },
+                  effect: "created",
+                  before: null,
+                  after: await withZoteroHostSlice(control, () =>
+                    canonicalItemVersion(attachment),
+                  ),
+                });
+              }
+            }
+            for (const plan of plans) {
+              if (plan.entry.noteKind === "literature-score")
+                changes.push(
+                  ...(await cleanupManagedScoreRadar(
+                    plan.note!,
+                    plan.beforeHtml,
+                    input.operationId,
+                    control,
+                  )),
+                );
             }
             const cleanupInput =
               migrationCleanup || legacyPayloadRefs.size

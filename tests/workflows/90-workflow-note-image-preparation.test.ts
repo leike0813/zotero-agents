@@ -64,6 +64,42 @@ async function captureAsyncError(fn: () => Promise<unknown>) {
 }
 
 describe("Workflow Note Image Preparation", function () {
+  it("prepares a generated score radar as a scoped PNG without reading a file", async function () {
+    const scope = createWorkflowPreparedImageScope({
+      runScopeId: "score-radar",
+      adapter: {
+        ...createPortableImageAdapter(),
+        async readPathBlob() {
+          throw new Error("generated radar must not read a file");
+        },
+        async process(request) {
+          assert.property(request, "radar");
+          assert.equal(request.options.outputMimeType, "image/png");
+          return {
+            bytes: PNG_SIGNATURE,
+            mimeType: "image/png",
+            width: 640,
+            height: 520,
+          };
+        },
+      },
+    });
+    try {
+      const dimensions = Array.from({ length: 6 }, (_, index) => ({
+        name: `Dimension ${index}`,
+        score: index === 0 ? null : 80,
+      }));
+      const dto = await scope.prepareLiteratureScoreRadar(dimensions);
+      assert.equal(dto.mimeType, "image/png");
+      assert.deepEqual(
+        new Uint8Array(await scope.resolve(dto.ref).blob.arrayBuffer()),
+        PNG_SIGNATURE,
+      );
+    } finally {
+      scope.dispose();
+    }
+  });
+
   it("inherits hook cancellation unless the caller explicitly supplies control", async function () {
     const defaultControl = { signal: createCancellationController().signal };
     const seen: unknown[] = [];
@@ -260,46 +296,55 @@ describe("Workflow Note Image Preparation", function () {
     });
   }
 
-  it("terminates a nonresponding worker when the total budget expires", async function () {
-    let terminated = 0;
-    const worker: NoteImageWorker = {
-      onmessage: null,
-      onerror: null,
-      onmessageerror: null,
-      postMessage() {},
-      terminate() {
-        terminated++;
-      },
-    };
-    const scope = createWorkflowPreparedImageScope({
-      runScopeId: "worker-timeout",
-      adapter: {
-        ...createPortableImageAdapter(),
-        process: (request, control) =>
-          processNoteImage(request, control?.signal, () => worker),
-      },
+  for (const source of ["image", "radar"] as const) {
+    it(`terminates a nonresponding ${source} worker when the total budget expires`, async function () {
+      let terminated = 0;
+      const worker: NoteImageWorker = {
+        onmessage: null,
+        onerror: null,
+        onmessageerror: null,
+        postMessage() {},
+        terminate() {
+          terminated++;
+        },
+      };
+      const scope = createWorkflowPreparedImageScope({
+        runScopeId: "worker-timeout",
+        adapter: {
+          ...createPortableImageAdapter(),
+          process: (request, control) =>
+            processNoteImage(request, control?.signal, () => worker),
+        },
+      });
+      const original = globalThis.setTimeout;
+      globalThis.setTimeout = ((callback, delay, ...args) =>
+        original(
+          callback,
+          delay === 30_000 ? 5 : delay,
+          ...args,
+        )) as typeof setTimeout;
+      try {
+        const error = await captureAsyncError(() =>
+          source === "radar"
+            ? scope.prepareLiteratureScoreRadar(
+                Array.from({ length: 6 }, () => ({
+                  name: "Dimension",
+                  score: 80,
+                })),
+              )
+            : scope.owner.prepareForNoteEmbedding({
+                source: { kind: "base64", data: "iVBORw0KGgo=" },
+              }),
+        );
+        assert.equal(error.code, "resource_limited");
+        assert.equal(terminated, 1);
+        assert.isNull(worker.onmessage);
+      } finally {
+        globalThis.setTimeout = original;
+        scope.dispose();
+      }
     });
-    const original = globalThis.setTimeout;
-    globalThis.setTimeout = ((callback, delay, ...args) =>
-      original(
-        callback,
-        delay === 30_000 ? 5 : delay,
-        ...args,
-      )) as typeof setTimeout;
-    try {
-      const error = await captureAsyncError(() =>
-        scope.owner.prepareForNoteEmbedding({
-          source: { kind: "base64", data: "iVBORw0KGgo=" },
-        }),
-      );
-      assert.equal(error.code, "resource_limited");
-      assert.equal(terminated, 1);
-      assert.isNull(worker.onmessage);
-    } finally {
-      globalThis.setTimeout = original;
-      scope.dispose();
-    }
-  });
+  }
   it("cancels an in-flight preparation when its scope is disposed", async function () {
     let decode!: (value: any) => void;
     let entered!: () => void;

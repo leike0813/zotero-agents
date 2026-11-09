@@ -532,50 +532,10 @@ function literatureScoreStars(score: number) {
   return Math.round(Math.max(0, Math.min(100, score)) / 10) / 2;
 }
 
-function literatureScoreRadarSvg(score: {
-  dimensions: Array<{ name: string; score: number | null }>;
-}) {
-  const width = 640;
-  const height = 520;
-  const centerX = 320;
-  const centerY = 250;
-  const radius = 175;
-  const point = (index: number, value = 100) => {
-    const angle =
-      -Math.PI / 2 + (Math.PI * 2 * index) / score.dimensions.length;
-    const distance = radius * (Math.max(0, Math.min(100, value)) / 100);
-    return [
-      centerX + Math.cos(angle) * distance,
-      centerY + Math.sin(angle) * distance,
-    ];
-  };
-  const rings = [20, 40, 60, 80, 100]
-    .map(
-      (value) =>
-        `<polygon points="${score.dimensions
-          .map((_, index) => point(index, value).join(","))
-          .join(" ")}" fill="none" stroke="#c8ccd0" stroke-width="1"/>`,
-    )
-    .join("");
-  const axes = score.dimensions
-    .map((_, index) => {
-      const [x, y] = point(index, 100);
-      return `<line x1="${centerX}" y1="${centerY}" x2="${x}" y2="${y}" stroke="#c8ccd0" stroke-width="1"/>`;
-    })
-    .join("");
-  const polygon = score.dimensions
-    .map((dimension, index) => point(index, dimension.score ?? 0).join(","))
-    .join(" ");
-  const labels = score.dimensions
-    .map((dimension, index) => {
-      const [x, y] = point(index, 116);
-      return `<text x="${x}" y="${y}" text-anchor="middle" dominant-baseline="middle" font-family="sans-serif" font-size="13" fill="#2f3337">${escapeManagedHtml(dimension.name)}</text>`;
-    })
-    .join("");
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><rect width="100%" height="100%" fill="#fff"/><g>${rings}${axes}<polygon points="${polygon}" fill="#d28a00" fill-opacity="0.28" stroke="#b36d00" stroke-width="3"/>${labels}</g></svg>`;
-}
-
-function renderLiteratureScoreBody(score: LiteratureScoreArtifact) {
+function renderLiteratureScoreBody(
+  score: LiteratureScoreArtifact,
+  radarImageHtml: string,
+) {
   const rows = score.dimensions
     .map(
       (dimension) =>
@@ -591,7 +551,7 @@ function renderLiteratureScoreBody(score: LiteratureScoreArtifact) {
     "<h1>Literature Score</h1>",
     `<p><strong>${escapeManagedHtml(score.overall_score)}/100</strong> (${escapeManagedHtml(literatureScoreStars(score.overall_score))}/5 stars)</p>`,
     classification,
-    `<div data-zs-block="literature-score-radar">${literatureScoreRadarSvg(score)}</div>`,
+    `<div data-zs-block="literature-score-radar">${radarImageHtml}</div>`,
     '<table data-zs-view="literature-score-dimensions"><thead><tr><th>Dimension</th><th>Score</th><th>Confidence</th><th>Summary</th></tr></thead>',
     `<tbody>${rows}</tbody></table>`,
     "</div>",
@@ -1835,6 +1795,7 @@ export function managedArtifactContent(
   title: string,
   payload: JsonValue,
   visibleHtml?: string,
+  radarImageHtml = "",
 ) {
   const digestMarkdown =
     noteKind === "digest" &&
@@ -1855,6 +1816,7 @@ export function managedArtifactContent(
       : noteKind === "literature-score"
         ? renderLiteratureScoreBody(
             payload as unknown as LiteratureScoreArtifact,
+            radarImageHtml,
           )
         : noteKind === "references"
           ? renderReferencesBody(

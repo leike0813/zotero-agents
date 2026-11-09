@@ -61,6 +61,10 @@ type WorkflowPreparedImageRecord = {
 
 export type WorkflowPreparedImageScope = {
   owner: WorkflowPreparedImageOwner;
+  prepareLiteratureScoreRadar: (
+    dimensions: Array<{ name: string; score: number | null }>,
+    control?: WorkflowCallControl,
+  ) => Promise<PreparedNoteImageDto>;
   resolve: (ref: PreparedNoteImageRef) => WorkflowPreparedImageRecord;
   dispose: () => void;
 };
@@ -306,9 +310,21 @@ export function createWorkflowPreparedImageScope(
   let liveBytes = 0;
   let disposed = false;
   const inFlight = new Set<() => void>();
+  const radarSource = Symbol("literature-score-radar");
 
-  const owner: WorkflowPreparedImageOwner = {
-    async prepareForNoteEmbedding(input, control) {
+  const owner = {
+    async prepareForNoteEmbedding(
+      input:
+        | PrepareNoteImageRequestDto
+        | {
+            source: {
+              kind: typeof radarSource;
+              dimensions: Array<{ name: string; score: number | null }>;
+            };
+            options?: PrepareNoteImageRequestDto["options"];
+          },
+      control?: WorkflowCallControl,
+    ) {
       const controller = createCancellationController();
       const cancel = () => controller.abort();
       const callerSignal = control?.signal;
@@ -340,9 +356,30 @@ export function createWorkflowPreparedImageScope(
           );
         }
         const options = normalizePreparedImageOptions(input.options);
-        let sourceBlob: Blob;
+        let sourceBlob: Blob | undefined;
+        let radar: Array<{ name: string; score: number | null }> | undefined;
         let declaredMimeType = "";
         switch (input.source.kind) {
+          case radarSource: {
+            radar = input.source.dimensions;
+            if (
+              radar.length !== 6 ||
+              radar.some(
+                (dimension) =>
+                  typeof dimension.name !== "string" ||
+                  (dimension.score !== null &&
+                    (!Number.isFinite(dimension.score) ||
+                      dimension.score < 0 ||
+                      dimension.score > 100)),
+              )
+            ) {
+              throw invalidImageRequest(
+                "Score radar dimensions are invalid",
+                "source",
+              );
+            }
+            break;
+          }
           case "file": {
             const path = String(input.source.path || "").trim();
             if (!path) {
@@ -394,7 +431,7 @@ export function createWorkflowPreparedImageScope(
             );
         }
         check();
-        if (!(sourceBlob instanceof getBlobCtor())) {
+        if (!radar && !(sourceBlob instanceof getBlobCtor())) {
           throw imageError(
             "execution_failed",
             "Image reader returned no blob",
@@ -404,11 +441,15 @@ export function createWorkflowPreparedImageScope(
             },
           );
         }
-        if (sourceBlob.size > MAX_INPUT_BYTES) {
+        if (sourceBlob && sourceBlob.size > MAX_INPUT_BYTES) {
           throw imageResourceLimit(MAX_INPUT_BYTES, sourceBlob.size);
         }
-        const sourceBytes = new Uint8Array(await sourceBlob.arrayBuffer());
-        const detectedMimeType = detectImageMimeType(sourceBytes);
+        const sourceBytes = sourceBlob
+          ? new Uint8Array(await sourceBlob.arrayBuffer())
+          : new Uint8Array();
+        const detectedMimeType = radar
+          ? "image/png"
+          : detectImageMimeType(sourceBytes);
         if (!detectedMimeType) {
           throw invalidImageRequest("Image signature is unsupported", "source");
         }
@@ -441,7 +482,12 @@ export function createWorkflowPreparedImageScope(
             sourceBytes.byteLength,
           );
         const prepared = await adapter.process(
-          { bytes: sourceBytes, mimeType: detectedMimeType, options },
+          {
+            ...(radar
+              ? { radar }
+              : { bytes: sourceBytes, mimeType: detectedMimeType }),
+            options,
+          },
           effectiveControl,
         );
         check();
@@ -523,7 +569,10 @@ export function createWorkflowPreparedImageScope(
             throw imageError(
               "resource_limited",
               "Image preparation timed out",
-              { resource: "duration_ms", limit: PREPARATION_BUDGET_MS },
+              {
+                resource: "duration_ms",
+                limit: PREPARATION_BUDGET_MS,
+              },
             );
           throw imageError("canceled", "Image preparation was canceled", {
             reason: "caller_signal",
@@ -541,6 +590,14 @@ export function createWorkflowPreparedImageScope(
 
   return {
     owner,
+    prepareLiteratureScoreRadar: (dimensions, control) =>
+      owner.prepareForNoteEmbedding(
+        {
+          source: { kind: radarSource, dimensions },
+          options: { outputFormat: "png", maxLongEdge: 720 },
+        },
+        control,
+      ),
     resolve(ref) {
       if (!ref || ref.kind !== "prepared_note_image" || !ref.id) {
         throw imageError("invalid_ref", "Prepared-image ref is invalid", {

@@ -16,6 +16,7 @@ import { buildAcpSharedSkillCatalog } from "../../src/modules/acp/skillRun/acpSh
 import { scanPluginSkillRegistry } from "../../src/modules/workflow/catalog/pluginSkillRegistry";
 import { nativeFixtureMutations as handlers } from "../helpers/nativeFixtureMutations";
 import { installNodeZoteroTransactionStub } from "../helpers/nodeZoteroTransactionStub";
+import { installNodeNoteImageWorkerStub } from "../helpers/nodeNoteImageWorkerStub";
 import {
   buildSelectionContext,
   itemRef,
@@ -639,9 +640,11 @@ const itNodeOnly = isZoteroRuntime() ? it.skip : it;
 
 describe("workflow: literature-analysis", function () {
   let restoreNodeZoteroTransaction: (() => void) | undefined;
+  let restoreNoteImageWorker: (() => void) | undefined;
 
   beforeEach(function () {
     restoreNodeZoteroTransaction = installNodeZoteroTransactionStub();
+    restoreNoteImageWorker = installNodeNoteImageWorkerStub();
     if (!isZoteroRuntime()) {
       setZoteroLibrarySourcePageQueryAdapterForTests(
         createMockZoteroLibrarySourcePageQueryAdapter(),
@@ -651,6 +654,7 @@ describe("workflow: literature-analysis", function () {
 
   afterEach(function () {
     restoreNodeZoteroTransaction?.();
+    restoreNoteImageWorker?.();
     restoreNodeZoteroTransaction = undefined;
     resetZoteroLibrarySourcePageQueryAdapterForTests();
   });
@@ -1124,10 +1128,18 @@ describe("workflow: literature-analysis", function () {
     assert.equal(parseNoteKind(scoreNote.getNote()), "literature-score");
     assert.include(scoreNote.getNote(), "60/100");
     assert.include(scoreNote.getNote(), "3/5 stars");
-    assert.include(
-      scoreNote.getNote(),
-      'data-zs-block="literature-score-radar"',
-    );
+    assert.include(scoreNote.getNote(), 'data-zs-score-radar="v1"');
+    const radarTag = scoreNote
+      .getNote()
+      .match(/<img\b[^>]*data-zs-score-radar="v1"[^>]*>/)?.[0];
+    const radarKey = radarTag?.match(/data-attachment-key="([^"]+)"/)?.[1];
+    assert.isString(radarKey);
+    const radarAttachment = Zotero.Items.getByLibraryAndKey(
+      scoreNote.libraryID,
+      radarKey!,
+    )!;
+    assert.equal(radarAttachment.attachmentContentType, "image/png");
+    assert.equal(radarAttachment.parentID, scoreNote.id);
     await assertStoredPayloadExists(scoreNote, "literature-score-json");
   });
 
@@ -1182,6 +1194,10 @@ describe("workflow: literature-analysis", function () {
     const html = scoreNote.getNote();
     assert.include(html, "interpretive_historical");
     assert.include(html, "history");
+    assert.match(
+      html,
+      /<img\b[^>]*data-zs-score-radar="v1"[^>]*data-attachment-key="[^"]+"/,
+    );
     assert.deepEqual(
       await parseStoredPayload(scoreNote, "literature-score-json"),
       literatureScoreV2Artifact,
@@ -1493,6 +1509,10 @@ describe("workflow: literature-analysis", function () {
     assert.match(
       resolveAppliedNote(scoreNote!).getNote(),
       /<h1>Literature Score<\/h1>/,
+    );
+    assert.match(
+      resolveAppliedNote(scoreNote!).getNote(),
+      /<img\b[^>]*data-zs-score-radar="v1"[^>]*data-attachment-key="[^"]+"/,
     );
     await assertStoredPayloadExists(
       resolveAppliedNote(scoreNote!),

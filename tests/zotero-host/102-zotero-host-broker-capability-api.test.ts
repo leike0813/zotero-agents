@@ -3,6 +3,7 @@ import { runInNewContext } from "node:vm";
 import { withMockCanonicalIngestIdentityDatabase } from "../helpers/canonicalIngestIdentityDatabase";
 import { brokerMutationPrimitives } from "../../src/modules/zoteroHost/zoteroHostBrokerPrimitives";
 import { nativeFixtureMutations } from "../helpers/nativeFixtureMutations";
+import { installNodeNoteImageWorkerStub } from "../helpers/nodeNoteImageWorkerStub";
 import {
   createWorkflowHostLiveReadAdapters,
   createWorkflowHostApi,
@@ -3128,6 +3129,160 @@ describe("zotero host broker capability api", function () {
     }
     assert.deepEqual(parent.getNotes(), notesBefore);
     assert.equal(note.getNote(), htmlBefore);
+  });
+
+  it("embeds score radars as PNG attachments and replaces only the note's old radar", async function () {
+    const runtime = globalThis as any;
+    const restore = installNodeNoteImageWorkerStub();
+    try {
+      const parent = await createParentItem("Score radar parent");
+      const parentRef = { libraryId: parent.libraryID, key: parent.key };
+      const broker = createZoteroHostCapabilityBroker();
+      const scope = { ownerId: "score-radar-test" };
+      const write = async (
+        operationId: string,
+        score: LiteratureScoreArtifact = literatureScore(),
+      ) => {
+        const result = await broker.literatureArtifacts.upsertScore(
+          { operationId, parentRef, score },
+          scope,
+        );
+        assert.equal(result.outcome, "committed", JSON.stringify(result));
+        if (result.outcome !== "committed")
+          throw new Error("expected committed score");
+        const note = Zotero.Items.getByLibraryAndKey(
+          result.result.note.ref.libraryId,
+          result.result.note.ref.key,
+        )!;
+        const image = note
+          .getNote()
+          .match(/<img\b[^>]*data-zs-score-radar="v1"[^>]*>/)?.[0];
+        assert.isString(image, "score radar is a note image");
+        const key = image!.match(/data-attachment-key="([^"]+)"/)?.[1];
+        assert.isString(key);
+        const attachment = Zotero.Items.getByLibraryAndKey(
+          parent.libraryID,
+          key!,
+        )!;
+        assert.equal(attachment.attachmentContentType, "image/png");
+        assert.equal(attachment.parentID, note.id);
+        assert.notInclude(note.getNote(), "<svg");
+        const payload = await broker.library.getNotePayload(
+          result.result.note.ref,
+          { payloadType: "literature-score-json" },
+        );
+        assert.deepEqual(payload.value, score);
+        return { result, note, attachment };
+      };
+      const first = await write("score-radar-first");
+      const unrelated = await Zotero.Attachments.importEmbeddedImage({
+        blob: new Blob([new Uint8Array([1])], { type: "image/png" }),
+        parentItemID: first.note.id,
+      });
+      const sibling = new Zotero.Item("note");
+      sibling.parentID = parent.id;
+      sibling.setNote("Unrelated note");
+      await sibling.saveTx();
+      const foreign = await Zotero.Attachments.importEmbeddedImage({
+        blob: new Blob([new Uint8Array([1])], { type: "image/png" }),
+        parentItemID: sibling.id,
+      });
+      first.note.setNote(
+        `${first.note.getNote()}<img data-zs-score-radar="v1" data-attachment-key="${foreign.key}">`,
+      );
+      await first.note.saveTx();
+      const second = await write("score-radar-second", literatureScoreV2());
+      assert.equal(first.note.id, second.note.id);
+      assert.notEqual(first.attachment.key, second.attachment.key);
+      const old = Zotero.Items.getByLibraryAndKey(
+        parent.libraryID,
+        first.attachment.key,
+      );
+      assert.isTrue(!old || !!old.deleted);
+      assert.isOk(
+        Zotero.Items.getByLibraryAndKey(parent.libraryID, unrelated.key),
+      );
+      assert.isOk(
+        Zotero.Items.getByLibraryAndKey(parent.libraryID, foreign.key),
+      );
+      assert.deepEqual(
+        await broker.literatureArtifacts.upsertScore(
+          {
+            operationId: "score-radar-second",
+            parentRef,
+            score: literatureScoreV2(),
+          },
+          scope,
+        ),
+        second.result,
+      );
+      runtime.ChromeWorker = undefined;
+      const degraded = await broker.literatureArtifacts.upsertScore(
+        {
+          operationId: "score-radar-unavailable",
+          parentRef,
+          score: literatureScore(),
+        },
+        scope,
+      );
+      assert.equal(degraded.outcome, "committed");
+      assert.notInclude(second.note.getNote(), "data-zs-score-radar");
+      assert.include(second.note.getNote(), "80/100");
+      const payload = await broker.library.getNotePayload(
+        second.result.result.note.ref,
+        { payloadType: "literature-score-json" },
+      );
+      assert.deepEqual(payload.value, literatureScore());
+    } finally {
+      restore();
+    }
+  });
+
+  it("preserves existing scores and cleans new notes when radar import fails", async function () {
+    const restoreWorker = installNodeNoteImageWorkerStub();
+    const originalImport = Zotero.Attachments.importEmbeddedImage;
+    const broker = createZoteroHostCapabilityBroker();
+    const scope = { ownerId: "score-radar-import-failure" };
+    try {
+      for (const existing of [false, true]) {
+        Zotero.Attachments.importEmbeddedImage = originalImport;
+        const parent = await createParentItem(
+          `Score import failure ${existing}`,
+        );
+        const parentRef = { libraryId: parent.libraryID, key: parent.key };
+        if (existing)
+          await broker.literatureArtifacts.upsertScore(
+            {
+              operationId: "score-before-import-failure",
+              parentRef,
+              score: literatureScore(),
+            },
+            scope,
+          );
+        const notes = parent.getNotes();
+        const before = notes.map((id) => Zotero.Items.get(id)!.getNote());
+        Zotero.Attachments.importEmbeddedImage = async () => {
+          throw new Error("image import unavailable");
+        };
+        const failed = await broker.literatureArtifacts.upsertScore(
+          {
+            operationId: `score-import-failed-${existing}`,
+            parentRef,
+            score: literatureScoreV2(),
+          },
+          scope,
+        );
+        assert.equal(failed.outcome, "failed");
+        assert.deepEqual(parent.getNotes(), notes);
+        assert.deepEqual(
+          notes.map((id) => Zotero.Items.get(id)!.getNote()),
+          before,
+        );
+      }
+    } finally {
+      Zotero.Attachments.importEmbeddedImage = originalImport;
+      restoreWorker();
+    }
   });
 
   it("keeps an unrelated damaged Score out of Citation dependency discovery", async function () {

@@ -256,6 +256,7 @@
 # Workflow 图片准备硬约束
 
 - Workflow 图片准备由 run scope 持有读取到 ref 登记的 30 秒总预算，转换只由单次固定 ChromeWorker 执行；不得依赖窗口 document。取消、scope disposal、插件关闭和超时必须结束在途调用并终止 worker，迟到结果不得登记 ref。图片准备与笔记事务的嵌入/落库所有权保持分离。
+- Literature Score 雷达由同一图片 worker 从六维数据绘制为 PNG，再经 Broker 写入 note-child 图片附件；普通 apply、score-only 与直接 upsert 共用该路径。替换只清理当前笔记拥有的旧雷达，保留 payload 和其它图片；回归验证须检查图片引用与附件，不能只检查雷达容器标记。
 
 # ACP 依赖准备硬约束
 

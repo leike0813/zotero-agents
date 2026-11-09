@@ -6,6 +6,7 @@ import type {
   NoteImageProcessingResponse,
   NoteImageProcessingResult,
 } from "./noteImageProcessingContract";
+import { isNoteImageRadarRequest } from "./noteImageProcessingContract";
 
 export type NoteImageWorker = {
   onmessage: ((event: { data: NoteImageProcessingResponse }) => void) | null;
@@ -109,7 +110,12 @@ export function processNoteImage(
         );
       signal?.addEventListener("abort", onAbort, { once: true });
       if (!settled)
-        worker.postMessage(request, [request.bytes.buffer as ArrayBuffer]);
+        worker.postMessage(
+          request,
+          isNoteImageRadarRequest(request)
+            ? []
+            : [request.bytes.buffer as ArrayBuffer],
+        );
     } catch (error) {
       finish(error);
     }

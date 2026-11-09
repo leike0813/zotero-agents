@@ -834,7 +834,14 @@ timeline、items、unresolved 及 mention 证据；References basis 由运行时
 Literature Score 接收闭合的 `literature_score.v1` / `literature_score.v2`。
 v1 保留论文类型；v2 保留 producer 的学科、profile、分类置信度与理由。
 写入、导入和导出保持原版本，历史 v1 不推断 profile。评分笔记按版本渲染，
-六维表格和雷达图共用既有渲染器；Synthesis quality 摘要保留既有状态、版本、
+六维表格共用评分笔记渲染器；雷达图由图片准备 scope 的单次 ChromeWorker
+直接绘制六维数据为 PNG，再由 Broker 嵌入为 note-child 图片附件。普通 apply、
+score-only 和直接 upsert 使用同一图片准备与清理逻辑；Bundle 保真导入保留其
+可见 HTML 与图片。替换只清理当前笔记拥有的旧雷达，不影响 payload 或其它
+图片。worker 不可用或绘制失败时保留评分正文、维度表与 payload；取消、超时
+和资源预算耗尽终止写入。修复前已缺图的笔记可通过显式评分 upsert 重建；
+完整有效的评分仍遵守 workflow 跳过策略，不会仅因缺图自动重跑。
+Synthesis quality 摘要保留既有状态、版本、
 rubric、聚合分、prior、hash 和诊断，仅在 v1 投影 `paper_type`；
 完整分类通过 score payload 读取。
 
