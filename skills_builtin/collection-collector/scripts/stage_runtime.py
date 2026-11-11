@@ -221,16 +221,22 @@ def normalize_input(value: dict[str, Any]) -> dict[str, Any]:
 
 def bridge_executable(run_root: Path) -> Path:
     configured = clean(os.environ.get("ZOTERO_BRIDGE_BIN"))
-    candidates = [
-        Path(configured) if configured else None,
-        run_root / ".zotero-bridge/bin/zotero-bridge",
-        run_root / ".zotero-bridge/bin/zotero-bridge.exe",
-    ]
+    candidates: list[Path] = [Path(configured)] if configured else []
+    bridge_dir = run_root / ".zotero-bridge/bin"
+    if os.name == "nt":
+        candidates.extend(
+            [
+                bridge_dir / "zotero-bridge.cmd",
+                bridge_dir / "zotero-bridge.exe",
+            ]
+        )
+    else:
+        candidates.append(bridge_dir / "zotero-bridge")
     located = shutil.which("zotero-bridge")
     if located:
         candidates.append(Path(located))
     for candidate in candidates:
-        if candidate and candidate.exists():
+        if candidate.exists():
             return candidate.resolve()
     raise HostUnavailableError("zotero-bridge executable is unavailable")
 
@@ -260,14 +266,16 @@ def run_bridge(
     executable = bridge_executable(run_root)
     command = [str(executable), *args]
     request = {"command": command, "payload": payload or {}}
+    query = None
     if payload is not None:
-        command.extend(["--query", json.dumps(payload, ensure_ascii=False)])
+        command.extend(["--query", "-"])
+        query = json.dumps(payload, ensure_ascii=False)
     completed = subprocess.run(
         command,
         cwd=run_root,
         capture_output=True,
-        text=True,
         encoding="utf-8",
+        input=query,
         check=False,
     )
     if completed.returncode != 0:

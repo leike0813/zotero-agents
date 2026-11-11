@@ -110,6 +110,122 @@ console.log(JSON.stringify(data));
   });
 }
 
+function selectBridgeExecutable(
+  runRoot: string,
+  options: { env?: NodeJS.ProcessEnv; pathOverride?: string } = {},
+) {
+  const command = pythonRuntimeCommand([
+    "-B",
+    "-",
+    runRoot,
+    options.pathOverride || "",
+    path.join(skillRoot, "scripts", "stage_runtime.py"),
+  ]);
+  const execution = spawnSync(command.command, command.args, {
+    cwd: runRoot,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      ...options.env,
+      ZOTERO_BRIDGE_BIN: options.env?.ZOTERO_BRIDGE_BIN || "",
+      PYTHONUTF8: "1",
+    },
+    input: String.raw`import importlib.util
+import json
+import os
+import sys
+from pathlib import Path
+
+module_path = Path(sys.argv[3])
+spec = importlib.util.spec_from_file_location("collection_collector_runtime", module_path)
+runtime = importlib.util.module_from_spec(spec)
+assert spec.loader is not None
+spec.loader.exec_module(runtime)
+if sys.argv[2]:
+    os.environ["PATH"] = sys.argv[2]
+print(json.dumps(str(runtime.bridge_executable(Path(sys.argv[1])))))
+`,
+  });
+  assert.equal(
+    execution.status,
+    0,
+    `${execution.stdout || ""}\n${execution.stderr || ""}`,
+  );
+  return JSON.parse(execution.stdout.trim()) as string;
+}
+
+function runBridgeDriver(args: {
+  runRoot: string;
+  operation: string;
+  bridgeArgs: string[];
+  payload?: unknown;
+  env?: NodeJS.ProcessEnv;
+}) {
+  const dbPath = path.join(args.runRoot, "runtime", "transport.sqlite");
+  const command = pythonRuntimeCommand([
+    "-B",
+    "-",
+    args.runRoot,
+    dbPath,
+    JSON.stringify({
+      operation: args.operation,
+      bridgeArgs: args.bridgeArgs,
+      payload: args.payload,
+      hasPayload: Object.prototype.hasOwnProperty.call(args, "payload"),
+    }),
+    path.join(skillRoot, "scripts", "stage_runtime.py"),
+  ]);
+  const execution = spawnSync(command.command, command.args, {
+    cwd: args.runRoot,
+    encoding: "utf8",
+    env: { ...process.env, ...args.env, PYTHONUTF8: "1" },
+    input: String.raw`import importlib.util
+import json
+import sqlite3
+import sys
+from pathlib import Path
+
+module_path = Path(sys.argv[4])
+spec = importlib.util.spec_from_file_location("collection_collector_runtime", module_path)
+runtime = importlib.util.module_from_spec(spec)
+assert spec.loader is not None
+spec.loader.exec_module(runtime)
+request = json.loads(sys.argv[3])
+db_path = Path(sys.argv[2])
+db_path.parent.mkdir(parents=True, exist_ok=True)
+conn = sqlite3.connect(db_path)
+conn.execute(
+    "CREATE TABLE IF NOT EXISTS action_receipts "
+    "(operation TEXT, request_json TEXT, response_json TEXT, created_at TEXT)"
+)
+result = runtime.run_bridge(
+    conn,
+    Path(sys.argv[1]),
+    request["operation"],
+    request["bridgeArgs"],
+    request["payload"] if request["hasPayload"] else None,
+)
+stored = conn.execute(
+    "SELECT request_json FROM action_receipts ORDER BY rowid DESC LIMIT 1"
+).fetchone()
+conn.close()
+print(json.dumps({
+    "result": result,
+    "receipt": json.loads(stored[0]),
+}, ensure_ascii=False))
+`,
+  });
+  assert.equal(
+    execution.status,
+    0,
+    `${execution.stdout || ""}\n${execution.stderr || ""}`,
+  );
+  return JSON.parse(execution.stdout.trim()) as {
+    result: unknown;
+    receipt: { command: string[]; payload: Record<string, unknown> };
+  };
+}
+
 describe("collection collector skill runtime", function () {
   this.timeout(30000);
 
@@ -291,6 +407,155 @@ if (process.argv[2] === "bridge") {
       }
     });
   }
+
+  it("selects the platform-appropriate Bridge executable with override and PATH fallbacks", async function () {
+    const runRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "collection collector launcher "),
+    );
+    const emptyRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "collection collector path "),
+    );
+    const binDir = path.join(runRoot, ".zotero-bridge", "bin");
+    const pathDir = path.join(emptyRoot, "path with spaces");
+    const posixShim = path.join(binDir, "zotero-bridge");
+    const cmdShim = path.join(binDir, "zotero-bridge.cmd");
+    const exeShim = path.join(binDir, "zotero-bridge.exe");
+    const override = path.join(runRoot, "explicit bridge");
+    const pathShim = path.join(pathDir, "zotero-bridge");
+    const pathCmd = path.join(pathDir, "zotero-bridge.cmd");
+    try {
+      await fs.mkdir(binDir, { recursive: true });
+      await fs.mkdir(pathDir, { recursive: true });
+      await Promise.all([
+        fs.writeFile(posixShim, "#!/bin/sh\nexit 0\n", { mode: 0o700 }),
+        fs.writeFile(cmdShim, "@echo off\r\n"),
+        fs.writeFile(exeShim, ""),
+        fs.writeFile(override, "explicit"),
+        fs.writeFile(pathShim, "#!/bin/sh\nexit 0\n", { mode: 0o700 }),
+        fs.writeFile(pathCmd, "@echo off\r\n", { mode: 0o700 }),
+      ]);
+
+      if (process.platform === "win32") {
+        assert.equal(
+          path.normalize(selectBridgeExecutable(runRoot)),
+          path.normalize(cmdShim),
+        );
+        await fs.unlink(cmdShim);
+        assert.equal(
+          path.normalize(selectBridgeExecutable(runRoot)),
+          path.normalize(exeShim),
+        );
+      } else {
+        assert.equal(
+          path.normalize(selectBridgeExecutable(runRoot)),
+          path.normalize(posixShim),
+        );
+        await fs.unlink(posixShim);
+        assert.equal(
+          path.normalize(
+            selectBridgeExecutable(runRoot, {
+              pathOverride: pathDir,
+            }),
+          ),
+          path.normalize(pathShim),
+        );
+      }
+
+      assert.equal(
+        path.normalize(
+          selectBridgeExecutable(runRoot, {
+            env: { ZOTERO_BRIDGE_BIN: override },
+          }),
+        ),
+        path.normalize(override),
+      );
+
+      const pathSelected = selectBridgeExecutable(emptyRoot, {
+        pathOverride: pathDir,
+      });
+      assert.equal(
+        path.dirname(path.normalize(pathSelected)),
+        path.normalize(pathDir),
+      );
+    } finally {
+      await Promise.all([
+        fs.rm(runRoot, { recursive: true, force: true }),
+        fs.rm(emptyRoot, { recursive: true, force: true }),
+      ]);
+    }
+  });
+
+  it("executes a Windows CMD Bridge shim without changing query JSON", async function () {
+    if (process.platform !== "win32") this.skip();
+    const runRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "collection collector cmd "),
+    );
+    const fixtureRoot = path.join(runRoot, "runtime", "test-fixtures");
+    const provider = path.join(fixtureRoot, "host-bridge-provider.cjs");
+    const binDir = path.join(runRoot, ".zotero-bridge", "bin");
+    const posixShim = path.join(binDir, "zotero-bridge");
+    const cmdShim = path.join(binDir, "zotero-bridge.cmd");
+    const fixedEnvName = "COLLECTION_COLLECTOR_CMD_FIXED_ENV";
+    await fs.mkdir(fixtureRoot, { recursive: true });
+    await fs.writeFile(
+      provider,
+      String.raw`#!/usr/bin/env node
+const { command, input } = JSON.parse(process.argv[2]);
+if (command !== "library items list") process.exit(2);
+console.log(JSON.stringify({ items: [], nextCursor: null, hasMore: false, returned: 0, total: 0, limit: Number(input.limit || 25) }));
+`,
+      "utf8",
+    );
+    const harness = await startHostBridgeCliFixtureHarness({
+      commands: ["library items list"],
+      providerPath: provider,
+      cwd: runRoot,
+    });
+    try {
+      await fs.mkdir(binDir, { recursive: true });
+      await fs.writeFile(posixShim, "not a Windows executable\n", {
+        mode: 0o700,
+      });
+      await fs.writeFile(
+        cmdShim,
+        `@echo off\r\n"${harness.cliPath}" %*\r\n`,
+        "utf8",
+      );
+      const env = {
+        ...harness.env,
+        [fixedEnvName]: "EXPANDED",
+        ZOTERO_BRIDGE_BIN: "",
+      };
+      const payload = {
+        libraryId: 1,
+        limit: 25,
+        filter: `中文 with spaces "quoted" %${fixedEnvName}% & | < > ^`,
+      };
+      const observed = runBridgeDriver({
+        runRoot,
+        operation: "transport",
+        bridgeArgs: ["library", "items", "list"],
+        payload,
+        env,
+      });
+
+      assert.deepEqual(observed.receipt.payload, payload);
+      const requests = await harness.readRequests();
+      assert.lengthOf(requests, 1);
+      assert.deepEqual(requests[0].input, payload);
+
+      const noPayload = runBridgeDriver({
+        runRoot,
+        operation: "bridge-status",
+        bridgeArgs: ["bridge", "status"],
+        env,
+      });
+      assert.deepEqual(noPayload.receipt.payload, {});
+    } finally {
+      await harness.close();
+      await fs.rm(runRoot, { recursive: true, force: true });
+    }
+  });
 
   it("returns a terminal invalid_input business cancellation", async function () {
     const runRoot = await fs.mkdtemp(

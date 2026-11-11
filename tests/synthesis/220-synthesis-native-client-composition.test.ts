@@ -16,6 +16,7 @@ import {
   SYNTHESIS_PRODUCTION_CONTENT_TRANSFER_VERSION,
   SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES,
   SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT,
+  SYNTHESIS_TOPIC_WORKBENCH_SCHEMA_ID,
   canonicalizeSynthesisContractJsonArtifact,
   hashSynthesisContractCanonicalJson,
   type SynthesisSidecarProductionClientCapability,
@@ -2722,7 +2723,67 @@ describe("Synthesis native client composition", function () {
     });
   });
 
+  for (const operation of [
+    "client.getPaperArtifactManifest",
+    "client.exportFilteredPaperArtifacts",
+  ] as const) {
+    it(`audits Host request validation diagnostics for ${operation}`, async function () {
+      const composition = createNativeSynthesisClientComposition({
+        getReadyConnection: () => lifecycleConnection,
+        rpcClient: {
+          async call() {
+            assert.fail("an invalid Host request must not reach the sidecar");
+          },
+        },
+      });
+      try {
+        const request = {
+          paper_refs: ["1:TEST0001"],
+          private_field: "private-value",
+        };
+        let failure: unknown;
+        try {
+          if (operation === "client.getPaperArtifactManifest") {
+            await composition.client.artifacts.getManifest(request);
+          } else {
+            await composition.client.artifacts.exportFiltered(request);
+          }
+        } catch (error) {
+          failure = error;
+        }
+        assert.instanceOf(failure, SynthesisClientError);
+        assert.strictEqual(
+          (failure as SynthesisClientError).code,
+          "invalid_request",
+        );
+        const failures = listRuntimeLogs({
+          component: "synthesis-sidecar-business",
+          order: "asc",
+        }).filter(
+          (entry) => entry.operation === operation && entry.stage === "failed",
+        );
+        assert.lengthOf(failures, 1);
+        assert.deepInclude(failures[0].details, {
+          errorCode: "invalid_request",
+          classification: "invalid",
+          schemaRef: (failure as SynthesisClientError).details?.location,
+        });
+        assert.deepInclude((failures[0].details as any).violations[0], {
+          keyword: "additionalProperties",
+          pointer: "/args/0",
+        });
+        const serialized = JSON.stringify(failures);
+        assert.notInclude(serialized, "private_field");
+        assert.notInclude(serialized, "private-value");
+      } finally {
+        await composition.dispose();
+      }
+    });
+  }
+
   it("preserves native request validation evidence", async function () {
+    const schemaRef =
+      "https://zotero-agents.local/synthesis/sidecar-protocol/v1/client-artifact-library-debug.schema.json#/$defs/GetPaperArtifactManifestRequest";
     const composition = createNativeSynthesisClientComposition({
       getReadyConnection: () => ({
         discovery: {
@@ -2737,12 +2798,12 @@ describe("Synthesis native client composition", function () {
         async call() {
           throw new SynthesisSidecarRpcError("invalid_request", {
             reason: "protocol_request_invalid",
-            location: "schema#/$defs/ApplyTopicPlanRequest",
-            capability: "client.applyTopicPlan",
+            location: schemaRef,
+            capability: "client.getPaperArtifactManifest",
             violations: [
               {
-                keyword: "minimum",
-                instancePath: "/topic_actions/0/expected_revision",
+                keyword: "maxItems",
+                instancePath: "/args/0/paper_refs",
               },
             ],
           });
@@ -2751,21 +2812,36 @@ describe("Synthesis native client composition", function () {
     });
     let failure: unknown;
     try {
-      await composition.client.graph.getOverview({});
+      await composition.client.artifacts.getManifest({
+        paper_refs: ["1:TEST0001"],
+      });
     } catch (error) {
       failure = error;
     }
     assert.instanceOf(failure, SynthesisClientError);
     assert.equal((failure as SynthesisClientError).code, "invalid_request");
     assert.deepInclude((failure as SynthesisClientError).details!, {
-      capability: "client.applyTopicPlan",
-      location: "schema#/$defs/ApplyTopicPlanRequest",
+      capability: "client.getPaperArtifactManifest",
+      location: schemaRef,
     });
     assert.deepEqual((failure as SynthesisClientError).details?.violations, [
       {
-        keyword: "minimum",
-        instancePath: "/topic_actions/0/expected_revision",
+        keyword: "maxItems",
+        instancePath: "/args/0/paper_refs",
       },
+    ]);
+    const failures = listRuntimeLogs({
+      component: "synthesis-sidecar-business",
+    }).filter((entry) => entry.stage === "failed");
+    assert.lengthOf(failures, 1);
+    assert.deepInclude(failures[0].details, {
+      errorCode: "invalid_request",
+      sidecarCode: "invalid_request",
+      classification: "invalid",
+      schemaRef,
+    });
+    assert.deepEqual((failures[0].details as any).violations, [
+      { keyword: "maxItems", pointer: "/args/0/paper_refs" },
     ]);
   });
 
@@ -2805,6 +2881,7 @@ describe("Synthesis native client composition", function () {
   });
 
   it("carries protocol validation paths into the failed Review surface audit", async function () {
+    const schemaRef = `${SYNTHESIS_TOPIC_WORKBENCH_SCHEMA_ID}#/$defs/ReferenceReviewSurfaceProjection`;
     const composition = createNativeSynthesisClientComposition({
       getReadyConnection: () => ({
         discovery: {
@@ -2819,7 +2896,7 @@ describe("Synthesis native client composition", function () {
         async call() {
           throw new SynthesisSidecarRpcError("response_invalid", {
             reason: "protocol_result_invalid",
-            location: "schema#/$defs/WorkbenchSurfaceResult",
+            location: schemaRef,
             violations: [
               {
                 keyword: "type",
@@ -2844,7 +2921,7 @@ describe("Synthesis native client composition", function () {
     assert.deepInclude((failure as SynthesisClientError).details!, {
       sidecarCode: "response_invalid",
       sidecarReason: "protocol_result_invalid",
-      location: "schema#/$defs/WorkbenchSurfaceResult",
+      location: schemaRef,
     });
     assert.deepEqual((failure as SynthesisClientError).details?.violations, [
       {
@@ -2858,7 +2935,10 @@ describe("Synthesis native client composition", function () {
     })[0];
     assert.deepInclude(audit?.details as Record<string, unknown>, {
       surface: "review",
-      schemaRef: "schema#/$defs/WorkbenchSurfaceResult",
+      errorCode: "internal",
+      sidecarCode: "response_invalid",
+      classification: "internal",
+      schemaRef,
     });
     assert.deepEqual((audit?.details as Record<string, unknown>).violations, [
       {
@@ -2866,6 +2946,77 @@ describe("Synthesis native client composition", function () {
         pointer: "/registry/canonicalRows/0/authors",
       },
     ]);
+  });
+
+  it("bounds validation audit diagnostics and hides private values and map keys", function () {
+    const schemaRef = `${SYNTHESIS_TOPIC_WORKBENCH_SCHEMA_ID}#/$defs/ReferenceReviewSurfaceProjection`;
+    const audit = beginSynthesisSidecarBusinessAudit({
+      operation: "client.getSynthesisWorkbenchSurfaceInput",
+    });
+    audit.failed(
+      new SynthesisClientError("invalid_request", "private-error-message", {
+        location: schemaRef,
+        token: "private-token",
+        payload: "private-payload",
+        violations: [
+          {
+            keyword: "type",
+            instancePath:
+              "/registry/canonicalRows/0/identifiers/private-map-key",
+            value: "private-value",
+          },
+          {
+            keyword: "type",
+            instancePath: "/registry/canonicalRows/0/private-field",
+          },
+          { keyword: "private keyword", instancePath: "/registry" },
+          ...Array.from({ length: 20 }, () => ({
+            keyword: "type",
+            instancePath: "/registry/canonicalRows/0/authors",
+          })),
+        ],
+      }),
+    );
+    audit.failed(new SynthesisClientError("internal", "late failure"));
+    const entries = listRuntimeLogs({
+      component: "synthesis-sidecar-business",
+    });
+    assert.lengthOf(entries, 1);
+    const details = entries[0].details as any;
+    assert.strictEqual(details.schemaRef, schemaRef);
+    assert.isAtMost(details.violations.length, 16);
+    assert.deepInclude(details.violations, {
+      keyword: "type",
+      pointer: "/registry/canonicalRows/0/identifiers/*",
+    });
+    assert.deepInclude(details.violations, {
+      keyword: "type",
+      pointer: "/registry/canonicalRows/0",
+    });
+    assert.notInclude(JSON.stringify(entries), "private-");
+
+    for (const location of [
+      "C:/private-schema",
+      `${SYNTHESIS_TOPIC_WORKBENCH_SCHEMA_ID}#private-fragment`,
+      `${SYNTHESIS_TOPIC_WORKBENCH_SCHEMA_ID}#/$defs/private-definition`,
+    ]) {
+      clearRuntimeLogs();
+      beginSynthesisSidecarBusinessAudit({
+        operation: "client.getPaperArtifactManifest",
+      }).failed({
+        code: "private code",
+        details: {
+          location,
+          violations: [{ keyword: "type", instancePath: "/private-key" }],
+        },
+      });
+      const filtered = listRuntimeLogs({
+        component: "synthesis-sidecar-business",
+      })[0].details as any;
+      assert.notProperty(filtered, "errorCode");
+      assert.notProperty(filtered, "schemaRef");
+      assert.notProperty(filtered, "violations");
+    }
   });
 
   it("reduces the related-item echo receipt to a consumed boolean at the native boundary", async function () {

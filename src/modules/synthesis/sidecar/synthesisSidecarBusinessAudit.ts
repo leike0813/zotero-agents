@@ -1,4 +1,5 @@
 import productionOperations from "../../../../packages/synthesis-contracts/contract-set/synthesis-production-client-v1/operations.json";
+import { safeSynthesisProtocolValidationDiagnostics } from "../../../../packages/synthesis-contracts/src/protocolSchema";
 import { safeSynthesisSidecarObservationReason } from "../../../../packages/synthesis-contracts/src/sidecarObservability";
 import type { SynthesisSidecarProductionClientCapability } from "../../../../packages/synthesis-contracts/src/sidecarSystem";
 import type { SynthesisWorkbenchSurfaceName } from "../../../../packages/synthesis-contracts/src/workbench";
@@ -39,6 +40,7 @@ export type SynthesisSidecarBusinessAuditDetails = {
   semanticStatus?: string;
   surface?: SynthesisWorkbenchSurfaceName;
   reason?: string;
+  errorCode?: string;
   sidecarCode?: string;
   schemaRef?: string;
   violations?: Array<{ keyword: string; pointer: string }>;
@@ -193,6 +195,11 @@ export function beginSynthesisSidecarBusinessAudit(args: {
       return semantic;
     },
     failed(error: unknown) {
+      const errorCode = safeSynthesisSidecarObservationReason(
+        error && typeof error === "object" && "code" in error
+          ? error.code
+          : undefined,
+      );
       const details =
         error && typeof error === "object" && "details" in error
           ? (error as { details?: unknown }).details
@@ -209,30 +216,13 @@ export function beginSynthesisSidecarBusinessAudit(args: {
       );
       finish("failed", {
         classification: stableCode(error),
+        ...(errorCode ? { errorCode } : {}),
         ...(reason ? { reason } : {}),
         ...(sidecarCode ? { sidecarCode } : {}),
-        ...(record?.sidecarReason === "protocol_result_invalid" &&
-        typeof record.location === "string"
-          ? { schemaRef: record.location }
-          : {}),
-        ...(record?.sidecarReason === "protocol_result_invalid" &&
-        Array.isArray(record.violations)
-          ? {
-              violations: record.violations.flatMap((violation) => {
-                if (!violation || typeof violation !== "object") return [];
-                const row = violation as Record<string, unknown>;
-                return typeof row.keyword === "string" &&
-                  typeof row.instancePath === "string"
-                  ? [
-                      {
-                        keyword: row.keyword,
-                        pointer: row.instancePath,
-                      },
-                    ]
-                  : [];
-              }),
-            }
-          : {}),
+        ...safeSynthesisProtocolValidationDiagnostics(
+          record?.location,
+          record?.violations,
+        ),
       });
     },
   };

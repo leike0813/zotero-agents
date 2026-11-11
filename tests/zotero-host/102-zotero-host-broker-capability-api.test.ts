@@ -5630,6 +5630,67 @@ describe("zotero host broker capability api", function () {
     assert.isOk(Zotero.Items.get(parent.id));
   });
 
+  it("completes snapshots with linked URLs and counts annotations on every file attachment kind", async function () {
+    const parent = await createParentItem("Snapshot Mixed Attachments");
+    for (const [linkMode, contentType] of [
+      [0, "application/pdf"],
+      [1, "text/html"],
+      [2, "image/png"],
+      [3, "text/html"],
+    ] as const) {
+      const attachment = new Zotero.Item("attachment");
+      attachment.parentID = parent.id;
+      (attachment as any).attachmentLinkMode = linkMode;
+      attachment.attachmentContentType = contentType;
+      await attachment.saveTx();
+      if (linkMode !== 3) {
+        const annotation = new Zotero.Item("annotation");
+        annotation.parentID = attachment.id;
+        (annotation as any).annotationType = "highlight";
+        await annotation.saveTx();
+      }
+    }
+
+    const result =
+      await createZoteroHostCapabilityBroker().library.syncSnapshot({
+        libraryId: parent.libraryID,
+        batchSize: 1,
+      });
+    assert.strictEqual(result.outcome, "completed");
+    assert.lengthOf(result.items, 1);
+    assert.deepInclude(result.items[0], {
+      attachmentCount: 4,
+      annotationCount: 3,
+    });
+    assert.strictEqual(result.completionEvidence?.totalItems, 1);
+    assertStrictJsonValue(result);
+  });
+
+  it("fails snapshots without completion evidence when a file attachment annotation read fails", async function () {
+    const parent = await createParentItem("Snapshot Annotation Read Failure");
+    const attachment = new Zotero.Item("attachment");
+    attachment.parentID = parent.id;
+    (attachment as any).attachmentLinkMode = 0;
+    attachment.attachmentContentType = "application/pdf";
+    await attachment.saveTx();
+    (attachment as any).getAnnotations = () => {
+      throw new Error("synthetic annotation read failure");
+    };
+    try {
+      await createZoteroHostCapabilityBroker().library.syncSnapshot({
+        libraryId: parent.libraryID,
+      });
+      assert.fail("expected the file attachment read to fail");
+    } catch (error) {
+      assert.instanceOf(error, ZoteroHostCapabilityError);
+      assert.strictEqual(
+        (error as ZoteroHostCapabilityError).code,
+        "execution_failed",
+      );
+      assert.notProperty(error as object, "completionEvidence");
+    }
+  });
+
   it("binds full-snapshot pages to one process, owner, basis, and cursor", async function () {
     let now = Date.parse("2026-08-30T00:00:00.000Z");
     let sequence = 0;

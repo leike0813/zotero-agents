@@ -256,6 +256,12 @@ Long native loops release admission after at most 100 items or 50 ms, whichever 
 
 `syncSnapshot` captures its existing fixed item set without a text filter; enumeration filters do not change snapshot membership or completion evidence. Synthesis reverse-host `listItemsPage` is a separate bounded metadata-page port whose request contains only library, cursor, and limit; it accepts no filter or search query.
 
+Snapshot annotation counts use Zotero's `isFileAttachment()` eligibility before
+calling the annotation API. Linked-URL attachments remain in `attachmentCount`
+and contribute no annotations; file attachments are not filtered by MIME type.
+A real file-attachment annotation read failure still fails the snapshot without
+completion evidence, preserving the previous usable consumer index.
+
 `totalScanned` remains the total number of items matching the current normalized criteria, while `returned` is the number of DTOs emitted by the capability. The count may therefore exceed the current page size without causing non-page Zotero items to be materialized in JavaScript.
 
 ## MCP Projection Rules

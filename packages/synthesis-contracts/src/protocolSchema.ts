@@ -307,6 +307,41 @@ function protocolSchemaViolations(
   }));
 }
 
+export function safeSynthesisProtocolValidationDiagnostics(
+  location: unknown,
+  violations: unknown,
+) {
+  if (typeof location !== "string" || location.length > 4096) {
+    return {};
+  }
+  const [schemaId, definition, tail] = location.split("#/$defs/");
+  if (
+    tail !== undefined ||
+    !definition ||
+    !Object.hasOwn(schemaIds.get(schemaId)?.$defs ?? {}, definition)
+  ) {
+    return {};
+  }
+  const errors = Array.isArray(violations)
+    ? violations.slice(0, 16).flatMap((violation) => {
+        const row = asProtocolRecord(violation);
+        return typeof row?.keyword === "string" &&
+          /^[A-Za-z][A-Za-z0-9]{0,63}$/.test(row.keyword) &&
+          typeof row.instancePath === "string" &&
+          row.instancePath.length <= 4096
+          ? [{ keyword: row.keyword, instancePath: row.instancePath }]
+          : [];
+      })
+    : [];
+  return {
+    schemaRef: location,
+    violations: protocolSchemaViolations(location, errors).map((violation) => ({
+      keyword: violation.keyword,
+      pointer: violation.instancePath,
+    })),
+  };
+}
+
 export function rebuildSynthesisProtocolDto<T>(args: {
   schemaId: string;
   definition: string;

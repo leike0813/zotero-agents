@@ -2716,7 +2716,7 @@ function serializeLibrarySyncSnapshotItem(
   let annotationCount = 0;
   for (const attachmentId of attachmentIds) {
     const attachment = resolveZotero().Items.get(attachmentId);
-    if (!attachment) continue;
+    if (!attachment?.isFileAttachment()) continue;
     try {
       annotationCount += (
         (

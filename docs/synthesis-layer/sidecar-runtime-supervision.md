@@ -229,9 +229,14 @@ terminalization, so a worker, reverse-Host, and RPC failure cannot create three
 incidents. For public-maintenance-operation commands, `pending` and `running`
 mean that the invocation successfully returned an accepted receipt; the
 operation query and terminal receipt own the later business outcome. Stored
-details are limited to operation, trigger, stage, outcome, duration, Host
-classification, and a declared public semantic status. HTTP status, byte
-counts, native request identity, worker code, and trace fields are excluded.
+details retain operation, trigger, stage, outcome, duration, Host classification,
+declared public semantic status, stable `errorCode`, and safe reason/sidecar codes.
+Request and response protocol validation failures also retain an optional
+`schemaRef` naming a registered definition and up to sixteen `violations` with
+only `keyword` and `pointer`. Protocol-owned pointer sanitization replaces user
+map keys with wildcards and truncates unknown fields. Payload values, raw error
+messages, credentials, local paths, HTTP status, byte counts, native request
+identity, worker code, and trace fields are excluded from this business record.
 
 Startup and debug observation both use
 `synthesis-sidecar-observation.v2`. Launch-config v4 can carry the parent trace
