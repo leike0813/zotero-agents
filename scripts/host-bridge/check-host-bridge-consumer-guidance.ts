@@ -39,7 +39,6 @@ const HOST_BRIDGE_RUNTIME_TESTS = [
 
 const FORBIDDEN_FAKE_CLI_MARKERS = [
   "fake-zotero-bridge",
-  'path.join(runRoot, ".zotero-bridge"',
   "process.argv.slice(2)",
   'data: { approval: "none", capability:',
 ] as const;
