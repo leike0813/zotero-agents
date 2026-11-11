@@ -2060,3 +2060,5 @@ synthesis-operation-retrievalRetryIndex = Reintentando índice de recuperación
 synthesis-operation-retrievalContinueIndex = Continuando índice de recuperación
 synthesis-operation-retrievalCleanupIndex = Limpiando índice de recuperación
 synthesis-operation-retrievalRecommendSimilar = Buscando artículos similares
+synthesis-index-counting = Contando coincidencias…
+synthesis-index-count-failed = No se pudo completar el recuento

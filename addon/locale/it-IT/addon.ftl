@@ -2059,3 +2059,5 @@ synthesis-operation-retrievalRetryIndex = Nuovo tentativo per l'indice di ricerc
 synthesis-operation-retrievalContinueIndex = Continuazione indice di ricerca
 synthesis-operation-retrievalCleanupIndex = Pulizia indice di ricerca
 synthesis-operation-retrievalRecommendSimilar = Ricerca articoli simili
+synthesis-index-counting = Conteggio dei risultati…
+synthesis-index-count-failed = Impossibile completare il conteggio

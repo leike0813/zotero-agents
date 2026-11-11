@@ -167,8 +167,11 @@ The host shows initial summaries promptly and continues scanning in the
 background to establish the exact matching total. Page readiness and query
 completion are separate states. The fixed footer offers icon-only first,
 previous, next and last controls and an editable one-based page number.
-While the count is unknown, the footer shows an animated count indicator and
-disables last-page and arbitrary-page jumps. The table shows its own end-of-page
+While counting is unfinished, the footer shows a separate animated count status;
+the total-page field keeps a known total or a static unknown marker. Last-page
+and arbitrary-page jumps remain disabled until counting completes. Counting
+failure stops the indicators and preserves accepted rows and any known total.
+The table shows its own end-of-page
 spinner only while that page is loading. Search dispatch is debounced by 300 ms
 and waits for IME composition to finish.
 
@@ -197,10 +200,21 @@ children; library scope expands all children.
 The session LRU retains up to four normalized queries and 8 MiB of serialized
 UTF-8 data, including matching directories and visited pages. Entries bind the
 library and query to service instance and invalidation revisions. Reopening
-starts at the first page. Incomplete queries enumerate afresh with new cursors.
+starts at the first page; an incomplete closed query enumerates afresh with new
+cursors. Within an open Workbench, switching tabs keeps the current Index page,
+expansion, focus and scroll. A live scan accepts its in-flight batch, pauses while
+hidden, then resumes at its next unconsumed cursor on return. The live cursor is
+runtime-owned and never enters the session LRU. Hidden Index measurement and
+animation frames are suspended; library/query changes reset the view owner.
 Directories have a 2 MiB in-memory bound; oversized queries still count every
 match and locate uncached pages through bounded rescans. Library and Index
 changes invalidate retained data even when every Workbench page is closed.
+
+Vocabulary and staged Tags use the shared measured window, grouping each tag's
+main and detail rows under its stable identity. Only the viewport, bounded
+overscan and focused row are mounted. Selection and select-all still refer to
+the filtered set; scrolling sends no Host action. Rating stars use one SVG
+outline and clipped fills, preserving accessible numeric ratings across scaling.
 Index and Review are separate hot paths. Index may load a bounded current-library page and a small open-review drawer slice. In normal library scope, Index rows carry artifact coverage, the Literature Analysis score summary, analysis routing mode, and reference counts only; they must not carry every raw reference for collapsed rows. Artifact existence and Literature Analysis score are read for the current page through the Host Broker's `library.artifacts.readiness` projection, which is also used by Zotero Library custom columns. The sidecar and Workbench do not scan or decode managed-note payloads to reconstruct those facts. The score drives the five-star Rating column and the Analyze action: incomplete three-piece output runs full analysis, a complete three-piece output without a valid score runs score-only, and a complete scored item disables the action. Score-note and score-payload attachment notifications invalidate only the Index read model. Referenced-only mode may load a bounded raw-reference page and the matching source rows. Index must not load the Review Center proposal page. Review Center applies active tab, status, kind, confidence, search, cursor, and limit before SQLite materialization. Reference rows cross the boundary as `registry.matchProposals` and `registry.cleanupProposals` with only their canonical/target context; Concept rows use `concepts.reviewItems` with candidate concepts; Topic Graph uses suggested `topicGraph.edges`, low-confidence `topicGraph.reviewItems`, and their endpoint nodes. `reviews` contains the aggregate summary only. Review reads must not route through the Index sidecar row builder or read child note payloads.
 
 When a child note exceeds the Broker note-payload byte limit, the Broker maps

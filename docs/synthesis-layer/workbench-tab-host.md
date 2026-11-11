@@ -5,6 +5,7 @@
 `src/modules/synthesis/workbench/synthesisWorkbenchTab.ts` 是 Synthesis Workbench 的 host 端运行时。它管理 Zotero tab 生命周期、嵌入式 browser（XUL browser / iframe）的创建和销毁、host↔child 双向通信桥接、50+ host 命令的派发与并发控制、surface 脏标记和按需刷新、以及预预热（prewarm）机制。
 
 配套文档：
+
 - `docs/synthesis-layer/workbench-ui.md` — frontend（web UI）侧的 read-model 契约和 surface-scoped refresh 架构
 - `docs/components/synthesis-workbench-invalidation.md` — 失效监听机制
 - `docs/synthesis-layer/domain-model.md` — 领域模型
@@ -30,9 +31,9 @@ Host 端运行在 Zotero 插件进程中，Child Frame 加载 `chrome://<addonRe
 ```typescript
 type SynthesisWorkbenchRuntime = {
   tabId: string;
-  window: _ZoteroTypes.MainWindow;      // chrome window
-  hostWindow: Window;                    // host window（与 chrome window 可以是同一对象）
-  frame: Element;                        // XUL browser 或 iframe
+  window: _ZoteroTypes.MainWindow; // chrome window
+  hostWindow: Window; // host window（与 chrome window 可以是同一对象）
+  frame: Element; // XUL browser 或 iframe
   frameWindow: Window | null;
   removeMessageListener?: () => void;
   handshakeTimer?: ReturnType<typeof setInterval>;
@@ -41,16 +42,23 @@ type SynthesisWorkbenchRuntime = {
   handshakeAttemptCount: number;
   handshakeSuccessCount: number;
   handshakeComplete: boolean;
-  state: SynthesisUiState;              // UI 状态（selectedTab, registry filters 等）
+  state: SynthesisUiState; // UI 状态（selectedTab, registry filters 等）
   snapshotInput?: SynthesisUiSnapshotInput;
   snapshotInputLocked?: boolean;
-  surfaceInputs: Partial<Record<SynthesisWorkbenchSurfaceName, {
-    input: SynthesisUiSnapshotInput;
-    queryKey: string;
-  }>>;
+  surfaceInputs: Partial<
+    Record<
+      SynthesisWorkbenchSurfaceName,
+      {
+        input: SynthesisUiSnapshotInput;
+        queryKey: string;
+      }
+    >
+  >;
   dirtySurfaces: Set<SynthesisWorkbenchSurfaceName>;
   surfaceRequestSeq: number;
-  latestSurfaceRequestBySurface: Partial<Record<SynthesisWorkbenchSurfaceName, number>>;
+  latestSurfaceRequestBySurface: Partial<
+    Record<SynthesisWorkbenchSurfaceName, number>
+  >;
   libraryReadModelRevision: number;
   libraryReadModelDirtyTimer?: ReturnType<typeof setTimeout>;
   inFlightCommands: Map<string, SynthesisUiActionOperation>;
@@ -140,6 +148,7 @@ const onMessage = (event: MessageEvent) => {
 ### 6. 初始化
 
 `finalizeWorkbenchHandshake()` 完成后发送三条消息：
+
 1. `sendSnapshot("synthesis:init")` — 初始快照
 2. `sendChrome()` — 状态栏和操作进度
 3. `sendActiveSurface()` — 当前 tab 对应的 surface 数据
@@ -162,9 +171,12 @@ Child frame 通过 bridge `postMessage()` 或 `postMessage` 事件发送 action�
 - 由 browser/docshell 移除统一释放 Graph canvas 与 WebGL context
 - 从 `synthesisWorkbenchRuntimes` Set 中删除
 
-Index 的分页 generation 在关闭、隐藏或被新请求替代时失效。已成功发布的
+Index 的查询 generation 在关闭、数据失效或被新查询替代时失效。同一工作台
+切换 tab 保留当前页、展开、焦点与滚动位置；当前在途批次完成后暂停扫描，
+返回时复用已接受摘要并从下一未消费 cursor 继续。该 live cursor 只属于当前
+runtime，隐藏期间不启动新读取，关闭后丢弃。已成功发布的
 Index 数据保留在进程内有界 LRU 中，按 library/query、service instance 与
-数据 revision 区分；完整查询重开从首页供页，未完成查询以新 cursor
+数据 revision 区分；关闭后完整查询重开从首页供页，未完成查询以新 cursor
 从首批重读。宿主串行扫描每批 25 个来源并统计全局匹配总数；当前页按
 source refs 分批读取最多 100 个匹配父条目，翻页不重放旧 cursor。
 展开详情单独按 source refs 请求，只合并引用和计数，沿用摘要 readiness。
@@ -175,16 +187,16 @@ source refs 分批读取最多 100 个匹配父条目，翻页不重放旧 curso
 
 ### 消息类型
 
-| 消息类型 | 方向 | 用途 | 触发时机 |
-|---------|------|------|---------|
-| `synthesis:init` | H→C | 首次完整快照 | handshake 完成 |
-| `synthesis:snapshot` | H→C | 后续快照刷新 | refresh action |
-| `synthesis:chrome` | H→C | 状态栏、操作进度、pending actions | action 处理后、进度轮询 |
-| `synthesis:surface` | H→C | 特定 surface 数据 + surface request metadata | surface 加载/切换/失效 |
-| `synthesis:surface-error` | H→C | surface 加载错误 + surface request metadata | surface 数据取失败 |
-| `synthesis:topic-detail` | H→C | 主题详情数据 + 打开 reader | openTopicArtifact 命令 |
-| `synthesis:digest` | H→C | 论文摘要 | resolveTopicPaperDigest 命令 |
-| `synthesis:action` | C→H | Action envelope | child frame 用户操作 |
+| 消息类型                  | 方向 | 用途                                         | 触发时机                     |
+| ------------------------- | ---- | -------------------------------------------- | ---------------------------- |
+| `synthesis:init`          | H→C  | 首次完整快照                                 | handshake 完成               |
+| `synthesis:snapshot`      | H→C  | 后续快照刷新                                 | refresh action               |
+| `synthesis:chrome`        | H→C  | 状态栏、操作进度、pending actions            | action 处理后、进度轮询      |
+| `synthesis:surface`       | H→C  | 特定 surface 数据 + surface request metadata | surface 加载/切换/失效       |
+| `synthesis:surface-error` | H→C  | surface 加载错误 + surface request metadata  | surface 数据取失败           |
+| `synthesis:topic-detail`  | H→C  | 主题详情数据 + 打开 reader                   | openTopicArtifact 命令       |
+| `synthesis:digest`        | H→C  | 论文摘要                                     | resolveTopicPaperDigest 命令 |
+| `synthesis:action`        | C→H  | Action envelope                              | child frame 用户操作         |
 
 ### Payload 包装
 
@@ -207,29 +219,29 @@ source refs 分批读取最多 100 个匹配父条目，翻页不重放旧 curso
 
 ### 内建 action 处理
 
-| action | 行为 |
-|--------|------|
-| `ready` | `sendChrome(refreshFromService: true)` + `scheduleActiveSurfaceRefresh()` |
-| `refresh` | `sendChrome(refreshFromService: true)` + `scheduleActiveSurfaceRefresh(refreshFromService: true)` |
-| `selectTab` | `sendChrome(refreshFromService: false)` + `scheduleActiveSurfaceRefresh()` |
+| action       | 行为                                                                                                       |
+| ------------ | ---------------------------------------------------------------------------------------------------------- |
+| `ready`      | `sendChrome(refreshFromService: true)` + `scheduleActiveSurfaceRefresh()`                                  |
+| `refresh`    | `sendChrome(refreshFromService: true)` + `scheduleActiveSurfaceRefresh(refreshFromService: true)`          |
+| `selectTab`  | `sendChrome(refreshFromService: false)` + `scheduleActiveSurfaceRefresh()`                                 |
 | `setFilters` | Index scope、搜索或生效过滤器变化重建全局查询并回首页；展开仅定向 hydration。Review 过滤器按原查询边界刷新 |
 
 ### Host 命令分类
 
-| 子系统 | 命令数 | 关键命令 |
-|--------|--------|---------|
-| Synthesis 工作流 | 2 | `runSynthesizeTopic`, `submitTopicSynthesisUpdate` |
-| 引用 sidecar | 4 | `refreshReferenceSidecarNow`, `retryReferenceSidecarRefresh`, `runAdvancedReferenceMatchingNow`, `retryAdvancedReferenceMatching` |
-| 引用匹配提案 | 9 | `applyReferenceMatchProposalAction`, `applyReferenceMatchProposalActions`, `applyCanonicalRevisionReviewAction`, `mergeEffectiveCanonicalReference`, `applyCanonicalRevisionMergeRequests`, 等 |
-| 引用元数据 | 2 | `updateCanonicalReferenceMetadata`, `archiveCanonicalReference` |
-| Citation Graph | 4 | `rebuildCitationGraphCacheNow`, `refreshCitationGraphCacheIncrementalNow`, `retryCitationGraphCacheRebuild`, `manualRecomputeLayout` |
-| Tag Vocabulary | 10+ | `rebuildTagVocabularyIndex`, `validateTagVocabulary`, `exportTagVocabulary`, `importTagVocabulary`, `previewTagVocabularyImport`, `updateStagedTagSuggestion`, `updateTagVocabularyEntry`, `deleteTagVocabularyEntry`, `promoteStagedTagSuggestions`, `discardStagedTagSuggestions`, `clearStagedTagSuggestions`, `applyTagVocabularyImport` |
-| Concept KB | 4 | `rebuildConceptKbIndex`, `deleteConceptEntry`, `updateConceptDisplayText`, `applyConceptReviewAction` |
-| Topic Graph | 4 | `rebuildTopicGraphIndex`, `acceptTopicGraphRelation`, `rejectTopicGraphRelation`, `applyTopicGraphReviewAction` |
-| Topic Discovery | 2 | `rejectTopicDiscoveryHint`, `restoreTopicDiscoveryHint` |
-| WebDAV Sync | 5 | `syncWebDavNow`, `pauseWebDavSync`, `resumeWebDavSync`, `retryWebDavSync`, `resolveWebDavSyncConflict` |
-| Topic Artifact | 5 | `openTopicArtifact`, `exportTopicSynthesisReport`, `resolveTopicPaperDigest`, `deleteTopicArtifact`, `purgeDeletedTopicArtifacts` |
-| 其他 | 2 | `openPreferences`, `manualRecomputeLayout` |
+| 子系统           | 命令数 | 关键命令                                                                                                                                                                                                                                                                                                                                     |
+| ---------------- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Synthesis 工作流 | 2      | `runSynthesizeTopic`, `submitTopicSynthesisUpdate`                                                                                                                                                                                                                                                                                           |
+| 引用 sidecar     | 4      | `refreshReferenceSidecarNow`, `retryReferenceSidecarRefresh`, `runAdvancedReferenceMatchingNow`, `retryAdvancedReferenceMatching`                                                                                                                                                                                                            |
+| 引用匹配提案     | 9      | `applyReferenceMatchProposalAction`, `applyReferenceMatchProposalActions`, `applyCanonicalRevisionReviewAction`, `mergeEffectiveCanonicalReference`, `applyCanonicalRevisionMergeRequests`, 等                                                                                                                                               |
+| 引用元数据       | 2      | `updateCanonicalReferenceMetadata`, `archiveCanonicalReference`                                                                                                                                                                                                                                                                              |
+| Citation Graph   | 4      | `rebuildCitationGraphCacheNow`, `refreshCitationGraphCacheIncrementalNow`, `retryCitationGraphCacheRebuild`, `manualRecomputeLayout`                                                                                                                                                                                                         |
+| Tag Vocabulary   | 10+    | `rebuildTagVocabularyIndex`, `validateTagVocabulary`, `exportTagVocabulary`, `importTagVocabulary`, `previewTagVocabularyImport`, `updateStagedTagSuggestion`, `updateTagVocabularyEntry`, `deleteTagVocabularyEntry`, `promoteStagedTagSuggestions`, `discardStagedTagSuggestions`, `clearStagedTagSuggestions`, `applyTagVocabularyImport` |
+| Concept KB       | 4      | `rebuildConceptKbIndex`, `deleteConceptEntry`, `updateConceptDisplayText`, `applyConceptReviewAction`                                                                                                                                                                                                                                        |
+| Topic Graph      | 4      | `rebuildTopicGraphIndex`, `acceptTopicGraphRelation`, `rejectTopicGraphRelation`, `applyTopicGraphReviewAction`                                                                                                                                                                                                                              |
+| Topic Discovery  | 2      | `rejectTopicDiscoveryHint`, `restoreTopicDiscoveryHint`                                                                                                                                                                                                                                                                                      |
+| WebDAV Sync      | 5      | `syncWebDavNow`, `pauseWebDavSync`, `resumeWebDavSync`, `retryWebDavSync`, `resolveWebDavSyncConflict`                                                                                                                                                                                                                                       |
+| Topic Artifact   | 5      | `openTopicArtifact`, `exportTopicSynthesisReport`, `resolveTopicPaperDigest`, `deleteTopicArtifact`, `purgeDeletedTopicArtifacts`                                                                                                                                                                                                            |
+| 其他             | 2      | `openPreferences`, `manualRecomputeLayout`                                                                                                                                                                                                                                                                                                   |
 
 四个 Citation Graph host 命令动态解析默认 `SynthesisClient` 并调用 `client.graph`。手动 layout 请求传入 `force: true`；Graph surface 的自动 layout refresh 复用同一个 client 完成 surface read 和非强制 recompute。Full rebuild、incremental refresh 和 retry 均使用无参数 client command，不把 `onProgress` 或其它 UI callback 带入 contract。Full rebuild 由 Rust sidecar 异步维护操作执行，不再弹出宿主确认框；deferred start、single-flight 与进度观察保持不变。所有四个命令都通过 `classifySynthesisWorkbenchGraphMutationResult()` 判定终态，Promise 正常 resolve 本身不代表命令成功：原生 `promoted` / `unchanged` 才是成功终态，其余原生 mutation status 转成带稳定 code 和原始 status detail 的 `SynthesisClientError`。保留实现中，`ok: true` 搭配 `completed`、`bootstrapped`、`skipped` 或 `superseded` 继续成功；无 status 的计数结果在 `failed > 0` 时失败，`ok: false` 同样失败。
 
@@ -305,17 +317,17 @@ runtime.commandProgressTimer = setInterval(() => {
 
 命令完成后的 surface 失效映射：
 
-| 命令类别 | 失效 surface |
-|---------|-------------|
-| Reference sidecar refresh/retry | index, review, graph |
-| 提案操作（apply/merge） | index, review, graph |
-| 引用元数据更新 | index, review |
-| Graph 操作 | graph |
-| Tag vocabulary 操作 | tags |
-| Concept KB 操作 | concepts, review |
-| 主题 create/update | home, topics, graph, review |
-| 主题图操作 | home, topics, graph, review |
-| Topic 删除 | home, topics |
+| 命令类别                        | 失效 surface                |
+| ------------------------------- | --------------------------- |
+| Reference sidecar refresh/retry | index, review, graph        |
+| 提案操作（apply/merge）         | index, review, graph        |
+| 引用元数据更新                  | index, review               |
+| Graph 操作                      | graph                       |
+| Tag vocabulary 操作             | tags                        |
+| Concept KB 操作                 | concepts, review            |
+| 主题 create/update              | home, topics, graph, review |
+| 主题图操作                      | home, topics, graph, review |
+| Topic 删除                      | home, topics                |
 
 未匹配的命令回退到默认 tab 的 surface。
 
@@ -408,12 +420,12 @@ Child frame 收到 transient error 时不得清空当前 surface 内容；如果
 
 ## 常量
 
-| 常量 | 值 | 用途 |
-|------|-----|------|
-| `SYNTHESIS_WORKBENCH_TAB_ID` | `"zotero-skills-synthesis-workbench"` | Zotero tab ID |
-| `SYNTHESIS_WORKBENCH_EMBEDDED_ID` | `"zotero-skills-synthesis-workbench-embedded"` | 嵌入模式 frame ID |
-| `SYNTHESIS_WORKBENCH_HANDSHAKE_INTERVAL_MS` | 100 | handshake 轮询间隔 |
-| `SYNTHESIS_WORKBENCH_HANDSHAKE_REQUIRED_SUCCESSES` | 5 | 连续成功阈值 |
-| `SYNTHESIS_WORKBENCH_HANDSHAKE_MAX_ATTEMPTS` | 80 | 最大尝试次数 |
-| `SYNTHESIS_WORKBENCH_COMMAND_PROGRESS_INTERVAL_MS` | 500 | 命令进度轮询间隔 |
-| `SYNTHESIS_WORKBENCH_LIBRARY_INVALIDATION_DEBOUNCE_MS` | 250 | 库变更防抖延迟 |
+| 常量                                                   | 值                                             | 用途               |
+| ------------------------------------------------------ | ---------------------------------------------- | ------------------ |
+| `SYNTHESIS_WORKBENCH_TAB_ID`                           | `"zotero-skills-synthesis-workbench"`          | Zotero tab ID      |
+| `SYNTHESIS_WORKBENCH_EMBEDDED_ID`                      | `"zotero-skills-synthesis-workbench-embedded"` | 嵌入模式 frame ID  |
+| `SYNTHESIS_WORKBENCH_HANDSHAKE_INTERVAL_MS`            | 100                                            | handshake 轮询间隔 |
+| `SYNTHESIS_WORKBENCH_HANDSHAKE_REQUIRED_SUCCESSES`     | 5                                              | 连续成功阈值       |
+| `SYNTHESIS_WORKBENCH_HANDSHAKE_MAX_ATTEMPTS`           | 80                                             | 最大尝试次数       |
+| `SYNTHESIS_WORKBENCH_COMMAND_PROGRESS_INTERVAL_MS`     | 500                                            | 命令进度轮询间隔   |
+| `SYNTHESIS_WORKBENCH_LIBRARY_INVALIDATION_DEBOUNCE_MS` | 250                                            | 库变更防抖延迟     |

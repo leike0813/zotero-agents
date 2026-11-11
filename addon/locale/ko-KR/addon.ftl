@@ -2059,3 +2059,5 @@ synthesis-operation-retrievalRetryIndex = 검색 인덱스 다시 시도 중
 synthesis-operation-retrievalContinueIndex = 검색 인덱스 이어서 처리 중
 synthesis-operation-retrievalCleanupIndex = 검색 인덱스 정리 중
 synthesis-operation-retrievalRecommendSimilar = 유사 논문 찾는 중
+synthesis-index-counting = 일치 항목 집계 중…
+synthesis-index-count-failed = 일치 항목 집계를 완료하지 못했습니다

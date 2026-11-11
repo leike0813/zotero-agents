@@ -241,7 +241,7 @@
 - 跨页面设计 token（控件色、字阶、间距、徽章）与共享模式（panel header、返回入口、空态、滚动工具类）以 `addon/content/shared/page-chrome.css` 为唯一来源；两页面不得再各自定义同名色值或另起私有别名层。
 - 滚动所有权模型（详见 `page-chrome.css` 头部注释）：页面根与 `.main` 永不滚动；每个面板固定自己的页头/工具栏/筛选/分页区，并有且仅有一个主内容滚动区（Dashboard 使用 `.zs-scroll-region` 工具类，Synthesis 各 surface 以自身表格容器如 `.concept-table-wrap`、`.tags-table-wrap` 充当）；概念审阅面板、标签导入浮层等有界二级子面板（`max-height` 百分比 + `overflow:auto`）允许保留自身滚动，但不得承载主内容；禁止页级滚动容器内嵌 `max-height` 滚动区（Dashboard `.table-wrap` 的 320px 仅对区域外的独立滚动容器生效，区域内以 `max-height:none` 压平）、禁止 grid/flex 行数与子元素数不匹配、sticky 元素必须位于真实滚动容器内。二级视图（详情/文档页）页头左侧第一位固定为 `.zs-back-link` 返回入口。
 - Synthesis Index 在选定库和 scope 内全局搜索及筛选，以每批 25 个来源串行扫描匹配父条目；每页最多展示 100 个匹配父条目，引用子行不占页容量。首批摘要及时显示，后台继续统计准确匹配总数；当前页加载与全局计数分别显示动画。底部图标分页支持首/前/后/末页和输入页码，总数未知时禁止末页与任意跳页。显式翻页成功后清空展开并回到顶部，保留筛选；读取失败保留成功内容，basis mismatch 由刷新从首页恢复。
-- Index 会话 LRU 保存匹配目录和访问过的页（最多四个规范化 query、合计 8 MiB），绑定 library、service instance 与数据失效 revision，关闭页面后仍处理失效；重开回首页。目录超过 2 MiB 时保留完整计数，通过有界重扫定位未缓存页，不截断结果。游标仅属于当前扫描，不能重放；摘要和详情只按 source refs 读取，详情只合并引用与计数。
+- Index 会话 LRU 保存匹配目录和访问过的页（最多四个规范化 query、合计 8 MiB），绑定 library、service instance 与数据失效 revision，关闭页面后仍处理失效；重开回首页。同一工作台切换 tab 保留当前页、展开与滚动，扫描完成当前在途批次后暂停，返回从下一未消费 cursor 续读；隐藏区域暂停测量和 RAF。目录超过 2 MiB 时保留完整计数，通过有界重扫定位未缓存页，不截断结果。游标仅属于当前 runtime 扫描，不进入 LRU、不能重放；摘要和详情只按 source refs 读取，详情只合并引用与计数。
 - Index 父条目和展开引用共用有界、逐行测量的虚拟窗口；分页追加、详情加载和折叠必须保留可见行锚点。库自定义列的 UI-only refresh 不得触发 Index 读取失效或 related-item echo 消费，普通宿主 refresh 保留数据语义。
 - Synthesis Topic 新路径 `current` 通过 Topic 身份、路径与内容完整性校验后为唯一运行时权威；历史目录快照仅保留作恢复证据，其 manifest/artifact basis 可以不同；仅新路径缺失时迁移历史快照，`current` 无效时拒绝启动。
 

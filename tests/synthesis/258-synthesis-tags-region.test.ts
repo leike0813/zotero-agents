@@ -115,6 +115,64 @@ function renderTagsRegion(selection: SynthesisWorkbenchTagsSelection) {
   return { mount, dispatched, onAction };
 }
 
+const LARGE_TAG_COUNT = 1000;
+const TAG_VIEWPORT_HEIGHT = 240;
+
+function makeLargeVocabularyRows(count: number) {
+  return Array.from({ length: count }, (_, index) => ({
+    tag: `topic:tag-${index}`,
+    facet: "topic",
+    note: `Note ${index}`,
+    usage_count: index,
+    source: "manual",
+    aliases: [],
+    abbrev: [],
+    validation_warnings: [],
+  }));
+}
+
+function makeLargeStagedRows(count: number) {
+  return Array.from({ length: count }, (_, index) => ({
+    tag: `method:tag-${index}`,
+    facet: "method",
+    note: `Note ${index}`,
+    parent_count: index,
+    source_flow: "flow-large",
+    created_at: "2026-09-01",
+    updated_at: "2026-09-02",
+    parent_bindings: [`parent-${index}`],
+  }));
+}
+
+function largeTagSelection(view: "vocabulary" | "staged") {
+  return makeSelection({
+    view,
+    rowCount: LARGE_TAG_COUNT,
+    stagedCount: LARGE_TAG_COUNT,
+    vocabularyRows: makeLargeVocabularyRows(LARGE_TAG_COUNT),
+    stagedRows: makeLargeStagedRows(LARGE_TAG_COUNT),
+  });
+}
+
+function tagViewport(mount: HTMLElement, view: "vocabulary" | "staged") {
+  const viewport = mount.querySelector<HTMLElement>(
+    view === "vocabulary"
+      ? ".tags-vocabulary-table.tags-table-wrap"
+      : ".tags-staged-table.tags-table-wrap",
+  );
+  Object.defineProperty(viewport, "clientHeight", {
+    configurable: true,
+    value: TAG_VIEWPORT_HEIGHT,
+  });
+  return viewport;
+}
+
+function mountedTagKeys(mount: HTMLElement): string[] {
+  return Array.from(
+    mount.querySelectorAll<HTMLElement>("[data-windowed-row-key]"),
+  ).map((node) => node.dataset.windowedRowKey || "");
+}
+
 function buttonByText(root: ParentNode, text: string): HTMLButtonElement {
   const button = Array.from(root.querySelectorAll("button")).find(
     (node) => node.textContent === text,
@@ -182,6 +240,125 @@ describe("synthesis workbench tags region (src/synthesis/components/TagsRegion)"
       shell!.querySelector(".tags-bulk-bar-passive"),
       "vocabulary bulk bar rendered",
     );
+  });
+
+  it("bounds 1000-row vocabulary and staged tables to measured windows", async function () {
+    for (const view of ["vocabulary", "staged"] as const) {
+      const { mount, dispatched } = renderTagsRegion(largeTagSelection(view));
+      const viewport = tagViewport(mount, view);
+      const table = viewport.querySelector("table.tags-table")!;
+      assert.isBelow(
+        table.querySelectorAll(
+          "tbody > tr:not(.synthesis-window-spacer):not(.tags-expanded-row)",
+        ).length,
+        100,
+        `${view} mounts a bounded row window`,
+      );
+
+      viewport.scrollTop = 32000;
+      viewport.dispatchEvent(new window.Event("scroll", { bubbles: true }));
+      await flushPreact();
+      assert.isBelow(
+        table.querySelectorAll(
+          "tbody > tr:not(.synthesis-window-spacer):not(.tags-expanded-row)",
+        ).length,
+        100,
+        `${view} keeps the window bounded after a distant scroll`,
+      );
+      assert.deepEqual(dispatched, [], "scrolling dispatches no host action");
+    }
+  });
+
+  it("retains a focused remote edit and expanded detail across scrolling", async function () {
+    const selection = largeTagSelection("vocabulary");
+    const { mount, onAction } = renderTagsRegion(selection);
+    const viewport = tagViewport(mount, "vocabulary");
+    viewport.scrollTop = 32000;
+    viewport.dispatchEvent(new window.Event("scroll", { bubbles: true }));
+    await flushPreact();
+
+    const remoteKeys = mountedTagKeys(mount);
+    assert.isNotEmpty(remoteKeys);
+    const targetTag = remoteKeys[Math.floor(remoteKeys.length / 2)];
+    const expandedRows = { [`vocabulary:${targetTag}`]: true };
+    render(
+      h(TagsRegion, {
+        selection: {
+          ...selection,
+          editingVocabularyTag: {
+            originalTag: targetTag,
+            draftTag: targetTag,
+            draftFacet: "topic",
+            draftNote: `Draft for ${targetTag}`,
+            status: "idle",
+          },
+          expandedRows,
+        },
+        t,
+        onAction,
+      }),
+      mount,
+    );
+    await flushPreact();
+
+    const remoteGroup = mount.querySelector<HTMLElement>(
+      `[data-windowed-row-key="${targetTag}"]`,
+    )!;
+    assert.ok(remoteGroup, "the distant tag remains mounted");
+    assert.ok(
+      remoteGroup.querySelector(".tags-expanded-row"),
+      "the main row and detail share one measured group",
+    );
+    const editInput = remoteGroup.querySelector<HTMLInputElement>(
+      `[data-synthesis-control-key="tags.vocabulary.${targetTag}.tag"]`,
+    )!;
+    editInput.focus();
+    editInput.dispatchEvent(
+      new window.FocusEvent("focusin", { bubbles: true }),
+    );
+
+    viewport.scrollTop = 0;
+    viewport.dispatchEvent(new window.Event("scroll", { bubbles: true }));
+    await flushPreact();
+
+    const retainedGroup = mount.querySelector<HTMLElement>(
+      `[data-windowed-row-key="${targetTag}"]`,
+    );
+    assert.ok(retainedGroup, "the focused remote row stays in the window");
+    assert.strictEqual(
+      retainedGroup!.querySelector<HTMLInputElement>(
+        `[data-synthesis-control-key="tags.vocabulary.${targetTag}.tag"]`,
+      ),
+      editInput,
+      "the focused input keeps its DOM identity",
+    );
+    assert.strictEqual(document.activeElement, editInput);
+    assert.strictEqual(editInput.value, targetTag);
+    assert.ok(retainedGroup!.querySelector(".tags-expanded-row"));
+    assert.isBelow(mountedTagKeys(mount).length, 100);
+  });
+
+  it("selects every filtered tag while the tables mount only a window", function () {
+    for (const view of ["vocabulary", "staged"] as const) {
+      const selection = largeTagSelection(view);
+      const { mount, dispatched } = renderTagsRegion(selection);
+      tagViewport(mount, view);
+      const expected = (
+        view === "vocabulary" ? selection.vocabularyRows : selection.stagedRows
+      ).map((row) => row.tag);
+      mount
+        .querySelector<HTMLInputElement>(
+          '.tags-bulk-bar input[type="checkbox"]',
+        )!
+        .click();
+
+      const tagsPayload = dispatched[0].payload.tags as Record<string, unknown>;
+      const selected = tagsPayload[
+        view === "vocabulary" ? "selectedVocabularyTags" : "selectedStagedTags"
+      ] as string[];
+      assert.deepEqual([...selected].sort(), [...expected].sort());
+      assert.isBelow(mountedTagKeys(mount).length, 100);
+    }
   });
 
   it("dispatches setFilters for search and facet filter controls", function () {

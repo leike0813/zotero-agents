@@ -2061,3 +2061,5 @@ synthesis-operation-retrievalRetryIndex = 検索インデックスを再試行�
 synthesis-operation-retrievalContinueIndex = 検索インデックスの処理を続行しています
 synthesis-operation-retrievalCleanupIndex = 検索インデックスをクリーンアップしています
 synthesis-operation-retrievalRecommendSimilar = 類似論文を検索しています
+synthesis-index-counting = 一致する項目を集計中…
+synthesis-index-count-failed = 一致する項目の集計を完了できませんでした

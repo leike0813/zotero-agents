@@ -282,6 +282,27 @@ function visibleIndexKeys(panels: Array<SynthesisWorkbenchPanel | null>) {
 }
 
 describe("synthesis workbench scaffold (src/synthesis)", function () {
+  it("forwards all Index navigation variants and rejects malformed page numbers", function () {
+    const { deps, actions } = makeControllerDeps();
+    const controller = createSynthesisWorkbenchController(deps);
+    const valid = [
+      { direction: "first" },
+      { direction: "previous" },
+      { direction: "next" },
+      { direction: "last" },
+      { page: 2 },
+    ];
+    for (const payload of valid)
+      controller.dispatch("navigateIndexWindow", payload);
+    for (const page of [0, -1, 1.5, NaN, Infinity, "2"])
+      controller.dispatch("navigateIndexWindow", { page });
+    controller.dispatch("navigateIndexWindow", { direction: "invalid" });
+    assert.deepEqual(
+      actions,
+      valid.map((payload) => ({ action: "navigateIndexWindow", payload })),
+    );
+  });
+
   beforeEach(function () {
     installSidebarDomGlobals(createSidebarDomEnvironment());
   });
@@ -730,6 +751,64 @@ describe("synthesis workbench scaffold (src/synthesis)", function () {
     assert.isNull(graphPanel!.topbar);
     assert.isNull(graphPanel!.chrome);
     assert.isNull(graphPanel!.surface);
+  });
+
+  it("retains the Index table, expansion and scroll across tab returns", async function () {
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+    const renderer = createSynthesisWorkbenchChromeRenderer({
+      root,
+      sendAction: () => undefined,
+      dispatchAction: (action, payload) => controller.dispatch(action, payload),
+    });
+    const controller = createSynthesisWorkbenchController({
+      sendAction: () => undefined,
+      renderPanel: renderer.renderPanel,
+    });
+    const index = makeIndexSnapshot(1, [
+      {
+        paper_ref: "1:KEPT",
+        title: "Synthetic cached paper",
+        reference_count: 1,
+        references: [
+          { reference_instance_id: "ref:kept", title: "Synthetic reference" },
+        ],
+      } as never,
+    ]);
+    index.registry.window = {
+      number: 2,
+      offset: 100,
+      total: 274,
+      hasPrevious: true,
+      hasNext: true,
+      status: "ready",
+      queryStatus: "ready",
+    };
+    controller.handleHostMessage({
+      type: "synthesis:snapshot",
+      payload: index,
+    });
+    controller.handleHostMessage(surfaceMessage("index", 1, index));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const table = root.querySelector<HTMLElement>(".registry-table-wrap")!;
+    const disclosure = root.querySelector<HTMLButtonElement>(
+      ".registry-reference-disclosure",
+    )!;
+    disclosure.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(disclosure.getAttribute("aria-expanded"), "true");
+    table.scrollTop = 240;
+    disclosure.focus();
+    for (const tab of ["tags", "reviews", "overview"]) {
+      controller.dispatch("selectTab", { tab });
+      controller.dispatch("selectTab", { tab: "registry" });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      assert.isTrue(root.querySelector(".registry-table-wrap") === table);
+      assert.equal(table.scrollTop, 240);
+      assert.equal(disclosure.getAttribute("aria-expanded"), "true");
+      assert.isTrue(document.activeElement === disclosure);
+    }
+    renderer.renderPanel(null);
   });
 
   it("renders cached Index rows while returning, loading and failing", function () {

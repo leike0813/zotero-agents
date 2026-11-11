@@ -111,6 +111,8 @@ function RegistryRating(props: {
         stars: rating?.rating || 0,
       });
   const fills = missing ? [1, 1, 1, 1, 1] : rating!.fills;
+  const starPath =
+    "M7 1.5 8.7 5.1 12.7 5.6 9.8 8.4 10.5 12.4 7 10.5 3.5 12.4 4.2 8.4 1.3 5.6 5.3 5.1Z";
   return (
     <span
       class={`registry-rating ${missing ? "is-missing" : ""}`}
@@ -118,17 +120,28 @@ function RegistryRating(props: {
       aria-label={label}
     >
       {fills.map((fill, index) => (
-        <span key={index} class="registry-rating-star" aria-hidden="true">
-          <span class="registry-rating-star-empty">{missing ? "★" : "☆"}</span>
+        <svg
+          key={index}
+          class="registry-rating-star"
+          viewBox="0 0 14 14"
+          aria-hidden="true"
+          focusable="false"
+        >
+          <path
+            d={starPath}
+            fill={missing ? "currentColor" : "none"}
+            stroke="currentColor"
+            stroke-width="1"
+            stroke-linejoin="round"
+          />
           {!missing && fill > 0 ? (
-            <span
-              class="registry-rating-star-fill"
-              style={{ width: `${fill * 100}%` }}
-            >
-              ★
-            </span>
+            <path
+              d={starPath}
+              fill="currentColor"
+              style={{ clipPath: `inset(0 ${(1 - fill) * 100}% 0 0)` }}
+            />
           ) : null}
-        </span>
+        </svg>
       ))}
     </span>
   );
@@ -431,6 +444,7 @@ type RegistryIndexEntry =
     };
 
 export function RegistryIndexTable(props: {
+  active?: boolean;
   selection: SynthesisRegistrySelection;
   t: SynthesisRegistryText;
   expandedRowKeys: ReadonlySet<string>;
@@ -472,6 +486,7 @@ export function RegistryIndexTable(props: {
     selection.filters.artifactCoverage,
   ].join("|");
   const windowed = useWindowedRows(entries, {
+    active: props.active,
     getKey: (entry) => entry.key,
     resetKey,
     estimatedRowHeight: 72,
@@ -616,6 +631,7 @@ function ReferencedSourceCell(props: { source: SynthesisRegistryRowView }) {
 
 /** Legacy renderReferencedOnlyTable (scope === "referenced"). */
 export function RegistryReferencedOnlyTable(props: {
+  active?: boolean;
   selection: SynthesisRegistrySelection;
   t: SynthesisRegistryText;
   onAction: SynthesisRegistryActionSender;
@@ -631,6 +647,7 @@ export function RegistryReferencedOnlyTable(props: {
     selection.filters.bindingStatus,
   ].join("|");
   const windowed = useWindowedRows(entries, {
+    active: props.active,
     getKey: ({ reference }) => reference.referenceInstanceId,
     resetKey,
     estimatedRowHeight: 56,

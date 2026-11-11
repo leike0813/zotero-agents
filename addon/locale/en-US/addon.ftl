@@ -2060,3 +2060,5 @@ synthesis-operation-retrievalRetryIndex = Retrying retrieval index
 synthesis-operation-retrievalContinueIndex = Continuing retrieval index
 synthesis-operation-retrievalCleanupIndex = Cleaning up retrieval index
 synthesis-operation-retrievalRecommendSimilar = Finding similar papers
+synthesis-index-counting = Counting matches…
+synthesis-index-count-failed = Could not finish counting matches

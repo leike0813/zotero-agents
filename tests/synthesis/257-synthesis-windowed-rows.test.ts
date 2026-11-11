@@ -39,12 +39,13 @@ const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 type ProbeRow = { id: string };
 
-function WindowProbe(props: { rows: ProbeRow[] }) {
+function WindowProbe(props: { rows: ProbeRow[]; active?: boolean }) {
   const windowed = useWindowedRows(props.rows, {
     getKey: (row) => row.id,
     resetKey: props.rows.map((row) => row.id).join("|"),
     estimatedRowHeight: 40,
     overscanPx: 80,
+    active: props.active,
   });
   const children = [
     h(WindowedGridSpacer, { height: windowed.topSpacerHeight }),
@@ -242,6 +243,43 @@ function makeRegistrySelection(rows: SynthesisWorkbenchRegistryRow[]) {
 const MAX_WINDOWED_ROWS = 32;
 
 describe("synthesis measured row window", function () {
+  it("cancels queued frame work while hidden and restores the same scroll viewport", async function () {
+    const runtime = globalThis as any;
+    const previousRequest = runtime.requestAnimationFrame;
+    const previousCancel = runtime.cancelAnimationFrame;
+    let queued: (() => void) | undefined;
+    const canceled: number[] = [];
+    runtime.requestAnimationFrame = (callback: () => void) => {
+      queued = callback;
+      return 123;
+    };
+    runtime.cancelAnimationFrame = (id: number) => canceled.push(id);
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+    const rows = Array.from({ length: 300 }, (_, index) => ({
+      id: `row-${index}`,
+    }));
+    try {
+      render(h(WindowProbe, { rows, active: true }), root);
+      const viewport = root.querySelector<HTMLElement>(".window-probe")!;
+      viewport.scrollTop = 5000;
+      viewport.dispatchEvent(new window.Event("scroll", { bubbles: true }));
+      render(h(WindowProbe, { rows, active: false }), root);
+      assert.deepEqual(canceled, [123]);
+      queued?.();
+      await flush();
+      render(h(WindowProbe, { rows, active: true }), root);
+      await flush();
+      assert.isTrue(root.querySelector(".window-probe") === viewport);
+      assert.equal(viewport.scrollTop, 5000);
+      assert.ok(viewport.querySelector('[data-windowed-row-key="row-125"]'));
+    } finally {
+      render(null, root);
+      runtime.requestAnimationFrame = previousRequest;
+      runtime.cancelAnimationFrame = previousCancel;
+    }
+  });
+
   beforeEach(function () {
     installSidebarDomGlobals(createSidebarDomEnvironment());
   });
@@ -285,6 +323,23 @@ describe("synthesis measured row window", function () {
       viewport.querySelector(".synthesis-window-spacer"),
       "a spacer preserves the remote range",
     );
+  });
+
+  it("keeps whole half empty and missing ratings accessible in the Index", function () {
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+    const rows = [80, 65, 0, undefined].map((ratingScore, index) => ({
+      ...makeRegistryRow(index),
+      ratingScore,
+    }));
+    render(registryIndexVNode(rows, new Set()), root);
+    const ratings = Array.from(
+      root.querySelectorAll<HTMLElement>(".registry-rating"),
+    );
+    assert.equal(ratings.length, 4);
+    assert.match(ratings[1].getAttribute("aria-label") || "", /65/);
+    assert.isTrue(ratings[3].classList.contains("is-missing"));
+    render(null, root);
   });
 
   it("windows the Topics list and emits an upper spacer after scrolling", async function () {
@@ -752,6 +807,15 @@ describe("synthesis measured row window", function () {
       "page jumps stay disabled until the matching range is known",
     );
     assert.ok(footer.querySelector(".button-spinner"));
+    assert.isNull(
+      footer.querySelector(".registry-index-page-control .button-spinner"),
+      "counting must not replace the total-page field",
+    );
+    assert.include(
+      footer.querySelector(".registry-index-page-control")!.textContent,
+      "3",
+      "a known total remains visible while counting",
+    );
     assert.isNull(root.querySelector(".registry-page-loading"));
 
     draw({

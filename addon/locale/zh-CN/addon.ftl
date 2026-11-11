@@ -2060,3 +2060,5 @@ synthesis-operation-retrievalRetryIndex = 正在重试检索索引任务
 synthesis-operation-retrievalContinueIndex = 正在继续检索索引任务
 synthesis-operation-retrievalCleanupIndex = 正在清理检索索引
 synthesis-operation-retrievalRecommendSimilar = 正在查找相似文献
+synthesis-index-counting = 正在统计匹配条目…
+synthesis-index-count-failed = 未能完成匹配条目统计

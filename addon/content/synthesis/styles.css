@@ -673,17 +673,20 @@ button.is-busy {
   min-height: 0;
 }
 
-.workbench-graph-surface {
+.workbench-graph-surface,
+.workbench-index-surface {
   width: 100%;
   height: 100%;
 }
 
-.workbench-graph-surface.is-active {
+.workbench-graph-surface.is-active,
+.workbench-index-surface.is-active {
   position: relative;
   visibility: visible;
 }
 
-.workbench-graph-surface.is-inactive {
+.workbench-graph-surface.is-inactive,
+.workbench-index-surface.is-inactive {
   position: absolute;
   inset: 16px;
   visibility: hidden;
@@ -1014,6 +1017,14 @@ button.is-busy {
 }
 
 .registry-index-page-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--zs-muted);
+  font-size: var(--zs-text-sm);
+}
+
+.registry-index-count-status {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -3056,23 +3067,9 @@ th {
 }
 
 .registry-rating-star {
-  position: relative;
-  display: inline-block;
+  display: block;
   width: 14px;
   height: 16px;
-  line-height: 16px;
-}
-
-.registry-rating-star-empty,
-.registry-rating-star-fill {
-  position: absolute;
-  inset: 0;
-  overflow: hidden;
-}
-
-.registry-rating-star-fill {
-  color: var(--zs-accent);
-  white-space: nowrap;
 }
 
 .registry-rating.is-missing {

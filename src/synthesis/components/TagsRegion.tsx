@@ -11,6 +11,7 @@ import type {
   SynthesisWorkbenchMessageKey,
   SynthesisWorkbenchTagsFilters,
 } from "../../shared/synthesisWorkbenchWireContract";
+import { useWindowedRows, WindowedTableSpacer } from "./windowedRows";
 
 // Tags surface of the synthesis workbench page (tags tab): the summary bar
 // with the vocabulary/staged subview switch, the vocabulary table with inline
@@ -721,13 +722,21 @@ function TagsTableShell(props: {
   headers: string[];
   isEmpty: boolean;
   emptyState: ComponentChildren;
+  scrollRef: (node: HTMLElement | null) => void;
+  onScroll: (event: Event) => void;
+  onFocusIn: (event: FocusEvent) => void;
   children?: ComponentChildren;
 }) {
   if (props.isEmpty) {
     return <Fragment>{props.emptyState}</Fragment>;
   }
   return (
-    <div class={`tags-table-wrap ${props.className}`}>
+    <div
+      class={`tags-table-wrap ${props.className}`}
+      ref={props.scrollRef}
+      onScroll={props.onScroll}
+      onFocusIn={props.onFocusIn}
+    >
       <table class="tags-table">
         <thead>
           <tr>
@@ -736,10 +745,34 @@ function TagsTableShell(props: {
             ))}
           </tr>
         </thead>
-        <tbody>{props.children}</tbody>
+        {props.children}
       </table>
     </div>
   );
+}
+
+function TagWindowGroup(props: {
+  rowKey: string;
+  measureRow: (key: string, node: HTMLElement | null) => void;
+  children?: ComponentChildren;
+}) {
+  return (
+    <tbody
+      key={props.rowKey}
+      data-windowed-row-key={props.rowKey}
+      ref={(node) => props.measureRow(props.rowKey, node)}
+    >
+      {props.children}
+    </tbody>
+  );
+}
+
+function TagWindowSpacer(props: { height: number; colSpan: number }) {
+  return props.height > 0 ? (
+    <tbody class="synthesis-window-spacer-group" aria-hidden="true">
+      <WindowedTableSpacer height={props.height} colSpan={props.colSpan} />
+    </tbody>
+  ) : null;
 }
 
 function FilterSelect(props: {
@@ -1272,6 +1305,13 @@ function VocabularySubview(
   const { t, selection, pendingKeys, onAction } = props;
   const handlers = useTagSelectionHandlers(props);
   const visibleTags = selection.vocabularyRows.map((row) => textValue(row.tag));
+  const windowed = useWindowedRows(selection.vocabularyRows, {
+    getKey: (row) => textValue(row.tag),
+    resetKey: [selection.search, selection.facet, selection.status].join(
+      "\u0001",
+    ),
+    estimatedRowHeight: selection.density === "compact" ? 44 : 52,
+  });
   const selectedVisible = selection.selectedVocabularyTags.filter((tag) =>
     visibleTags.includes(tag),
   );
@@ -1408,6 +1448,9 @@ function VocabularySubview(
         className="tags-vocabulary-table"
         headers={["", ...VOCABULARY_HEADER_KEYS.map((key) => t(key))]}
         isEmpty={!selection.vocabularyRows.length}
+        scrollRef={windowed.scrollRef}
+        onScroll={windowed.onScroll}
+        onFocusIn={windowed.onFocusIn}
         emptyState={
           selection.rowCount ? (
             <EmptyState
@@ -1433,7 +1476,11 @@ function VocabularySubview(
           )
         }
       >
-        {selection.vocabularyRows.map((row) => {
+        <TagWindowSpacer
+          height={windowed.topSpacerHeight}
+          colSpan={VOCABULARY_HEADER_KEYS.length + 1}
+        />
+        {windowed.visibleRows.flatMap(({ item: row, key }, visibleIndex) => {
           const tag = textValue(row.tag);
           const rowKey = expandedRowKey("vocabulary", tag);
           const isEditing = editing?.originalTag === tag;
@@ -1451,41 +1498,57 @@ function VocabularySubview(
                 facet: textValue(row.facet, "topic"),
                 note: textValue(row.note),
               };
-          return (
-            <VocabularyTableRow
-              key={tag}
-              t={t}
-              row={row}
-              selected={selectedVisible.includes(tag)}
-              expanded={selection.expandedRows[rowKey] === true}
-              editing={isEditing}
-              draft={draft}
-              facetOptions={tagFacetOptions(selection.facets, row.facet)}
-              onToggleSelected={(checked) =>
-                handlers.toggle("selectedVocabularyTags", tag, checked)
-              }
-              onToggleExpanded={() => handlers.toggleExpanded(rowKey)}
-              onBeginEdit={() =>
-                setVocabularyDraft(row, {
-                  tag,
-                  facet: textValue(row.facet, "topic"),
-                  note: textValue(row.note),
-                })
-              }
-              onCommitDraft={(next) => setVocabularyDraft(row, next)}
-              onApplyDraft={(next) => applyVocabularyDraft(row, next)}
-              onDelete={() => {
-                if (!window.confirm(`Delete vocabulary tag "${tag}"?`)) {
-                  return;
+          return [
+            <TagWindowGroup
+              key={key}
+              rowKey={key}
+              measureRow={windowed.measureRow}
+            >
+              <VocabularyTableRow
+                t={t}
+                row={row}
+                selected={selectedVisible.includes(tag)}
+                expanded={selection.expandedRows[rowKey] === true}
+                editing={isEditing}
+                draft={draft}
+                facetOptions={tagFacetOptions(selection.facets, row.facet)}
+                onToggleSelected={(checked) =>
+                  handlers.toggle("selectedVocabularyTags", tag, checked)
                 }
-                onAction("hostCommand", {
-                  command: "deleteTagVocabularyEntry",
-                  args: { originalTag: tag, tag },
-                });
-              }}
-            />
-          );
+                onToggleExpanded={() => handlers.toggleExpanded(rowKey)}
+                onBeginEdit={() =>
+                  setVocabularyDraft(row, {
+                    tag,
+                    facet: textValue(row.facet, "topic"),
+                    note: textValue(row.note),
+                  })
+                }
+                onCommitDraft={(next) => setVocabularyDraft(row, next)}
+                onApplyDraft={(next) => applyVocabularyDraft(row, next)}
+                onDelete={() => {
+                  if (!window.confirm(`Delete vocabulary tag "${tag}"?`)) {
+                    return;
+                  }
+                  onAction("hostCommand", {
+                    command: "deleteTagVocabularyEntry",
+                    args: { originalTag: tag, tag },
+                  });
+                }}
+              />
+            </TagWindowGroup>,
+            windowed.middleSpacerAfter === visibleIndex ? (
+              <TagWindowSpacer
+                key={`${key}-middle`}
+                height={windowed.middleSpacerHeight}
+                colSpan={VOCABULARY_HEADER_KEYS.length + 1}
+              />
+            ) : null,
+          ];
         })}
+        <TagWindowSpacer
+          height={windowed.bottomSpacerHeight}
+          colSpan={VOCABULARY_HEADER_KEYS.length + 1}
+        />
       </TagsTableShell>
       <TagImportPanel
         t={t}
@@ -1701,6 +1764,11 @@ function StagedInboxSubview(props: SubviewProps) {
   const { t, selection, pendingKeys, onAction } = props;
   const handlers = useTagSelectionHandlers(props);
   const visibleTags = selection.stagedRows.map((row) => textValue(row.tag));
+  const windowed = useWindowedRows(selection.stagedRows, {
+    getKey: (row) => textValue(row.tag),
+    resetKey: [selection.stagedSearch, selection.stagedFacet].join("\u0001"),
+    estimatedRowHeight: selection.density === "compact" ? 52 : 60,
+  });
   const selectedVisible = selection.selectedStagedTags.filter((tag) =>
     visibleTags.includes(tag),
   );
@@ -1834,6 +1902,9 @@ function StagedInboxSubview(props: SubviewProps) {
         className="tags-staged-table"
         headers={["", ...STAGED_HEADER_KEYS.map((key) => t(key))]}
         isEmpty={!selection.stagedRows.length}
+        scrollRef={windowed.scrollRef}
+        onScroll={windowed.onScroll}
+        onFocusIn={windowed.onFocusIn}
         emptyState={
           <EmptyState
             title={
@@ -1850,7 +1921,11 @@ function StagedInboxSubview(props: SubviewProps) {
           />
         }
       >
-        {selection.stagedRows.map((row) => {
+        <TagWindowSpacer
+          height={windowed.topSpacerHeight}
+          colSpan={STAGED_HEADER_KEYS.length + 1}
+        />
+        {windowed.visibleRows.flatMap(({ item: row, key }, visibleIndex) => {
           const tag = textValue(row.tag);
           const rowKey = expandedRowKey("staged", tag);
           const edit = selection.editingStagedTag;
@@ -1869,26 +1944,42 @@ function StagedInboxSubview(props: SubviewProps) {
                   facet: textValue(row.facet, "topic"),
                   note: textValue(row.note),
                 };
-          return (
-            <StagedTableRow
-              key={tag}
-              t={t}
-              row={row}
-              selected={selectedVisible.includes(tag)}
-              expanded={selection.expandedRows[rowKey] === true}
-              draft={draft}
-              facetOptions={tagFacetOptions(selection.facets, row.facet)}
-              editState={stagedEditStateView(selection, pendingKeys, tag)}
-              pendingKeys={pendingKeys}
-              onAction={onAction}
-              onToggleSelected={(checked) =>
-                handlers.toggle("selectedStagedTags", tag, checked)
-              }
-              onToggleExpanded={() => handlers.toggleExpanded(rowKey)}
-              onCommitDraft={(next) => persistStagedDraft(row, next)}
-            />
-          );
+          return [
+            <TagWindowGroup
+              key={key}
+              rowKey={key}
+              measureRow={windowed.measureRow}
+            >
+              <StagedTableRow
+                t={t}
+                row={row}
+                selected={selectedVisible.includes(tag)}
+                expanded={selection.expandedRows[rowKey] === true}
+                draft={draft}
+                facetOptions={tagFacetOptions(selection.facets, row.facet)}
+                editState={stagedEditStateView(selection, pendingKeys, tag)}
+                pendingKeys={pendingKeys}
+                onAction={onAction}
+                onToggleSelected={(checked) =>
+                  handlers.toggle("selectedStagedTags", tag, checked)
+                }
+                onToggleExpanded={() => handlers.toggleExpanded(rowKey)}
+                onCommitDraft={(next) => persistStagedDraft(row, next)}
+              />
+            </TagWindowGroup>,
+            windowed.middleSpacerAfter === visibleIndex ? (
+              <TagWindowSpacer
+                key={`${key}-middle`}
+                height={windowed.middleSpacerHeight}
+                colSpan={STAGED_HEADER_KEYS.length + 1}
+              />
+            ) : null,
+          ];
         })}
+        <TagWindowSpacer
+          height={windowed.bottomSpacerHeight}
+          colSpan={STAGED_HEADER_KEYS.length + 1}
+        />
       </TagsTableShell>
     </div>
   );

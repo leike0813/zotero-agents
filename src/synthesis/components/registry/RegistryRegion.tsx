@@ -330,6 +330,8 @@ type RegistryRegionProps = {
   t: SynthesisRegistryText;
   onAction: SynthesisRegistryActionSender;
   reviewHandlers: SynthesisRegistryReviewHandlers;
+  active?: boolean;
+  ownerKey?: string;
 };
 
 export const RegistryRegion = memo(
@@ -347,6 +349,7 @@ export const RegistryRegion = memo(
       );
       if (table) table.scrollTop = 0;
     }, [
+      props.ownerKey,
       selection.filters.scope,
       selection.filters.search,
       selection.filters.artifactCoverage,
@@ -428,18 +431,21 @@ export const RegistryRegion = memo(
         </RegistryPanelToolbar>
         {canonicalToolActive ? (
           <CanonicalRevisionWorkbench
+            active={props.active}
             selection={selection}
             t={t}
             onAction={onAction}
           />
         ) : selection.filters.scope === "referenced" ? (
           <RegistryReferencedOnlyTable
+            active={props.active}
             selection={selection}
             t={t}
             onAction={onAction}
           />
         ) : (
           <RegistryIndexTable
+            active={props.active}
             selection={selection}
             t={t}
             expandedRowKeys={expandedRowKeys}
@@ -506,11 +512,7 @@ export const RegistryRegion = memo(
                 onBlur={(event) => commitPage(event.currentTarget)}
               />
               <span aria-hidden="true">/</span>
-              {queryLoading ? (
-                <span class="button-spinner" aria-hidden="true" />
-              ) : (
-                <span>{totalPages ?? "—"}</span>
-              )}
+              <span>{totalPages ?? "—"}</span>
             </label>
             {(["next", "last"] as const).map((direction) => (
               <button
@@ -551,6 +553,18 @@ export const RegistryRegion = memo(
                 />
               </button>
             ))}
+            {queryLoading || indexWindow.queryStatus === "failed" ? (
+              <span class="registry-index-count-status" role="status">
+                {queryLoading ? (
+                  <span class="button-spinner" aria-hidden="true" />
+                ) : null}
+                {t(
+                  queryLoading
+                    ? "synthesis-index-counting"
+                    : "synthesis-index-count-failed",
+                )}
+              </span>
+            ) : null}
           </nav>
         ) : null}
         {canonicalToolActive ? null : (
@@ -565,6 +579,8 @@ export const RegistryRegion = memo(
     );
   },
   (prev, next) =>
+    prev.active === next.active &&
+    prev.ownerKey === next.ownerKey &&
     prev.t === next.t &&
     prev.onAction === next.onAction &&
     prev.reviewHandlers.onQueueReferenceDecision ===

@@ -4,6 +4,8 @@ export const SYNTHESIS_WORKBENCH_DEFAULT_MESSAGES = {
   "synthesis-index-next-window": "Next page",
   "synthesis-index-last-page": "Last page",
   "synthesis-index-page-number": "Page number",
+  "synthesis-index-counting": "Counting matches…",
+  "synthesis-index-count-failed": "Could not finish counting matches",
   "synthesis-graph-kind-unresolved": "Unresolved",
   "synthesis-graph-field-signal": "Signal",
   "synthesis-graph-signal-normal": "Normal",

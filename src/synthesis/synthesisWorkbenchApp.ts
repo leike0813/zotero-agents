@@ -178,7 +178,13 @@ function isActionPayload<Action extends SynthesisWorkbenchActionName>(
 ): payload is SynthesisWorkbenchActionPayload<Action> {
   switch (action) {
     case "navigateIndexWindow":
-      return payload.direction === "previous" || payload.direction === "next";
+      return (
+        payload.direction === "first" ||
+        payload.direction === "previous" ||
+        payload.direction === "next" ||
+        payload.direction === "last" ||
+        (Number.isSafeInteger(payload.page) && Number(payload.page) > 0)
+      );
     case "selectTab":
       return isWorkbenchTab(payload.tab);
     case "hostCommand":

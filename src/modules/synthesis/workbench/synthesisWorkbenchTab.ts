@@ -208,6 +208,8 @@ type SynthesisWorkbenchRuntime = {
     pageRefs: string[];
     queryFailed: boolean;
     pageLoading?: Promise<void>;
+    scanCursor: string;
+    total?: number;
     acceptedInput?: SynthesisUiSnapshotInput;
   };
   libraryReadModelDirtyTimer?: ReturnType<typeof setTimeout>;
@@ -502,7 +504,7 @@ function resolveSynthesisPageUrl() {
   if (!addonRef) {
     return "about:blank";
   }
-  return `chrome://${addonRef}/content/synthesis/index.html?ui=20261019-planned-topic-actions-v1`;
+  return `chrome://${addonRef}/content/synthesis/index.html?ui=20261111-index-tags-v1`;
 }
 
 function resolveWorkflowHostWindow(argsWindow?: _ZoteroTypes.MainWindow) {
@@ -994,6 +996,7 @@ function surfaceNeedsServiceRefresh(
     (surface === "index" &&
       !runtime.snapshotInputLocked &&
       (!runtime.indexState?.windowReady ||
+        !runtime.indexState.complete ||
         runtime.indexState.identity !== indexIdentity(runtime) ||
         runtime.indexState.generation !== runtime.indexGeneration)) ||
     !cachedSurfaceInput(runtime, surface) ||
@@ -2311,7 +2314,6 @@ function indexCurrent(
   return (
     !runtime.cleanedUp &&
     !state.queryFailed &&
-    isActiveSurface(runtime, "index") &&
     runtime.indexState === state &&
     runtime.indexGeneration === state.generation &&
     state.identity === indexIdentity(runtime)
@@ -2354,13 +2356,21 @@ function publishIndex(
     surface: "index",
     request,
     requestId: request.requestId,
-    snapshot: snapshotForRuntime(runtime),
+    snapshot: snapshotForRuntime({
+      ...runtime,
+      state: { ...runtime.state, selectedTab: "registry" },
+    }),
   });
 }
 
 async function hydrateIndex(runtime: SynthesisWorkbenchRuntime) {
   const state = runtime.indexState;
-  if (!state || !indexCurrent(runtime, state) || runtime.snapshotInputLocked)
+  if (
+    !state ||
+    !indexCurrent(runtime, state) ||
+    !isActiveSurface(runtime, "index") ||
+    runtime.snapshotInputLocked
+  )
     return;
   if (state.pending.size) return;
   const expanded = new Set(
@@ -2464,7 +2474,7 @@ async function hydrateIndex(runtime: SynthesisWorkbenchRuntime) {
 
 function updateIndexWindow(runtime: SynthesisWorkbenchRuntime) {
   const state = runtime.indexState!;
-  const total = state.complete ? state.count : null;
+  const total = state.complete ? state.count : (state.total ?? null);
   state.input = {
     ...state.input,
     registry: {
@@ -2532,6 +2542,7 @@ async function fillIndexPage(runtime: SynthesisWorkbenchRuntime) {
     const client = await getDefaultSynthesisClient();
     while (
       indexCurrent(runtime, state) &&
+      isActiveSurface(runtime, "index") &&
       pageGeneration === state.pageGeneration
     ) {
       const rows = state.input.registry?.rows || [];
@@ -2609,11 +2620,12 @@ async function scanIndex(
 ) {
   const state = runtime.indexState!;
   const pageGeneration = state.pageGeneration;
-  let cursor = "";
-  let count = 0;
+  let cursor = locatePage ? "" : state.scanCursor;
+  let count = locatePage ? 0 : state.count;
   const client = await getDefaultSynthesisClient();
   while (
     indexCurrent(runtime, state) &&
+    isActiveSurface(runtime, "index") &&
     (!locatePage || pageGeneration === state.pageGeneration)
   ) {
     const result = await client.workbench.readSurface({
@@ -2643,6 +2655,7 @@ async function scanIndex(
         reason: "basis_mismatch",
       });
     state.basis = page.basis;
+    if (typeof page.total === "number") state.total = page.total;
     const projected = toSynthesisUiSnapshotInput(result);
     state.input = {
       ...state.input,
@@ -2679,6 +2692,12 @@ async function scanIndex(
     if (!locatePage) {
       state.count = count;
       state.complete = !page.hasMore;
+      if (page.hasMore && (!page.nextCursor || page.nextCursor === cursor))
+        throw new SynthesisClientError(
+          "internal",
+          "Invalid Index continuation",
+        );
+      state.scanCursor = page.nextCursor;
     }
     const inlineRows = (projected.registry?.rows || []).filter((row) =>
       state.pageRefs.includes(row.paper_ref),
@@ -2727,50 +2746,60 @@ async function readIndex(
   request: SurfaceRefreshRequestMeta,
 ) {
   const identity = indexIdentity(runtime);
-  if (
+  const resume = Boolean(
     runtime.indexState &&
     indexCurrent(runtime, runtime.indexState) &&
-    !runtime.dirtySurfaces.has("index")
-  ) {
-    publishIndex(runtime, request);
-    return;
-  }
+    !runtime.dirtySurfaces.has("index"),
+  );
   const cached = !runtime.dirtySurfaces.has("index")
     ? indexSessions.get(identity)?.entry
     : undefined;
   const previousInput = runtime.snapshotInput;
-  const generation = (runtime.indexGeneration || 0) + 1;
+  const generation = resume
+    ? runtime.indexGeneration!
+    : (runtime.indexGeneration || 0) + 1;
   runtime.indexGeneration = generation;
-  const state: NonNullable<SynthesisWorkbenchRuntime["indexState"]> =
-    (runtime.indexState = {
-      identity,
-      generation,
-      pending: new Set<string>(),
-      input: cached?.pages.get(0) || {
-        libraryId: previousInput?.libraryId || 0,
-      },
-      basis: cached?.basis,
-      complete: cached?.complete || false,
-      hydrated: (cached?.pages.get(0)?.registry?.rows || [])
-        .filter(
-          (row) => row.references !== undefined || row.reference_count === 0,
-        )
-        .map((row) => row.paper_ref),
-      refs: cached?.complete ? cached.refs.slice() : [],
-      count: cached?.complete ? cached.count : 0,
-      directoryBytes: cached?.complete ? cached.directoryBytes : 0,
-      directoryComplete: cached?.complete ? cached.directoryComplete : true,
-      pages: cached?.complete
-        ? new Map(cached.pages)
-        : new Map<number, SynthesisUiSnapshotInput>(),
-      windowReady: Boolean(cached?.complete && cached.pages.has(0)),
-      windowIndex: 0,
-      pageGeneration: 0,
-      pageRefs: cached?.complete ? cached.refs.slice(0, INDEX_PAGE_SIZE) : [],
-      queryFailed: false,
-      pageLoading: undefined as Promise<void> | undefined,
-    });
+  const state: NonNullable<SynthesisWorkbenchRuntime["indexState"]> = resume
+    ? runtime.indexState!
+    : (runtime.indexState = {
+        identity,
+        generation,
+        pending: new Set<string>(),
+        input: cached?.pages.get(0) || {
+          libraryId: previousInput?.libraryId || 0,
+        },
+        basis: cached?.basis,
+        complete: cached?.complete || false,
+        hydrated: (cached?.pages.get(0)?.registry?.rows || [])
+          .filter(
+            (row) => row.references !== undefined || row.reference_count === 0,
+          )
+          .map((row) => row.paper_ref),
+        refs: cached?.complete ? cached.refs.slice() : [],
+        count: cached?.complete ? cached.count : 0,
+        directoryBytes: cached?.complete ? cached.directoryBytes : 0,
+        directoryComplete: cached?.complete ? cached.directoryComplete : true,
+        pages: cached?.complete
+          ? new Map(cached.pages)
+          : new Map<number, SynthesisUiSnapshotInput>(),
+        windowReady: Boolean(cached?.complete && cached.pages.has(0)),
+        windowIndex: 0,
+        pageGeneration: 0,
+        pageRefs: cached?.complete ? cached.refs.slice(0, INDEX_PAGE_SIZE) : [],
+        queryFailed: false,
+        pageLoading: undefined as Promise<void> | undefined,
+        scanCursor: "",
+        total: cached?.pages.get(0)?.registry?.window?.total ?? undefined,
+      });
   try {
+    if (resume) {
+      publishIndex(runtime, request);
+      await fillIndexPage(runtime);
+      if (!indexCurrent(runtime, state)) return;
+      if (!state.complete) await scanIndex(runtime);
+      void hydrateIndex(runtime);
+      return;
+    }
     if (cached && !state.complete) {
       updateIndexWindow(runtime);
       publishIndex(runtime, request);
@@ -2778,6 +2807,7 @@ async function readIndex(
     if (state.complete) {
       updateIndexWindow(runtime);
       if (!state.windowReady) await fillIndexPage(runtime);
+      if (!indexCurrent(runtime, state)) return;
       publishIndex(runtime, request);
       void hydrateIndex(runtime);
       return;
@@ -3077,8 +3107,12 @@ async function sendSurface(
       state &&
       indexCurrent(runtime, state) &&
       !runtime.dirtySurfaces.has(surface)
-    )
+    ) {
+      const request = currentSurfaceRequest(runtime, "index");
+      if (request) publishIndex(runtime, request);
+      runtime.queuedServiceSurfaceRefreshes.add(surface);
       return inFlight;
+    }
     // A hidden or invalidated owner must not block its replacement on old RPCs.
     runtime.indexGeneration = (runtime.indexGeneration || 0) + 1;
     delete runtime.inFlightSurfaceRefreshes[surface];
@@ -4158,12 +4192,6 @@ function handleAction(
         ["role", "topicId", "nodeKinds", "showLowSignalReferences"].some(
           (field) => field in (envelope.payload || {}),
         )));
-  if (
-    previousState.selectedTab === "registry" &&
-    runtime.state.selectedTab !== "registry"
-  ) {
-    runtime.indexGeneration = (runtime.indexGeneration || 0) + 1;
-  }
   if (graphQueryChanged) {
     void sendSurface(runtime, "graph", { refreshFromService: true });
     return;

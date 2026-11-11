@@ -70,6 +70,7 @@ export function projectRegistrySelection(
     unavailableLabel: t("synthesis-index-unavailable"),
   };
   return {
+    libraryId: snapshot.libraryId,
     window: registry?.window,
     activeIndexTool: registry?.filters.activeIndexTool || "none",
     filters: {

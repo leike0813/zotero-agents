@@ -293,6 +293,7 @@ export type SynthesisRegistryStrings = {
  * snapshot section.
  */
 export type SynthesisRegistrySelection = {
+  libraryId?: number;
   window?: SynthesisWorkbenchIndexWindow;
   activeIndexTool: string;
   filters: {

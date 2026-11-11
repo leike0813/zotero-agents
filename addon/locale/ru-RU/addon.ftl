@@ -2059,3 +2059,5 @@ synthesis-operation-retrievalRetryIndex = Повторная попытка дл
 synthesis-operation-retrievalContinueIndex = Продолжение работы поискового индекса
 synthesis-operation-retrievalCleanupIndex = Очистка поискового индекса
 synthesis-operation-retrievalRecommendSimilar = Поиск похожих статей
+synthesis-index-counting = Подсчёт совпадений…
+synthesis-index-count-failed = Не удалось завершить подсчёт совпадений

@@ -40,6 +40,7 @@ export type WindowedRowsOptions<T> = {
   resetKey: string;
   estimatedRowHeight: number;
   overscanPx?: number;
+  active?: boolean;
 };
 
 const DEFAULT_OVERSCAN_PX = 480;
@@ -79,6 +80,9 @@ export function useWindowedRows<T>(
   items: readonly T[],
   options: WindowedRowsOptions<T>,
 ): WindowedRows<T> {
+  const active = options.active !== false;
+  const activeRef = useRef(active);
+  activeRef.current = active;
   const estimatedRowHeight = positiveHeight(options.estimatedRowHeight, 48);
   const overscanPx = positiveHeight(
     options.overscanPx || DEFAULT_OVERSCAN_PX,
@@ -127,6 +131,7 @@ export function useWindowedRows<T>(
   }, [options.resetKey, keys]);
 
   useLayoutEffect(() => {
+    if (!active) return;
     const node = scrollNodeRef.current;
     if (appliedResetKeyRef.current !== options.resetKey) {
       appliedResetKeyRef.current = options.resetKey;
@@ -204,8 +209,9 @@ export function useWindowedRows<T>(
   });
 
   useLayoutEffect(() => {
-    if (typeof ResizeObserver !== "function") return;
+    if (!active || typeof ResizeObserver !== "function") return;
     const observer = new ResizeObserver((entries) => {
+      if (!activeRef.current) return;
       let changed = false;
       for (const entry of entries) {
         const key = entry.target.getAttribute("data-windowed-row-key") || "";
@@ -229,7 +235,16 @@ export function useWindowedRows<T>(
       observer.disconnect();
       observerRef.current = null;
     };
-  }, [estimatedRowHeight, options.resetKey]);
+  }, [active, estimatedRowHeight, options.resetKey]);
+
+  useLayoutEffect(() => {
+    const node = scrollNodeRef.current;
+    if (active && node)
+      setViewport({
+        top: node.scrollTop,
+        height: Math.max(1, node.clientHeight || 720),
+      });
+  }, [active]);
 
   const scrollRef = useCallback((node: HTMLElement | null) => {
     scrollNodeRef.current = node;
@@ -250,13 +265,14 @@ export function useWindowedRows<T>(
       ) {
         cancelAnimationFrame(scrollRafRef.current);
       }
+      scrollRafRef.current = null;
     },
-    [],
+    [active],
   );
 
   const onScroll = useCallback((event: Event) => {
     const node = event.currentTarget as HTMLElement | null;
-    if (!node) return;
+    if (!node || !activeRef.current) return;
     // Coalesce scroll bursts into one viewport update per frame.
     if (scrollRafRef.current !== null) return;
     if (typeof requestAnimationFrame !== "function") {
@@ -268,6 +284,7 @@ export function useWindowedRows<T>(
     }
     scrollRafRef.current = requestAnimationFrame(() => {
       scrollRafRef.current = null;
+      if (!activeRef.current) return;
       setViewport({
         top: Math.max(0, node.scrollTop),
         height: Math.max(1, node.clientHeight || 720),
@@ -294,6 +311,7 @@ export function useWindowedRows<T>(
         return;
       }
       nodesRef.current.set(normalizedKey, node);
+      if (!activeRef.current) return;
       const height = positiveHeight(
         node.getBoundingClientRect().height || node.offsetHeight,
         estimatedRowHeight,

@@ -25,6 +25,7 @@ import { ReaderRegion } from "./components/reader/ReaderRegion";
 import { GraphRegion } from "./components/graph/GraphRegion";
 import type { CitationGraphVendors } from "./components/graph/sigmaIsland";
 import type { SynthesisGraphRegionSelection } from "./components/graph/GraphRegion";
+import type { SynthesisRegistrySelection } from "./components/registry/registryTypes";
 import { createSynthesisWorkbenchText } from "./synthesisWorkbenchPanelModel";
 import { equalBySignature } from "../shared/regionEquality";
 
@@ -215,8 +216,12 @@ function SurfacePlaceholder(props: {
   );
 }
 
-function setGraphMountActive(mount: HTMLElement, active: boolean): void {
-  mount.classList.add("workbench-graph-surface");
+function setPersistentSurfaceActive(
+  mount: HTMLElement,
+  active: boolean,
+  className: string,
+): void {
+  mount.classList.add(className);
   mount.classList.toggle("is-active", active);
   mount.classList.toggle("is-inactive", !active);
   mount.removeAttribute("hidden");
@@ -238,6 +243,9 @@ export function createSynthesisWorkbenchChromeRenderer(
   let i18n: SynthesisWorkbenchPanel["i18n"];
   let translate: ReturnType<typeof createSynthesisWorkbenchText>;
   let graphSelection: SynthesisGraphRegionSelection | undefined;
+  let indexSelection: SynthesisRegistrySelection | undefined;
+  let indexOwner = "";
+  let indexFocus: HTMLElement | undefined;
   const reviewHandlers = {
     onQueueReferenceDecision: (proposalId: string, action: string) =>
       deps.dispatchAction("queueReferenceDecision", { proposalId, action }),
@@ -282,6 +290,37 @@ export function createSynthesisWorkbenchChromeRenderer(
   const handleOpenSidecarDiagnostics = () => {
     deps.dispatchAction("openSynthesisSidecarDiagnostics", {});
   };
+
+  function renderSurfaceContent(
+    content: Parameters<typeof render>[0],
+    mount: HTMLElement,
+    panel: SynthesisWorkbenchPanel | null,
+  ) {
+    try {
+      render(content, mount);
+    } catch (error) {
+      console.error("surface_render_failed", error);
+      render(
+        panel?.surface
+          ? h(SurfacePlaceholder, {
+              selection: {
+                ...panel.surface,
+                status: "failed",
+                title: translate
+                  ? translate("synthesis-surface-error-label")
+                  : "Loading Synthesis surface",
+                subtitle: translate
+                  ? translate("synthesis-surface-error-message")
+                  : "Surface failed to load.",
+                isError: true,
+              },
+              errorCode: "surface_render_failed",
+            })
+          : null,
+        mount,
+      );
+    }
+  }
 
   function renderPanel(panel: SynthesisWorkbenchPanel | null): void {
     const root =
@@ -352,6 +391,7 @@ export function createSynthesisWorkbenchChromeRenderer(
     }
     const surfaceMount = ensureRegionMount(skeleton.main, "surface");
     const graphMount = ensureRegionMount(skeleton.main, "graph-surface");
+    const indexMount = ensureRegionMount(skeleton.main, "index-surface");
     if (panel?.i18n && !equalBySignature(i18n, panel.i18n)) {
       i18n = panel.i18n;
       translate = createSynthesisWorkbenchText(i18n);
@@ -364,7 +404,11 @@ export function createSynthesisWorkbenchChromeRenderer(
       if (business?.surface === "graph") {
         graphSelection = business.selection;
       }
-      setGraphMountActive(graphMount, Boolean(graphSelection && graphIsActive));
+      setPersistentSurfaceActive(
+        graphMount,
+        Boolean(graphSelection && graphIsActive),
+        "workbench-graph-surface",
+      );
       render(
         graphSelection
           ? h(GraphRegion, {
@@ -376,6 +420,38 @@ export function createSynthesisWorkbenchChromeRenderer(
           : null,
         graphMount,
       );
+    }
+
+    if (indexMount) {
+      const indexIsActive = business?.surface === "index";
+      if (business?.surface === "index") {
+        indexSelection = business.selection;
+        indexOwner = String(business.selection.libraryId ?? "");
+      }
+      if (!indexIsActive && indexMount.contains(document.activeElement))
+        indexFocus = document.activeElement as HTMLElement;
+      setPersistentSurfaceActive(
+        indexMount,
+        Boolean(indexSelection && indexIsActive),
+        "workbench-index-surface",
+      );
+      renderSurfaceContent(
+        indexSelection
+          ? h(RegistryRegion, {
+              ...common,
+              selection: indexSelection,
+              reviewHandlers,
+              active: indexIsActive,
+              ownerKey: indexOwner,
+            })
+          : null,
+        indexMount,
+        panel,
+      );
+      if (indexIsActive && indexFocus?.isConnected) {
+        indexFocus.focus({ preventScroll: true });
+        indexFocus = undefined;
+      }
     }
 
     if (surfaceMount) {
@@ -404,11 +480,7 @@ export function createSynthesisWorkbenchChromeRenderer(
           content = h(TagsRegion, { ...common, selection: business.selection });
           break;
         case "index":
-          content = h(RegistryRegion, {
-            ...common,
-            selection: business.selection,
-            reviewHandlers,
-          });
+          content = null;
           break;
         case "review":
           content = h(ReviewCenterRegion, {
@@ -427,46 +499,32 @@ export function createSynthesisWorkbenchChromeRenderer(
           content = null;
           break;
       }
-      try {
-        render(
-          content ||
-            (panel?.surface && business?.surface !== "graph"
-              ? h(SurfacePlaceholder, {
-                  selection: synthesisWorkbenchSurfaceEqualityInput(panel),
-                })
-              : null),
-          surfaceMount,
-        );
-      } catch (error) {
-        console.error("surface_render_failed", error);
-        render(
-          panel?.surface
+      renderSurfaceContent(
+        content ||
+          (panel?.surface &&
+          business?.surface !== "graph" &&
+          business?.surface !== "index"
             ? h(SurfacePlaceholder, {
-                selection: {
-                  ...panel.surface,
-                  status: "failed",
-                  title: translate
-                    ? translate("synthesis-surface-error-label")
-                    : "Loading Synthesis surface",
-                  subtitle: translate
-                    ? translate("synthesis-surface-error-message")
-                    : "Surface failed to load.",
-                  isError: true,
-                },
-                errorCode: "surface_render_failed",
+                selection: synthesisWorkbenchSurfaceEqualityInput(panel),
               })
-            : null,
-          surfaceMount,
-        );
-      }
+            : null),
+        surfaceMount,
+        panel,
+      );
     }
 
     if (!panel) {
       graphSelection = undefined;
       if (graphMount) {
-        setGraphMountActive(graphMount, false);
+        setPersistentSurfaceActive(
+          graphMount,
+          false,
+          "workbench-graph-surface",
+        );
         render(null, graphMount);
       }
+      indexSelection = undefined;
+      if (indexMount) render(null, indexMount);
     }
 
     const chromeMount = ensureRegionMount(skeleton.chrome, "chrome");

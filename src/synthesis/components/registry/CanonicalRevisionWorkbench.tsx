@@ -273,6 +273,7 @@ function CanonicalSelectAllCheckbox(props: {
 }
 
 function CanonicalRevisionTable(props: {
+  active?: boolean;
   selection: SynthesisRegistrySelection;
   t: SynthesisRegistryText;
   rows: SynthesisCanonicalRowView[];
@@ -299,6 +300,7 @@ function CanonicalRevisionTable(props: {
     rows[0]?.rowId || "",
   ].join("|");
   const windowed = useWindowedRows(rows, {
+    active: props.active,
     getKey: (row) => row.rowId,
     resetKey,
     estimatedRowHeight: 64,
@@ -1225,6 +1227,7 @@ function CanonicalDetailDrawer(props: {
 // ---------------------------------------------------------------------------
 
 export function CanonicalRevisionWorkbench(props: {
+  active?: boolean;
   selection: SynthesisRegistrySelection;
   t: SynthesisRegistryText;
   onAction: SynthesisRegistryActionSender;
@@ -1601,6 +1604,7 @@ export function CanonicalRevisionWorkbench(props: {
       </div>
       <div class="canonical-revision-layout">
         <CanonicalRevisionTable
+          active={props.active}
           selection={selection}
           t={t}
           rows={rows}

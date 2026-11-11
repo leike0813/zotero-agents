@@ -6591,6 +6591,19 @@ describe("Synthesis tab UI model", function () {
         );
         visited.push(...lastIndexRows(workbench).map((row) => row.paper_ref));
         assert.lengthOf(lastIndexRows(workbench), 100);
+        const beforeReturn = indexMessages(workbench).length;
+        await workbench.bridge.postMessage("selectTab", { tab: "tags" });
+        await workbench.bridge.postMessage("selectTab", { tab: "registry" });
+        await waitUntil(() => indexMessages(workbench).length > beforeReturn);
+        assert.equal(
+          snapshot().window.number,
+          2,
+          "tab return keeps the current page",
+        );
+        assert.deepEqual(
+          lastIndexRows(workbench).map((row) => row.paper_ref),
+          expected.slice(100, 200),
+        );
         await workbench.bridge.postMessage("navigateIndexWindow", {
           direction: "next",
         });
@@ -6661,6 +6674,166 @@ describe("Synthesis tab UI model", function () {
         assert.lengthOf(reopenedReads, 0);
       } finally {
         await reopened.cleanup();
+      }
+    });
+
+    it("keeps a known Library total when background counting fails", async function () {
+      const gate = deferred<void>();
+      const workbench = await mountTestWorkbench(
+        makeIndexPort({
+          libraryId: 1,
+          pages: {
+            "library|": {
+              rows: [indexRow("1:ACCEPTED")],
+              hasMore: true,
+              nextCursor: "c1",
+              total: 274,
+            },
+            "library|c1": {
+              rows: [],
+              gate: gate.promise,
+              error: new Error("request_timeout"),
+            },
+          },
+        }),
+      );
+      const window = () =>
+        (indexMessages(workbench).at(-1)?.payload?.snapshot?.registry as any)
+          ?.window;
+      try {
+        await workbench.bridge.postMessage("selectTab", { tab: "registry" });
+        await waitUntil(() => lastIndexRows(workbench).length === 1);
+        assert.equal(window().total, 274);
+        gate.resolve();
+        await waitUntil(() => window()?.queryStatus === "failed");
+        assert.equal(window().total, 274);
+        assert.deepEqual(
+          lastIndexRows(workbench).map((row) => row.paper_ref),
+          ["1:ACCEPTED"],
+        );
+      } finally {
+        gate.resolve();
+        await workbench.cleanup();
+      }
+    });
+
+    it("pauses a live Index scan while hidden and resumes without replaying consumed cursors", async function () {
+      const gate = deferred<void>();
+      const reads: any[] = [];
+      const pages = {
+        "library|": {
+          rows: [indexRow("1:FIRST")],
+          hasMore: true,
+          nextCursor: "c1",
+        },
+        "library|c1": {
+          rows: [indexRow("1:SECOND")],
+          hasMore: true,
+          nextCursor: "c2",
+          gate: gate.promise,
+        },
+        "library|c2": { rows: [indexRow("1:THIRD")] },
+      };
+      const workbench = await mountTestWorkbench(
+        makeIndexPort({
+          libraryId: 1,
+          pages,
+          onIndexRead: (read) => reads.push(read),
+        }),
+      );
+      const scans = () => reads.filter((read) => read.projection === "matches");
+      try {
+        await workbench.bridge.postMessage("selectTab", { tab: "registry" });
+        await waitUntil(
+          () => scans().length === 2 && lastIndexRows(workbench).length === 1,
+        );
+        await workbench.bridge.postMessage("selectTab", { tab: "tags" });
+        gate.resolve();
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        assert.deepEqual(
+          scans().map((read) => read.cursor),
+          ["", "c1"],
+        );
+        await workbench.bridge.postMessage("selectTab", { tab: "registry" });
+        await waitUntil(
+          () =>
+            (
+              indexMessages(workbench).at(-1)?.payload?.snapshot
+                ?.registry as any
+            )?.window?.queryStatus === "ready",
+        );
+        assert.deepEqual(
+          scans().map((read) => read.cursor),
+          ["", "c1", "c2"],
+        );
+        assert.deepEqual(
+          lastIndexRows(workbench).map((row) => row.paper_ref),
+          ["1:FIRST", "1:SECOND", "1:THIRD"],
+        );
+        assert.lengthOf(
+          reads.filter(
+            (read) =>
+              read.projection === "summary" &&
+              read.sourceRefs.includes("1:FIRST"),
+          ),
+          1,
+          "accepted summaries are reused",
+        );
+      } finally {
+        gate.resolve();
+        await workbench.cleanup();
+      }
+    });
+
+    it("settles a failed resumed scan without leaving the cached page counting", async function () {
+      const gate = deferred<void>();
+      const reads: any[] = [];
+      const workbench = await mountTestWorkbench(
+        makeIndexPort({
+          libraryId: 1,
+          pages: {
+            "library|": {
+              rows: [indexRow("1:KEPT")],
+              hasMore: true,
+              nextCursor: "c1",
+            },
+            "library|c1": {
+              rows: [],
+              hasMore: true,
+              nextCursor: "c2",
+              gate: gate.promise,
+            },
+            "library|c2": { rows: [], error: new Error("request_timeout") },
+          },
+          onIndexRead: (read) => reads.push(read),
+        }),
+      );
+      const window = () =>
+        (indexMessages(workbench).at(-1)?.payload?.snapshot?.registry as any)
+          ?.window;
+      try {
+        await workbench.bridge.postMessage("selectTab", { tab: "registry" });
+        await waitUntil(() => reads.some((read) => read.cursor === "c1"));
+        await workbench.bridge.postMessage("selectTab", { tab: "tags" });
+        gate.resolve();
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        await workbench.bridge.postMessage("selectTab", { tab: "registry" });
+        await waitUntil(() =>
+          workbench.messages.some(
+            (message) =>
+              message.type === "synthesis:surface-error" &&
+              message.payload?.surface === "index",
+          ),
+        );
+        assert.equal(window().queryStatus, "failed");
+        assert.equal(window().status, "failed");
+        assert.deepEqual(
+          lastIndexRows(workbench).map((row) => row.paper_ref),
+          ["1:KEPT"],
+        );
+      } finally {
+        gate.resolve();
+        await workbench.cleanup();
       }
     });
 
