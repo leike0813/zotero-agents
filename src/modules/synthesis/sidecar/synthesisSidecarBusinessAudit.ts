@@ -1,4 +1,5 @@
 import productionOperations from "../../../../packages/synthesis-contracts/contract-set/synthesis-production-client-v1/operations.json";
+import { safeSynthesisSidecarObservationReason } from "../../../../packages/synthesis-contracts/src/sidecarObservability";
 import type { SynthesisSidecarProductionClientCapability } from "../../../../packages/synthesis-contracts/src/sidecarSystem";
 import type { SynthesisWorkbenchSurfaceName } from "../../../../packages/synthesis-contracts/src/workbench";
 import { appendRuntimeLog } from "../../runtimeLogManager";
@@ -200,14 +201,16 @@ export function beginSynthesisSidecarBusinessAudit(args: {
         details && typeof details === "object" && !Array.isArray(details)
           ? (details as Record<string, unknown>)
           : null;
+      const reason =
+        safeSynthesisSidecarObservationReason(record?.reason) ??
+        safeSynthesisSidecarObservationReason(record?.sidecarReason);
+      const sidecarCode = safeSynthesisSidecarObservationReason(
+        record?.sidecarCode,
+      );
       finish("failed", {
         classification: stableCode(error),
-        ...(typeof record?.reason === "string"
-          ? { reason: record.reason }
-          : {}),
-        ...(typeof record?.sidecarCode === "string"
-          ? { sidecarCode: record.sidecarCode }
-          : {}),
+        ...(reason ? { reason } : {}),
+        ...(sidecarCode ? { sidecarCode } : {}),
         ...(record?.sidecarReason === "protocol_result_invalid" &&
         typeof record.location === "string"
           ? { schemaRef: record.location }

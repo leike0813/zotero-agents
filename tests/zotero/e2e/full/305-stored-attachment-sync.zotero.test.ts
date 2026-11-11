@@ -1,5 +1,6 @@
 import { assert } from "chai";
 import { nativeMutations } from "../../../../src/modules/zoteroHost/zoteroHostNativeMutations";
+import { ensureRuntimeDirectoryExclusive } from "../../../../src/modules/runtimePersistence";
 import { systemE2ECase } from "../../systemE2ECases";
 
 type PreparedAttachment = Parameters<
@@ -34,6 +35,12 @@ function preparedAttachment(args: {
   };
 }
 
+function pathBudgetFilename(length: number, extension: string): string {
+  const prefix = `e2e-${Date.now().toString(36)}`;
+  assert.isAtLeast(length, prefix.length + extension.length + 1);
+  return `${prefix}${"x".repeat(length - prefix.length - extension.length)}${extension}`;
+}
+
 describe("Stored attachment sync full E2E", function () {
   this.timeout(180_000);
 
@@ -43,9 +50,10 @@ describe("Stored attachment sync full E2E", function () {
     "imports permanent attachments and packs changed companions for native sync",
     async function () {
       const root = PathUtils.join(
-        Zotero.getTempDirectory().path,
+        Zotero.DataDirectory.dir,
         `stored-attachment-sync-${Date.now()}`,
       );
+      await ensureRuntimeDirectoryExclusive(root);
       const sourceRoot = PathUtils.join(root, "source");
       const initialStage = PathUtils.join(root, "initial-stage");
       const replacementStage = PathUtils.join(root, "replacement-stage");
@@ -178,12 +186,16 @@ describe("Stored attachment sync full E2E", function () {
           "@mozilla.org/libjar/zip-reader;1"
         ].createInstance(Components.interfaces.nsIZipReader);
         zipReader.open(Zotero.File.pathToFile(zipPath));
-        assert.isTrue(zipReader.hasEntry("images/figure.png"));
+        const entries = zipReader.findEntries(null);
+        let imageEntry: string | undefined;
+        while (entries.hasMore()) {
+          const name = entries.getNext();
+          if (name.replace(/\\/g, "/") === "images/figure.png")
+            imageEntry = name;
+        }
+        assert.isString(imageEntry);
         const extractedImage = PathUtils.join(root, "zipped-figure.png");
-        zipReader.extract(
-          "images/figure.png",
-          Zotero.File.pathToFile(extractedImage),
-        );
+        zipReader.extract(imageEntry!, Zotero.File.pathToFile(extractedImage));
         assert.equal(
           await IOUtils.readUTF8(extractedImage),
           "replacement image bytes",
@@ -195,5 +207,105 @@ describe("Stored attachment sync full E2E", function () {
         await IOUtils.remove(root, { recursive: true, ignoreAbsent: true });
       }
     },
+  );
+
+  systemE2ECase(
+    "stored-attachment-path-budget-02",
+    undefined,
+    "imports near-limit Windows attachments and rejects an over-budget destination before import",
+    async function () {
+      if (!Zotero.isWin) this.skip();
+      const root = PathUtils.join(
+        PathUtils.tempDir,
+        `zp-${Date.now().toString(36)}`,
+      );
+      await ensureRuntimeDirectoryExclusive(root);
+      const sourceRoot = PathUtils.join(root, "s");
+      const successStage = PathUtils.join(root, "n");
+      const rejectedStage = PathUtils.join(root, "r");
+      const parent = new Zotero.Item("journalArticle");
+      try {
+        await IOUtils.makeDirectory(sourceRoot);
+        await IOUtils.makeDirectory(successStage);
+        await IOUtils.makeDirectory(rejectedStage);
+        await parent.saveTx();
+        const plannedStorage =
+          Zotero.Attachments.getStorageDirectoryByLibraryAndKey(
+            parent.libraryID,
+            "AAAAAAAA",
+          ).path;
+        const filenameLength = 259 - plannedStorage.length - 1;
+        assert.isAtMost(filenameLength, 255);
+        assert.isAtMost(
+          PathUtils.join(plannedStorage, ".zotero-ft-unprocessed.tmp").length,
+          259,
+        );
+
+        const content = "near-limit stored attachment\n";
+        const source = PathUtils.join(sourceRoot, "source.txt");
+        await IOUtils.writeUTF8(source, content);
+        const mainFilename = pathBudgetFilename(filenameLength, ".txt");
+        const mainPath = PathUtils.join(successStage, mainFilename);
+        await IOUtils.copy(source, mainPath);
+        assert.equal(PathUtils.join(plannedStorage, mainFilename).length, 259);
+        const attachment =
+          await nativeMutations.attachments.importStoredAttachment({
+            prepared: preparedAttachment({
+              stagingDirectory: successStage,
+              mainPath,
+              mainFilename,
+              companions: [],
+            }),
+            parent,
+            libraryId: parent.libraryID,
+            admit: (work) => Promise.resolve(work()),
+          });
+        const storedPath = await attachment.getFilePathAsync();
+        assert.isString(storedPath);
+        assert.isAtLeast(storedPath!.length, 240);
+        assert.isAtMost(storedPath!.length, 259);
+        assert.equal(await IOUtils.readUTF8(storedPath!), content);
+        assert.equal(await IOUtils.readUTF8(source), content);
+        assert.isFalse(await IOUtils.exists(successStage));
+
+        const rejectedFilename = pathBudgetFilename(filenameLength + 1, ".txt");
+        const rejectedMain = PathUtils.join(rejectedStage, "source.txt");
+        await IOUtils.copy(source, rejectedMain);
+        const attachmentIds = parent.getAttachments();
+        let rejected: unknown;
+        try {
+          await nativeMutations.attachments.importStoredAttachment({
+            prepared: preparedAttachment({
+              stagingDirectory: rejectedStage,
+              mainPath: rejectedMain,
+              mainFilename: rejectedFilename,
+              companions: [],
+            }),
+            parent,
+            libraryId: parent.libraryID,
+            admit: (work) => Promise.resolve(work()),
+          });
+        } catch (error) {
+          rejected = error;
+        }
+        assert.isOk(rejected);
+        assert.equal(
+          nativeMutations.attachmentFailureStatus(rejected),
+          "failed",
+        );
+        assert.equal((rejected as any).code, "resource_limited");
+        assert.equal((rejected as any).details.resource, "path_length");
+        assert.equal((rejected as any).details.limit, 259);
+        assert.equal((rejected as any).details.observed, 260);
+        assert.deepEqual(parent.getAttachments(), attachmentIds);
+        assert.equal(await IOUtils.readUTF8(source), content);
+        assert.isFalse(await IOUtils.exists(rejectedStage));
+      } finally {
+        if (parent.id && !parent.deleted)
+          await Zotero.Items.trashTx([parent.id]);
+        await IOUtils.remove(root, { recursive: true, ignoreAbsent: true });
+      }
+    },
+    "platform_unsupported",
   );
 });

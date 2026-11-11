@@ -617,11 +617,12 @@ describe("Synthesis production runtime supervisor", function () {
 
     assert.equal(await owner.start(), connection);
     await owner.shutdown();
-    assert.deepEqual(events, [
+    assert.sameMembers(events, [
       "reverse-host:start",
       "supervisor:start",
       "reverse-host:bind:service-current",
       "client:ready",
+      "reverse-host:bind:null",
       "client:invalidate",
       "supervisor:stop",
       "reverse-host:stop",
@@ -693,7 +694,7 @@ describe("Synthesis production runtime supervisor", function () {
     await owner.shutdown();
   });
 
-  it("rebinds the replacement generation and rejects only the departed instance", async function () {
+  it("follows an automatically ready replacement before the next caller and rejects the departed instance", async function () {
     const oldConnection = {
       discovery: {
         host: "127.0.0.1" as const,
@@ -757,10 +758,9 @@ describe("Synthesis production runtime supervisor", function () {
       reasonCode: "sidecar_process_exited",
     });
     connection = null;
-    const recovery = owner.recoverIfEligible();
     connection = newConnection;
     publish({ status: "ready", recoveryState: "none", restartCount: 1 });
-    assert.equal(await recovery, newConnection);
+    assert.equal(await owner.whenReady(), newConnection);
     assert.equal(boundServiceInstance, "service-new");
 
     const page = {
@@ -820,6 +820,249 @@ describe("Synthesis production runtime supervisor", function () {
     assert.equal(snapshot.status, "ready");
     broker.dispose();
     await owner.shutdown();
+  });
+
+  for (const outcome of [
+    "replacement",
+    "departed-failure",
+    "failed-replacement",
+    "shutdown",
+  ] as const) {
+    it(`does not publish departed initialization after ${outcome}`, async function () {
+      const oldConnection = {
+        discovery: {
+          host: "127.0.0.1" as const,
+          port: 9135,
+          serviceInstanceId: "service-old",
+        },
+        clientToken: "7".repeat(64),
+      };
+      const replacement = {
+        ...oldConnection,
+        discovery: {
+          ...oldConnection.discovery,
+          port: 9136,
+          serviceInstanceId: "service-new",
+        },
+      };
+      let connection: typeof oldConnection | null = oldConnection;
+      let bound: string | null = null;
+      let snapshot: SynthesisSidecarSupervisorSnapshot = {
+        status: "ready",
+        recoveryState: "none",
+        restartCount: 0,
+      };
+      const subscribers = new Set<
+        (value: SynthesisSidecarSupervisorSnapshot) => void
+      >();
+      const publish = (next: SynthesisSidecarSupervisorSnapshot) => {
+        snapshot = next;
+        for (const subscriber of subscribers) subscriber(snapshot);
+      };
+      let release!: () => void;
+      const pendingInitialization = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let entered!: () => void;
+      const initializationStarted = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      const owner = createSynthesisProductionOwner({
+        createReverseHostEndpoint: () => ({
+          start: () => ({
+            host: "127.0.0.1",
+            port: 9134,
+            authorizationToken: "8".repeat(64),
+          }),
+          bindServiceInstance: (value) => {
+            bound = value;
+          },
+          stop() {},
+        }),
+        startProductionSupervisor: () => ({
+          subscribe: (subscriber) => {
+            subscribers.add(subscriber);
+            return () => subscribers.delete(subscriber);
+          },
+          getSnapshot: () => snapshot,
+          getReadyConnection: () => connection,
+          getDiagnosticEvidence: () => ({ stdoutTail: "", stderrTail: "" }),
+          recover() {},
+        }),
+        stopProductionSupervisor: async () => {},
+        async afterReady(value) {
+          if (value.discovery.serviceInstanceId === "service-old") {
+            entered();
+            await pendingInitialization;
+            if (outcome === "departed-failure") {
+              throw new Error("departed_initialization_failed");
+            }
+          } else if (outcome === "failed-replacement") {
+            throw new Error("replacement_initialization_failed");
+          }
+        },
+        invalidateClient() {},
+      });
+      const original = Promise.allSettled([owner.start()]);
+      try {
+        await initializationStarted;
+        connection = null;
+        publish({
+          status: "unavailable",
+          recoveryState: "scheduled",
+          restartCount: 1,
+        });
+        if (outcome === "shutdown") {
+          await owner.shutdown();
+        } else {
+          connection = replacement;
+          publish({ status: "ready", recoveryState: "none", restartCount: 1 });
+        }
+        release();
+        const [result] = await original;
+        if (outcome === "replacement" || outcome === "departed-failure") {
+          assert.equal(result.status, "fulfilled");
+          if (result.status === "fulfilled")
+            assert.equal(result.value, replacement);
+          assert.equal(bound, "service-new");
+        } else {
+          assert.equal(result.status, "rejected");
+          if (outcome === "shutdown") assert.isNull(bound);
+        }
+      } finally {
+        release();
+        await owner.shutdown();
+      }
+    });
+  }
+
+  it("settles a pending readiness caller when shutdown starts", async function () {
+    const subscribers = new Set<
+      (value: SynthesisSidecarSupervisorSnapshot) => void
+    >();
+    let started!: () => void;
+    const observing = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const owner = createSynthesisProductionOwner({
+      createReverseHostEndpoint: () => ({
+        start: () => ({
+          host: "127.0.0.1",
+          port: 9134,
+          authorizationToken: "8".repeat(64),
+        }),
+        bindServiceInstance() {},
+        stop() {},
+      }),
+      startProductionSupervisor: () => ({
+        subscribe: (subscriber) => {
+          subscribers.add(subscriber);
+          started();
+          return () => subscribers.delete(subscriber);
+        },
+        getSnapshot: () => ({
+          status: "starting",
+          recoveryState: "none",
+          restartCount: 0,
+        }),
+        getReadyConnection: () => null,
+        getDiagnosticEvidence: () => ({ stdoutTail: "", stderrTail: "" }),
+        recover() {},
+      }),
+      stopProductionSupervisor: async () => {},
+      invalidateClient() {},
+    });
+    const pending = Promise.allSettled([owner.whenReady()]);
+    await observing;
+    await owner.shutdown();
+    const [result] = await pending;
+    assert.equal(result.status, "rejected");
+    assert.isEmpty(subscribers);
+  });
+
+  it("does not bind a connection superseded before initialization begins", async function () {
+    const oldConnection = {
+      discovery: {
+        host: "127.0.0.1" as const,
+        port: 9135,
+        serviceInstanceId: "service-old",
+      },
+      clientToken: "7".repeat(64),
+    };
+    const replacement = {
+      ...oldConnection,
+      discovery: {
+        ...oldConnection.discovery,
+        port: 9136,
+        serviceInstanceId: "service-new",
+      },
+    };
+    let connection: typeof oldConnection | null = oldConnection;
+    let snapshot: SynthesisSidecarSupervisorSnapshot = {
+      status: "ready",
+      recoveryState: "none",
+      restartCount: 0,
+    };
+    const subscribers = new Set<
+      (value: SynthesisSidecarSupervisorSnapshot) => void
+    >();
+    const publish = (next: SynthesisSidecarSupervisorSnapshot) => {
+      snapshot = next;
+      for (const subscriber of subscribers) subscriber(snapshot);
+    };
+    let replacementQueued = false;
+    let bound: string | null = null;
+    const owner = createSynthesisProductionOwner({
+      createReverseHostEndpoint: () => ({
+        start: () => ({
+          host: "127.0.0.1",
+          port: 9134,
+          authorizationToken: "8".repeat(64),
+        }),
+        bindServiceInstance: (value) => {
+          bound = value;
+        },
+        stop() {},
+      }),
+      startProductionSupervisor: () => ({
+        subscribe: (subscriber) => {
+          subscribers.add(subscriber);
+          return () => subscribers.delete(subscriber);
+        },
+        getSnapshot: () => snapshot,
+        getReadyConnection: () => {
+          const current = connection;
+          if (!replacementQueued) {
+            replacementQueued = true;
+            queueMicrotask(() => {
+              connection = null;
+              publish({
+                status: "unavailable",
+                recoveryState: "scheduled",
+                restartCount: 1,
+              });
+              connection = replacement;
+              publish({
+                status: "ready",
+                recoveryState: "none",
+                restartCount: 1,
+              });
+            });
+          }
+          return current;
+        },
+        getDiagnosticEvidence: () => ({ stdoutTail: "", stderrTail: "" }),
+        recover() {},
+      }),
+      stopProductionSupervisor: async () => {},
+      invalidateClient() {},
+    });
+    try {
+      assert.equal(await owner.start(), replacement);
+      assert.equal(bound, "service-new");
+    } finally {
+      await owner.shutdown();
+    }
   });
 
   it("retries a failed production owner through the existing supervisor generation", async function () {

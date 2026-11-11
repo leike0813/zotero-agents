@@ -4,6 +4,10 @@ import {
 } from "../../../../packages/synthesis-contracts/src";
 import { sha256Hex } from "../../../platform/hash";
 import { detectRuntimePlatform } from "../../../platform/runtimePlatform";
+import {
+  createCancellationController,
+  type CancellationSignal,
+} from "../../../utils/wait";
 import { getRuntimePersistencePaths } from "../../runtimePersistence";
 import {
   invalidateDefaultSynthesisClient,
@@ -24,6 +28,7 @@ import {
   type SynthesisSidecarRuntimeInstallSnapshot,
 } from "../sidecar/synthesisSidecarRuntimeInstaller";
 import {
+  getReadySynthesisProductionControlConnection,
   startSynthesisProductionRuntimeSupervisor,
   stopSynthesisProductionRuntimeSupervisor,
   type SynthesisSidecarSupervisorSnapshot,
@@ -77,7 +82,24 @@ export type SynthesisProductionOwnerDeps = {
   invalidateClient?: () => void;
 };
 
-function waitForReady(supervisor: ProductionSupervisor) {
+function rpcConnection(
+  connection: NonNullable<
+    ReturnType<ProductionSupervisor["getReadyConnection"]>
+  >,
+  profileId: string,
+): SynthesisSidecarRpcConnection {
+  return {
+    baseUrl: `http://${connection.discovery.host}:${connection.discovery.port}`,
+    profileId,
+    clientToken: connection.clientToken,
+    serviceInstanceId: connection.discovery.serviceInstanceId,
+  };
+}
+
+function waitForReady(
+  supervisor: ProductionSupervisor,
+  signal: CancellationSignal,
+) {
   const current = supervisor.getReadyConnection();
   if (current) {
     return Promise.resolve(current);
@@ -98,12 +120,14 @@ function waitForReady(supervisor: ProductionSupervisor) {
       }
       settled = true;
       unsubscribe();
+      signal.removeEventListener("abort", abort);
       if (error) {
         reject(error);
       } else {
         resolve(connection!);
       }
     };
+    const abort = () => finish(new Error("synthesis_production_owner_stopped"));
     const inspect = (snapshot: SynthesisSidecarSupervisorSnapshot) => {
       const connection = supervisor.getReadyConnection();
       if (snapshot.status === "ready" && connection) {
@@ -116,6 +140,8 @@ function waitForReady(supervisor: ProductionSupervisor) {
       }
     };
     unsubscribe = supervisor.subscribe(inspect);
+    signal.addEventListener("abort", abort);
+    if (signal.aborted) return abort();
     inspect(supervisor.getSnapshot());
   });
 }
@@ -131,6 +157,7 @@ export function createSynthesisProductionOwner(
   > | null = null;
   let stopTask: Promise<void> | null = null;
   let stopped = false;
+  const cancellation = createCancellationController();
   let hasBeenReady = false;
   let boundServiceInstanceId: string | null = null;
   let unsubscribeSupervisor: (() => void) | null = null;
@@ -148,12 +175,19 @@ export function createSynthesisProductionOwner(
       endpoint = createdEndpoint;
       try {
         const locator = await createdEndpoint.start();
+        if (stopped) throw new Error("synthesis_production_owner_stopped");
         const createdSupervisor = deps.startProductionSupervisor(locator);
         supervisor = createdSupervisor;
         unsubscribeSupervisor = createdSupervisor.subscribe((snapshot) => {
+          if (stopped) return;
           if (snapshot.status !== "ready" && boundServiceInstanceId) {
             createdEndpoint.bindServiceInstance(null);
             boundServiceInstanceId = null;
+            startTask = null;
+          }
+          if (snapshot.status === "ready") {
+            // The supervisor can finish recovery before another client asks.
+            void start().catch(() => undefined);
           }
         });
         return createdSupervisor;
@@ -167,19 +201,50 @@ export function createSynthesisProductionOwner(
     return supervisorTask;
   }
 
-  function start() {
+  function start(): Promise<
+    NonNullable<ReturnType<ProductionSupervisor["getReadyConnection"]>>
+  > {
     if (stopped) {
       throw new Error("synthesis_production_owner_stopped");
     }
     if (startTask) {
       return startTask;
     }
+    const followReplacement = () => {
+      if (startTask === task) startTask = null;
+      return start();
+    };
     const task = (async () => {
       const current = await ensureSupervisor();
-      const connection = await waitForReady(current);
+      const connection = await waitForReady(current, cancellation.signal);
+      if (stopped) throw new Error("synthesis_production_owner_stopped");
+      if (
+        current.getReadyConnection()?.discovery.serviceInstanceId !==
+        connection.discovery.serviceInstanceId
+      ) {
+        return followReplacement();
+      }
       endpoint?.bindServiceInstance(connection.discovery.serviceInstanceId);
       boundServiceInstanceId = connection.discovery.serviceInstanceId;
-      await deps.afterReady?.(connection);
+      try {
+        await deps.afterReady?.(connection);
+      } catch (error) {
+        if (stopped) throw new Error("synthesis_production_owner_stopped");
+        if (
+          current.getReadyConnection()?.discovery.serviceInstanceId !==
+          connection.discovery.serviceInstanceId
+        ) {
+          return followReplacement();
+        }
+        throw error;
+      }
+      if (stopped) throw new Error("synthesis_production_owner_stopped");
+      if (
+        current.getReadyConnection()?.discovery.serviceInstanceId !==
+        connection.discovery.serviceInstanceId
+      ) {
+        return followReplacement();
+      }
       hasBeenReady = true;
       automaticRecoveryAttempted = false;
       return connection;
@@ -244,6 +309,9 @@ export function createSynthesisProductionOwner(
       return stopTask;
     }
     stopped = true;
+    cancellation.abort();
+    endpoint?.bindServiceInstance(null);
+    boundServiceInstanceId = null;
     (deps.invalidateClient || invalidateDefaultSynthesisClient)();
     stopTask = (async () => {
       await deps.stopProductionSupervisor();
@@ -377,8 +445,6 @@ async function createDefaultSynthesisProductionOwner(
     outcome: "succeeded",
   });
 
-  let transferConnection: SynthesisSidecarRpcConnection | null = null;
-
   const endpoint = createSynthesisReverseHostEndpoint({
     profileId,
     authorizationToken: reverseHostToken,
@@ -389,7 +455,10 @@ async function createDefaultSynthesisProductionOwner(
     allowUnboundServiceInstance: true,
     handlers: createDefaultSynthesisReverseHostHandlers({
       libraryId,
-      getTransferConnection: () => transferConnection,
+      getTransferConnection: () => {
+        const connection = getReadySynthesisProductionControlConnection();
+        return connection ? rpcConnection(connection, profileId) : null;
+      },
     }),
   });
 
@@ -452,12 +521,6 @@ async function createDefaultSynthesisProductionOwner(
     },
     stopProductionSupervisor: stopSynthesisProductionRuntimeSupervisor,
     async afterReady(connection) {
-      transferConnection = {
-        baseUrl: `http://${connection.discovery.host}:${connection.discovery.port}`,
-        profileId,
-        clientToken: connection.clientToken,
-        serviceInstanceId: connection.discovery.serviceInstanceId,
-      };
       const reconcileTrace = createSynthesisSidecarTraceContext({
         parent: startupTrace,
       });
@@ -469,7 +532,7 @@ async function createDefaultSynthesisProductionOwner(
       await createSynthesisSidecarRpcClient({
         transportErrors: SYNTHESIS_PRODUCTION_RPC_TRANSPORT_ERRORS,
       }).call({
-        connection: transferConnection,
+        connection: rpcConnection(connection, profileId),
         capability: "client.reconcileSynthesisRuntimeWorkStateOnStartup",
         payload: toSynthesisJsonObject({ args: [] }, "$.productionReconcile"),
         rebuildResult: (value) => value,

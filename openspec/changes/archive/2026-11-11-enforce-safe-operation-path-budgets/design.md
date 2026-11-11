@@ -81,3 +81,25 @@ Workflow bundle 的 Node 提取路径先解析 ZIP 元数据并检查全部完�
 - ACP 注入失败专项在技能物化前置断言处失败，未执行到 copy 故障注入；[分片失败记录](../../../artifacts/test-diagnostics/node/2026-11-06T23-31-06-827Z-1420969/failures.md)。随后定点诊断输出为 `Host Bridge plugin Skill bundle surface identity mismatch`。未放宽身份校验或改写生成包掩盖失败。
 - `npm run test:node -- --domain runtime --jobs 4` 的 `runtime-provider-products` 中，`172-export-research-bundle-skill-runtime.test.ts` discovery/CLI 场景超时 30 秒；[失败记录](../../../artifacts/test-diagnostics/node/2026-11-06T15-52-39-903Z-588956/failures.md)。未证明其为基线问题，不能视为通过。
 - 未执行 Windows 原生 Zotero 验收、插件 build/XPI、安装或发布。
+
+### Windows follow-up — 2026-11-11
+
+在 Windows 11 Pro（版本 `10.0.26200`、build `26200`）工作区 `dev`、HEAD `00dfc1bce9488e452db8c48dabba83186ddf7a78` 上执行，保留既有未提交修改：
+
+- `node_modules/.bin/tsx.cmd node_modules/mocha/bin/mocha tests/acp/96-acp-session-manager-transcript.test.ts --require tests/setup/zotero-mock.ts --timeout 30000 --grep 'does not report injected skills ready when one target copy fails' --reporter spec --exit`：**1 passing**，用例耗时 2210 ms。生产技能包物化成功后才注入单目标 copy 失败；断言 `unavailable`、无 `ready`、18 个目标中 17 个成功，以及唯一失败目标 `.opencode/skills/zotero-research-synthesis` 全部通过。未更改包身份校验或生成内容，任务 5.4 闭合。
+- `node_modules/.bin/tsx.cmd node_modules/mocha/bin/mocha tests/runtime/172-export-research-bundle-skill-runtime.test.ts --require tests/setup/zotero-mock.ts --timeout 30000 --reporter spec --exit`：**18 passing（约 2 分钟）**。此前超时的 discovery/CLI、batched assessment、scoring、rendering 完整场景耗时 10983 ms；low-score Topic 场景 9419 ms，其他既有用例全部完成。未修改测试、断言、30 秒限制或生产代码；Python 使用既有 `pythonRuntimeCommand` 通过 `uv run --project=<用户共享 .ar> --locked -- python` 执行，CLI 使用当前 fingerprint 对应的既有本机构建缓存。任务 5.5 以完整场景实际通过闭合；历史 Linux 并发运行超时的原因仍未被重现或证明，当前结果不替代 Linux runtime 全域验证。
+- build-preflight 的 Synthesis 七平台、Host Bridge CLI 七平台与 Windows ACP bridge freshness、Host Bridge content/doc-sync、canonical validators、builtin workflow manifest 和 builtin skill byte comparison 均通过。
+- `npm run check:content-package-release -- --current-branch`：退出 1，`dev GitHub content feed does not match local generated package semantics`。当前本地内容包为 428 个文件、5197742 字节，SHA-256 `22040d5b3857f800a2039ce5936dcdb29f6234e40b8eed1f2174b53c06e2728c`。发布 freshness 未通过，不执行插件构建或 Zotero E2E。5.6 保持未完成；这份检查不提供 Windows 原生落盘或旧输出保护的验收证据。
+
+用户随后授权 dev patch 发布：`npm run release:content-package -- patch --channel dev` 将 `0.8.10-dev.22` 递增为 `0.8.10-dev.23`，正式版本 `0.8.9` 不变。内容及生成源码提交 `7fec145725d08dd84795e71f15a8a639afccd647` 已推送到 `origin/dev`；从该提交的干净临时 checkout 执行既有 dispatch 命令，GitHub Actions [42950402565](https://github.com/leike0813/zotero-agents/actions/runs/42950402565) 成功。发布资产为 [official-workflows-v0.8.10-dev.23](https://github.com/leike0813/zotero-agents-workflows/releases/tag/official-workflows-v0.8.10-dev.23)，本地 `check:content-package-release -- --current-branch` 复验通过，SHA-256 `a85a65173753d1b93bbbb7f7c23c6e65f4a05365bafc27426f70d4a92066e9f4`。
+
+随后 `npm run build`、`npm run check:help-docs` 及 `npm run check:synthesis-sidecar-runtime-xpi` 全部通过；XPI 七平台完整，无缺失或禁止资产。实机用既有 System E2E runner，在 `.scaffold/test` 下隔离的 profile/data 安装精确 dev.23 内容并从当前源码构建 Windows sidecar，未操作原库。未发布插件、Host Bridge 或 Gitee。
+
+### Windows acceptance — passed
+
+Windows 11 Pro `10.0.26200`、Zotero **10.0.2**、内容包 **0.8.10-dev.23**。设置 `ZOTERO_TEST_ZOTERO_VERSION=10`、对应 `ZOTERO_PLUGIN_ZOTERO_BIN_PATH`、`ZOTERO_TEST_CONTENT_CHANNEL=dev`、`ZOTERO_TEST_CONTENT_VERSION=0.8.10-dev.23`、`ZOTERO_WORKFLOW_E2E_MODE=offline` 和 `ZOTERO_TEST_GREP='System E2E runner foundation|Synthesis E2E gold library|Stored attachment sync full E2E'`，运行 `npm run test:zotero:e2e`：**5 selected、5 passed、0 failed、0 skipped、0 incomplete，退出 0，terminalState=complete**。
+
+- `mineru-path-budget-01`：真实 Workflow Host/applyResult 在 259 字符 PDF 旁成功替换 258 字符 Markdown；旧图片迁入备份将超预算时前置拒绝，已接受 Markdown、旧图片、源 PDF 和附件集合保持不变，无 `.mineru-` 暂存残留。
+- `stored-attachment-path-budget-02`：259 字符候选目标由 Zotero 原生导入为可读的 250 字符路径；260 字符候选目标以 `resource_limited`、limit=259、observed=260 拒绝，无新增附件，源内容不变，准备目录已清理。测试按原生实际命名验证近限落盘，不要求 Zotero 保留未经缩短的路径。
+- `stored-attachment-sync-01`：原生附件及 companion 替换、WebDAV 上传判定和 ZIP 内 companion 内容通过；测试暂存改为同卷，并按原生 ZIP 成员身份提取 Windows 分隔符的条目。
+- `index-projection-01` 与 `runner-foundation-01` 通过，hooks 清理通过，Suite Health Gate 为 passed；任务 5.6 闭合。证据为 [Run Manifest](../../../artifacts/test-diagnostics/system-e2e/fdaa9679-634e-4ef4-8d08-539bc085e39b/run-manifest.json)。本结果限于当前工作树与 Zotero 10.0.2，不替代 7/9 或矩阵 10.0.1 的兼容性收据。

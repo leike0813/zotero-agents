@@ -46,6 +46,7 @@ import {
 } from "../../../packages/synthesis-contracts/src";
 import {
   createSynthesisSidecarRpcClient,
+  normalizeSynthesisSidecarRpcError,
   SynthesisSidecarRpcError,
   type SynthesisSidecarRpcConnection,
 } from "../synthesis/sidecar/synthesisSidecarRpcClient";
@@ -57,7 +58,6 @@ import {
 import {
   consumeSynthesisSidecarOutputJson,
   createSynthesisSidecarContentTransferClient,
-  SynthesisSidecarTransferClientError,
   type SynthesisSidecarTransferCallOptions,
 } from "../synthesis/sidecar/synthesisSidecarTransferClient";
 import { beginSynthesisSidecarBusinessAudit } from "../synthesis/sidecar/synthesisSidecarBusinessAudit";
@@ -672,94 +672,8 @@ function normalizeRpcError(error: unknown) {
   if (error instanceof SynthesisClientError) {
     return error;
   }
-  if (error instanceof SynthesisSidecarTransferClientError) {
-    return new SynthesisClientError(
-      error.code === "invalid_request"
-        ? "invalid_request"
-        : error.code === "request_timeout" ||
-            error.code === "operation_timeout" ||
-            error.code === "worker_timeout"
-          ? "timeout"
-          : "unavailable",
-      "The native Synthesis content transfer failed",
-      { sidecarCode: error.code },
-    );
-  }
   if (error instanceof SynthesisSidecarRpcError) {
-    const detailReason = error.details.reason;
-    const hasControlCharacter =
-      typeof detailReason === "string" &&
-      [...detailReason].some((character) => {
-        const codePoint = character.codePointAt(0) ?? 0;
-        return codePoint <= 0x1f || codePoint === 0x7f;
-      });
-    const reason =
-      typeof detailReason === "string" &&
-      detailReason.length <= 160 &&
-      !hasControlCharacter
-        ? detailReason
-        : error.code;
-    const location =
-      typeof error.details.location === "string" &&
-      error.details.location.length <= 4096
-        ? error.details.location
-        : "";
-    const violations = Array.isArray(error.details.violations)
-      ? error.details.violations.slice(0, 16).flatMap((violation) => {
-          if (!violation || typeof violation !== "object") return [];
-          const row = violation as Record<string, unknown>;
-          return typeof row.keyword === "string" &&
-            row.keyword.length <= 64 &&
-            typeof row.instancePath === "string" &&
-            row.instancePath.length <= 4096
-            ? [
-                {
-                  keyword: row.keyword,
-                  instancePath: row.instancePath,
-                },
-              ]
-            : [];
-        })
-      : [];
-    return new SynthesisClientError(
-      error.code === "invalid_request"
-        ? "invalid_request"
-        : error.code === "not_found"
-          ? "not_found"
-          : error.code === "request_timeout" ||
-              error.code === "operation_timeout" ||
-              error.code === "worker_timeout"
-            ? "timeout"
-            : error.code === "internal_error" ||
-                error.code === "response_invalid" ||
-                error.code === "worker_result_invalid" ||
-                error.code === "response_body_too_large"
-              ? "internal"
-              : error.code === "basis_mismatch" ||
-                  error.code === "schema_mismatch" ||
-                  error.code === "repository_schema_incompatible"
-                ? "conflict"
-                : "unavailable",
-      "The native Synthesis request failed",
-      {
-        sidecarCode: error.code,
-        sidecarReason: reason,
-        ...(typeof error.details.capability === "string" &&
-        /^[A-Za-z][A-Za-z0-9_.]{0,159}$/.test(error.details.capability)
-          ? { capability: error.details.capability }
-          : {}),
-        ...((reason === "protocol_result_invalid" ||
-          error.code === "invalid_request") &&
-        location
-          ? { location }
-          : {}),
-        ...((reason === "protocol_result_invalid" ||
-          error.code === "invalid_request") &&
-        violations.length
-          ? { violations }
-          : {}),
-      },
-    );
+    return normalizeSynthesisSidecarRpcError(error);
   }
   return unavailable(
     error instanceof Error ? error.message : "native_request_failed",

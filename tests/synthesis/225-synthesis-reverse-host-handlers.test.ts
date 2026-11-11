@@ -12,6 +12,7 @@ import {
   createScopedSynthesisReverseHostHandlers,
   createSynthesisReverseHostHandlers,
 } from "../../src/modules/synthesis/reverseHost/synthesisReverseHostHandlers";
+import { createSynthesisSidecarRpcClient } from "../../src/modules/synthesis/sidecar/synthesisSidecarRpcClient";
 
 describe("Synthesis reverse Host handlers", function () {
   it("maps every declared operation to one typed Host port method", async function () {
@@ -267,6 +268,67 @@ describe("Synthesis reverse Host handlers", function () {
       failure = error;
     }
     assert.exists(failure);
+    assert.equal(deliveryCalls, 0);
+  });
+
+  it("preserves an unavailable export transfer cause through the reverse Host handler", async function () {
+    let deliveryCalls = 0;
+    const handlers = createSynthesisReverseHostHandlers({
+      hostReadPort: {} as never,
+      exportDeliveryPort: {
+        async publishArchive() {
+          deliveryCalls += 1;
+          return {} as never;
+        },
+      },
+      runWorkspaceMaterializationPort: {
+        async materialize() {
+          deliveryCalls += 1;
+          return {} as never;
+        },
+      },
+      representativeImagePort: {} as never,
+      relatedItemsEffectPort: {} as never,
+      stagedTagBindingPort: {} as never,
+      tagEffectPort: {} as never,
+      webDavPort: {} as never,
+      exportTransfer: {
+        getConnection: () => ({
+          baseUrl: "http://127.0.0.1:1",
+          profileId: "profile",
+          clientToken: "token",
+          serviceInstanceId: "service",
+        }),
+        rpcClient: createSynthesisSidecarRpcClient({
+          fetch: async () => {
+            throw new Error("private transfer failure at C:/private/library");
+          },
+        }),
+      },
+    });
+    let failure: unknown;
+    try {
+      await handlers["delivery.export.materialize_run_workspace"](
+        {
+          capability: "paper_artifacts.export_filtered",
+          runRoot: "/runtime/acp/skill-runs/acp-skill-test",
+          contentTransfer: {
+            sessionId: "native-transfer:unavailable",
+            rootSha256: `sha256:${"d".repeat(64)}`,
+          },
+        },
+        {} as never,
+      );
+    } catch (error) {
+      failure = error;
+    }
+    assert.instanceOf(failure, SynthesisClientError);
+    assert.equal((failure as SynthesisClientError).code, "unavailable");
+    assert.deepEqual((failure as SynthesisClientError).details, {
+      sidecarCode: "worker_unavailable",
+      sidecarReason: "transport_unavailable",
+    });
+    assert.notInclude(String(failure), "private transfer failure");
     assert.equal(deliveryCalls, 0);
   });
 

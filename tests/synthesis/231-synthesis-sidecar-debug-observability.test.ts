@@ -195,7 +195,7 @@ describe("Synthesis sidecar debug observability", function () {
         transportErrors: SYNTHESIS_PRODUCTION_RPC_TRANSPORT_ERRORS,
         fetch: testCase.fetch,
       });
-      await Promise.allSettled([
+      const outcome = await Promise.allSettled([
         rpc.call({
           connection,
           capability: "client.listTopics",
@@ -203,6 +203,11 @@ describe("Synthesis sidecar debug observability", function () {
           rebuildResult: (value) => value,
         }),
       ]);
+      assert.equal(outcome[0]?.status, "rejected");
+      const failure = (outcome[0] as PromiseRejectedResult).reason;
+      assert.instanceOf(failure, SynthesisSidecarRpcError);
+      assert.equal(failure.code, "service_unavailable");
+      assert.deepEqual(failure.details, { reason: testCase.reason });
       const terminal =
         readSynthesisSidecarTraceSnapshot().traces[0]!.events.find(
           (event) =>

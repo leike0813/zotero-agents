@@ -8,6 +8,7 @@ import {
   type SynthesisSidecarErrorCode,
   type SynthesisSidecarProductionClientCapability,
 } from "../../../../packages/synthesis-contracts/src/sidecarSystem";
+import { SynthesisClientError } from "../../../../packages/synthesis-contracts/src/common";
 import {
   safeSynthesisSidecarObservationReason,
   type SynthesisSidecarObservationEvent,
@@ -47,6 +48,70 @@ export class SynthesisSidecarRpcError extends Error {
     super(code);
     this.name = "SynthesisSidecarRpcError";
   }
+}
+
+export function normalizeSynthesisSidecarRpcError(
+  error: SynthesisSidecarRpcError,
+  message = "The native Synthesis request failed",
+) {
+  const reason =
+    safeSynthesisSidecarObservationReason(error.details.reason) ?? error.code;
+  const location =
+    typeof error.details.location === "string" &&
+    error.details.location.length <= 4096
+      ? error.details.location
+      : "";
+  const violations = Array.isArray(error.details.violations)
+    ? error.details.violations.slice(0, 16).flatMap((violation) => {
+        if (!violation || typeof violation !== "object") return [];
+        const row = violation as Record<string, unknown>;
+        return typeof row.keyword === "string" &&
+          row.keyword.length <= 64 &&
+          typeof row.instancePath === "string" &&
+          row.instancePath.length <= 4096
+          ? [{ keyword: row.keyword, instancePath: row.instancePath }]
+          : [];
+      })
+    : [];
+  return new SynthesisClientError(
+    error.code === "invalid_request"
+      ? "invalid_request"
+      : error.code === "not_found"
+        ? "not_found"
+        : error.code === "request_timeout" ||
+            error.code === "operation_timeout" ||
+            error.code === "worker_timeout"
+          ? "timeout"
+          : error.code === "internal_error" ||
+              error.code === "response_invalid" ||
+              error.code === "worker_result_invalid" ||
+              error.code === "response_body_too_large"
+            ? "internal"
+            : error.code === "basis_mismatch" ||
+                error.code === "schema_mismatch" ||
+                error.code === "repository_schema_incompatible"
+              ? "conflict"
+              : "unavailable",
+    message,
+    {
+      sidecarCode: error.code,
+      sidecarReason: reason,
+      ...(typeof error.details.capability === "string" &&
+      /^[A-Za-z][A-Za-z0-9_.]{0,159}$/.test(error.details.capability)
+        ? { capability: error.details.capability }
+        : {}),
+      ...((reason === "protocol_result_invalid" ||
+        error.code === "invalid_request") &&
+      location
+        ? { location }
+        : {}),
+      ...((reason === "protocol_result_invalid" ||
+        error.code === "invalid_request") &&
+      violations.length
+        ? { violations }
+        : {}),
+    },
+  );
 }
 
 function fail(
@@ -417,7 +482,9 @@ export function createSynthesisSidecarRpcClient(options?: {
           },
           metrics: { durationMs: Math.max(0, now() - startedAt) },
         });
-        return fail(transportErrors.unavailable);
+        return fail(transportErrors.unavailable, {
+          reason: "transport_unavailable",
+        });
       } finally {
         deadline.dispose();
       }

@@ -8,8 +8,44 @@ import {
   SYNTHESIS_REVERSE_HOST_PATH,
   handleSynthesisReverseHostHttpRequest,
 } from "../../src/modules/synthesis/reverseHost/synthesisReverseHostEndpoint";
+import {
+  normalizeSynthesisSidecarRpcError,
+  SynthesisSidecarRpcError,
+} from "../../src/modules/synthesis/sidecar/synthesisSidecarRpcClient";
 
 describe("Synthesis reverse Host endpoint", function () {
+  it("exposes a normalized transfer cause in the native-consumed reason field", async function () {
+    const result = await handleSynthesisReverseHostHttpRequest(
+      {
+        method: "POST",
+        path: SYNTHESIS_REVERSE_HOST_PATH,
+        headers: {},
+        body: {},
+      },
+      {
+        async dispatch() {
+          throw normalizeSynthesisSidecarRpcError(
+            new SynthesisSidecarRpcError("service_unavailable", {
+              reason: "transport_unavailable",
+            }),
+          );
+        },
+      },
+    );
+    assert.equal(result.status, 503);
+    assert.deepInclude(result.body, {
+      ok: false,
+      error: {
+        code: "unavailable",
+        details: {
+          reason: "transport_unavailable",
+          sidecarCode: "service_unavailable",
+          sidecarReason: "transport_unavailable",
+        },
+      },
+    });
+  });
+
   it("never transports an invalid error identifier or unsafe error detail", async function () {
     const result = await handleSynthesisReverseHostHttpRequest(
       {

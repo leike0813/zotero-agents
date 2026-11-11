@@ -100,6 +100,12 @@ System E2E 是行为证据分类，不由目录名决定。真实 Zotero + 生�
 
 `tests/zotero/setup.test.ts` 是唯一宿主 setup，统一安装 grep、失败诊断、后台清理、对象清理、泄漏摘要和性能摘要。
 
+Synthesis 恢复后的导出由三处既有测试共同保护：`228` 通过 owner 的公开接口验证自动恢复先于下一次调用、初始化期间实例更换、失败及关闭；`229` 使用真实 Rust、生产 Reverse Host handlers/broker/HTTP 和内容 transfer，检查交付 manifest 与文件；`302` 的 SL-01 在真实 Zotero 中通过默认 Bridge 导出合成受管材料。discovery 探针可以确认新进程健康，但不能证明默认生产客户端与嵌套 transfer 已切换连接。
+
+SL-01 经已加载插件的公开 preferences event 获取 Bridge。测试 bundle 直接导入 server factory 会创建独立模块副本；它不持有插件的生产 supervisor，不能作为默认 Bridge 的验收入口。
+
+这次遗漏发生在组合边界：原 owner 测试显式触发 recovery，native 导出测试手写 delivery，实机恢复只使用 discovery 创建的客户端。各部分通过仍可能留下缓存旧连接的默认导出回调。回归必须保留这些边界上的生产实现；增加同一路径的普通多篇导出用例不能覆盖该故障。审计测试同时断言安全原因码透传及敏感值剔除，避免把原因丢失固化为预期行为。
+
 ## 归属规则
 
 - 依赖 Node、mock、fake DOM 或纯模块接口的测试进入 Node 层。

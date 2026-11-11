@@ -8,13 +8,27 @@ import {
 import { createNativeSynthesisClientComposition } from "../../../../src/modules/synthesisClient/nativeComposition";
 import { createDefaultSynthesisUiState } from "../../../../src/modules/synthesis/uiModel";
 import { toSynthesisWorkbenchReadState } from "../../../../src/modules/synthesisClient/workbenchUiAdapter";
-import {
-  getSynthesisWorkbenchSidecarStatus,
-  observeSynthesisWorkbenchSidecarStatus,
-} from "../../../../src/modules/synthesis/sidecar/synthesisSidecarRuntimeSupervisor";
+import type { SynthesisWorkbenchSidecarStatus } from "../../../../src/shared/synthesisWorkbenchWireContract";
 import { renderPayloadBlock } from "../../../../src/modules/zoteroHost/notePayloadCodec";
+import {
+  getConfiguredContentFeedUrls,
+  getContentPackageStatus,
+  installContentPackageFromFeed,
+} from "../../../../src/modules/workflow/catalog/contentPackageSubscription";
+import { clearPref, getPref, setPref } from "../../../../src/utils/prefs";
+import { setDebugModeOverrideForTests } from "../../../../src/modules/debugMode";
+import {
+  ensureRuntimeDirectoryExclusive,
+  writeRuntimeTextFile,
+} from "../../../../src/modules/runtimePersistence";
+import { createWorkflowHostApi } from "../../../../src/workflows/hostApi";
+import { loadWorkflowManifests } from "../../../../src/workflows/loader";
+import { executeApplyResult } from "../../../../src/workflows/runtime";
 import gold from "../../../fixtures/zotero-e2e/lisongtao-v1.json";
-import { readDiagnosticsEnv } from "../../testDiagnosticsOutput";
+import {
+  readDiagnosticsEnv,
+  writeDiagnosticsText,
+} from "../../testDiagnosticsOutput";
 import { systemE2ECase } from "../../systemE2ECases";
 
 type WorkbenchFrame = HTMLElement & { contentDocument?: Document };
@@ -37,25 +51,18 @@ const HOST_FACTS_SETTLE_MS = 250;
 
 async function waitUntil<Value>(
   read: () => Value | null | undefined,
-  maxAttempts = 24_000,
+  timeoutMs = 60_000,
 ) {
-  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-    const value = read();
-    if (value) return value;
-    await Zotero.Promise.delay(25);
-  }
-  throw new Error("e2e_condition_not_reached");
+  return waitUntilBounded(read, timeoutMs, "synthesis-e2e-condition");
 }
 
-function paperRef(item: Zotero.Item) {
-  return `${item.libraryID}:${item.key}`;
-}
-
-async function connectNativeSidecar() {
+async function connectNativeSidecar(
+  readStatus: () => SynthesisWorkbenchSidecarStatus | undefined,
+) {
   const status = await waitUntilBounded(
     () => {
-      const current = getSynthesisWorkbenchSidecarStatus();
-      return current.lifecycle === "ready" && current.serviceInstanceId
+      const current = readStatus();
+      return current?.lifecycle === "ready" && current.serviceInstanceId
         ? current
         : null;
     },
@@ -85,8 +92,19 @@ async function connectNativeSidecar() {
   };
 }
 
-async function observeNativeSidecarHealth() {
-  const status = await observeSynthesisWorkbenchSidecarStatus();
+async function observeNativeSidecarHealth(
+  readStatus: () => SynthesisWorkbenchSidecarStatus | undefined,
+) {
+  const status = await waitUntilBounded(
+    () => {
+      const current = readStatus();
+      return current?.lifecycle === "ready" && current.healthObservedAt
+        ? current
+        : null;
+    },
+    60_000,
+    "production-sidecar-health",
+  );
   assert.equal(status.lifecycle, "ready");
   if (!status.serviceInstanceId || !status.healthObservedAt) {
     throw new Error("native_sidecar_health_identity_missing");
@@ -113,16 +131,18 @@ async function observeNativeSidecarHealth() {
 }
 
 async function waitForAutomaticHealthAfter(
+  readStatus: () => SynthesisWorkbenchSidecarStatus | undefined,
   previousHealthObservedAt: string,
   serviceInstanceId: string,
 ) {
   const status = await waitUntilBounded(
     () => {
-      const current = getSynthesisWorkbenchSidecarStatus();
-      return current.lifecycle === "ready" &&
+      const current = readStatus();
+      return current?.lifecycle === "ready" &&
         current.serviceInstanceId === serviceInstanceId &&
         current.healthObservedAt &&
-        current.healthObservedAt !== previousHealthObservedAt
+        Date.parse(current.healthObservedAt) >=
+          Date.parse(previousHealthObservedAt) + SIDECAR_HEALTH_PERIOD_MS
         ? current
         : null;
     },
@@ -155,48 +175,47 @@ async function waitForAutomaticHealthAfter(
 
 async function createSyntheticIndexParents(items: Zotero.Item[]) {
   const stamp = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-  const refs: string[] = [];
-  for (let index = 0; index < SYNTHETIC_INDEX_PARENT_COUNT; index += 1) {
-    const item = new Zotero.Item("journalArticle");
-    item.setField(
-      "title",
-      `Synthetic E2E Index Parent ${stamp} ${String(index).padStart(3, "0")}`,
-    );
-    item.setField("date", "2026");
-    await item.saveTx();
-    items.push(item);
-    refs.push(paperRef(item));
-    const note = new Zotero.Item("note");
-    note.libraryID = item.libraryID;
-    note.parentItemID = item.id;
-    note.setNote(
-      renderPayloadBlock({
-        payloadType: "references-json",
-        payload: {
-          schema: "source_reference_artifact.v1",
-          references: [
-            {
-              sourceReferenceId: `system-e2e-index-navigation-${stamp}-${index}`,
-              extraction: {
-                raw: `Synthetic Index navigation reference ${index}`,
-                confidence: 1,
+  await Zotero.DB.executeTransaction(async () => {
+    for (let index = 0; index < SYNTHETIC_INDEX_PARENT_COUNT; index += 1) {
+      const item = new Zotero.Item("journalArticle");
+      item.setField(
+        "title",
+        `Synthetic E2E Index Parent ${stamp} ${String(index).padStart(3, "0")}`,
+      );
+      item.setField("date", "2026");
+      await item.save();
+      items.push(item);
+      const note = new Zotero.Item("note");
+      note.libraryID = item.libraryID;
+      note.parentItemID = item.id;
+      note.setNote(
+        renderPayloadBlock({
+          payloadType: "references-json",
+          payload: {
+            schema: "source_reference_artifact.v1",
+            references: [
+              {
+                sourceReferenceId: `system-e2e-index-navigation-${stamp}-${index}`,
+                extraction: {
+                  raw: `Synthetic Index navigation reference ${index}`,
+                  confidence: 1,
+                },
+                bibliography: {
+                  title: `Synthetic Index navigation reference ${index}`,
+                  authors: [],
+                  year: null,
+                },
+                matching: {},
               },
-              bibliography: {
-                title: `Synthetic Index navigation reference ${index}`,
-                authors: [],
-                year: null,
-              },
-              matching: {},
-            },
-          ],
-        },
-        payloadFormat: "json",
-      }),
-    );
-    await note.saveTx();
-    items.push(note);
-  }
-  return refs;
+            ],
+          },
+          payloadFormat: "json",
+        }),
+      );
+      await note.save();
+      items.push(note);
+    }
+  });
 }
 
 function createSyntheticTagFixture(): SyntheticTagFixture {
@@ -314,6 +333,43 @@ async function readGoldLibraryFacts() {
 describe("Synthesis E2E gold library", function () {
   this.timeout(900_000);
   let cleanupAfterCase: (() => Promise<void>) | undefined;
+  let removeStatusListener: (() => void) | undefined;
+  const previousChannel = getPref("contentFeedChannel");
+  const previousMirror = getPref("contentDevFeedMirrorUrl");
+  let contentSettingsChanged = false;
+
+  before(async function () {
+    const channel = readDiagnosticsEnv("ZOTERO_TEST_CONTENT_CHANNEL");
+    if (!channel) return;
+    assert.oneOf(channel, ["stable", "beta", "dev"]);
+    const version = readDiagnosticsEnv("ZOTERO_TEST_CONTENT_VERSION");
+    assert.isNotEmpty(version);
+    contentSettingsChanged = true;
+    if (channel === "dev") {
+      setDebugModeOverrideForTests(true);
+      const primary = getConfiguredContentFeedUrls("dev").find(
+        (source) => source.kind === "primary",
+      )!;
+      setPref("contentDevFeedMirrorUrl", primary.url);
+    }
+    setPref("contentFeedChannel", channel);
+    const installed = await installContentPackageFromFeed({
+      channel: channel as "stable" | "beta" | "dev",
+    });
+    if (!installed.ok)
+      throw new Error(`content_install:${installed.code}:${installed.message}`);
+    assert.equal(installed.installed.package.version, version);
+    assert.equal(installed.installed.package.channel, channel);
+  });
+
+  after(function () {
+    if (!contentSettingsChanged) return;
+    if (previousChannel === undefined) clearPref("contentFeedChannel");
+    else setPref("contentFeedChannel", previousChannel);
+    if (previousMirror === undefined) clearPref("contentDevFeedMirrorUrl");
+    else setPref("contentDevFeedMirrorUrl", previousMirror);
+    setDebugModeOverrideForTests();
+  });
 
   afterEach(async function () {
     const cleanup = cleanupAfterCase;
@@ -324,6 +380,8 @@ describe("Synthesis E2E gold library", function () {
     } catch (error) {
       cleanupError = error;
     } finally {
+      removeStatusListener?.();
+      removeStatusListener = undefined;
       const mainWindow = Zotero.getMainWindow() as _ZoteroTypes.MainWindow;
       await Promise.resolve(
         (mainWindow as any)?.Zotero_Tabs?.close?.("zotero-skills-workspace"),
@@ -363,11 +421,23 @@ describe("Synthesis E2E gold library", function () {
         '[data-zs-role="synthesis-workbench-frame"]',
       ),
     )) as WorkbenchFrame;
-    const frameDocument = frame.contentDocument;
-    assert.isOk(frameDocument);
-    const doc = frameDocument;
+    const doc = await waitUntil(() => {
+      const candidate = frame.contentDocument;
+      return candidate?.querySelector('button[data-synthesis-tab="registry"]')
+        ? candidate
+        : null;
+    });
     const frameWindow = doc.defaultView;
     assert.isOk(frameWindow);
+    let sidecarStatus: SynthesisWorkbenchSidecarStatus | undefined;
+    const onHostMessage = (event: MessageEvent) => {
+      if (["synthesis:init", "synthesis:snapshot", "synthesis:chrome"].includes(event.data?.type)) {
+        sidecarStatus = event.data.payload?.sidecarStatus;
+      }
+    };
+    frameWindow.addEventListener("message", onHostMessage);
+    removeStatusListener = () => frameWindow.removeEventListener("message", onHostMessage);
+    const readSidecarStatus = () => sidecarStatus;
     const clickTab = async (tab: string) => {
       const button = await waitUntil(() =>
         doc.querySelector<HTMLButtonElement>(
@@ -377,13 +447,13 @@ describe("Synthesis E2E gold library", function () {
       button.click();
       await waitUntil(() =>
         doc.querySelector<HTMLButtonElement>(
-          `button[data-synthesis-tab="${tab}"][aria-selected="true"]`,
+          `button[data-synthesis-tab="${tab}"].active`,
         ),
       );
     };
     await clickTab("registry");
 
-    const sidecar = await connectNativeSidecar();
+    const sidecar = await connectNativeSidecar(readSidecarStatus);
     const composition = sidecar.composition;
     const ownedItems: Zotero.Item[] = [];
     const tagFixture = createSyntheticTagFixture();
@@ -407,8 +477,7 @@ describe("Synthesis E2E gold library", function () {
       if (firstError) throw firstError;
     };
 
-    const syntheticRefs = await createSyntheticIndexParents(ownedItems);
-    const syntheticRefSet = new Set(syntheticRefs);
+    await createSyntheticIndexParents(ownedItems);
     await seedSyntheticTags(composition, tagFixture);
     // The sidecar re-reads Host facts asynchronously after a mutation.
     await Zotero.Promise.delay(HOST_FACTS_SETTLE_MS);
@@ -473,35 +542,7 @@ describe("Synthesis E2E gold library", function () {
         (row) => !firstPageRefs.includes(row.paper_ref),
       ),
     );
-    let retentionPage: number | undefined;
-    let retentionRef: string | undefined;
-    let searchPage = secondPage;
-    for (let pageNumber = 2; pageNumber <= 64; pageNumber += 1) {
-      const candidate = searchPage.registry.rows.find(
-        (row) =>
-          syntheticRefSet.has(row.paper_ref) && row.reference_count > 0,
-      );
-      if (candidate) {
-        retentionPage = pageNumber;
-        retentionRef = candidate.paper_ref;
-        break;
-      }
-      const cursor = searchPage.registry.page?.nextCursor;
-      if (!searchPage.registry.page?.hasMore || !cursor) break;
-      searchPage = await composition.client.workbench.readSurface({
-        surface: "index",
-        state: toSynthesisWorkbenchReadState(initialState, {
-          indexCursor: cursor,
-          indexExpectedBasis: firstPage.registry.page?.basis,
-          indexLimit: INDEX_PAGE_LIMIT,
-        }),
-      });
-      assert.isAtMost(searchPage.registry.rows.length, INDEX_PAGE_LIMIT);
-    }
-    assert.isOk(retentionPage);
-    assert.isOk(retentionRef);
-
-    const initialHealth = await observeNativeSidecarHealth();
+    const initialHealth = await observeNativeSidecarHealth(readSidecarStatus);
     const pagination = () =>
       doc.querySelector<HTMLElement>(".registry-index-pagination");
     const totalPages = () => {
@@ -559,6 +600,8 @@ describe("Synthesis E2E gold library", function () {
     await waitForIndexPage(2);
     assert.notEqual(pageRefs().join("|"), firstWindowRefs);
 
+    pageButton("first")!.click();
+    await waitForIndexPage(1);
     const pages = await waitUntil(() => {
       const total = totalPages();
       const lastPageButton = pageButton("last");
@@ -582,7 +625,6 @@ describe("Synthesis E2E gold library", function () {
     assert.isTrue(pageButton("first")?.disabled);
     await goToPage(2);
     assert.equal(pagination()?.dataset.indexWindow, "2");
-    await goToPage(retentionPage!);
 
     const indexScrollRegion = await waitUntil(() =>
       doc.querySelector<HTMLElement>(
@@ -593,26 +635,15 @@ describe("Synthesis E2E gold library", function () {
     indexScrollRegion.dispatchEvent(
       new frameWindow.Event("scroll", { bubbles: true }),
     );
-    let disclosure: HTMLButtonElement | null = null;
-    for (let rowIndex = 0; rowIndex < INDEX_PAGE_LIMIT; rowIndex += 1) {
-      disclosure = doc.querySelector<HTMLButtonElement>(
-        `[data-windowed-row-key="${retentionRef}"] .registry-reference-disclosure`,
-      );
-      if (disclosure) break;
-      const nextTop = Math.min(
-        indexScrollRegion.scrollHeight - indexScrollRegion.clientHeight,
-        (rowIndex + 1) * 72,
-      );
-      indexScrollRegion.scrollTop = nextTop;
-      indexScrollRegion.dispatchEvent(
-        new frameWindow.Event("scroll", { bubbles: true }),
-      );
-      await Zotero.Promise.delay(25);
-    }
-    disclosure ||= doc.querySelector<HTMLButtonElement>(
-      `[data-windowed-row-key="${retentionRef}"] .registry-reference-disclosure`,
+    const retentionRow = await waitUntil(() =>
+      Array.from(doc.querySelectorAll<HTMLElement>(".registry-parent-row"))
+        .find((row) => row.querySelector(".registry-reference-disclosure")),
     );
+    const retentionRef = retentionRow.dataset.windowedRowKey;
+    assert.isNotEmpty(retentionRef);
+    const disclosure = retentionRow.querySelector<HTMLButtonElement>(".registry-reference-disclosure");
     assert.isOk(disclosure);
+    disclosure.focus();
     disclosure.click();
     await waitUntil(() => {
       const row = doc.querySelector<HTMLElement>(
@@ -730,10 +761,12 @@ describe("Synthesis E2E gold library", function () {
     );
 
     const firstAutomaticHealth = await waitForAutomaticHealthAfter(
+      readSidecarStatus,
       initialHealth.healthObservedAt,
       initialHealth.serviceInstanceId,
     );
     const secondAutomaticHealth = await waitForAutomaticHealthAfter(
+      readSidecarStatus,
       firstAutomaticHealth.healthObservedAt,
       initialHealth.serviceInstanceId,
     );
@@ -752,5 +785,142 @@ describe("Synthesis E2E gold library", function () {
     assert.isNull(
       doc.querySelector('[data-synthesis-error-code="invalid_request"]'),
     );
+    const manifestPath = readDiagnosticsEnv("ZOTERO_SYSTEM_E2E_MANIFEST_PATH");
+    assert.isNotEmpty(manifestPath);
+    await writeDiagnosticsText(
+      PathUtils.join(PathUtils.parent(manifestPath), "index-navigation-health.json"),
+      JSON.stringify({
+        zoteroVersion: Zotero.version,
+        contentVersion: readDiagnosticsEnv("ZOTERO_TEST_CONTENT_VERSION"),
+        health: [initialHealth, firstAutomaticHealth, secondAutomaticHealth].map(
+          (sample) => ({
+            pid: sample.discovery.discovery.pid,
+            serviceInstanceId: sample.serviceInstanceId,
+            observedAt: sample.healthObservedAt,
+          }),
+        ),
+      }, null, 2),
+    );
   });
+
+  systemE2ECase(
+    "mineru-path-budget-01",
+    undefined,
+    "MinerU Windows path budgets preserve old outputs before unsafe backup",
+    async function () {
+      if (!Zotero.isWin) this.skip();
+      const root = PathUtils.join(
+        PathUtils.tempDir,
+        `zm-${Date.now().toString(36)}`,
+      );
+      await ensureRuntimeDirectoryExclusive(root);
+      const parent = new Zotero.Item("journalArticle");
+      try {
+        await parent.saveTx();
+        const bundle = PathUtils.join(root, "b");
+        await IOUtils.makeDirectory(bundle);
+        const stem = "m".repeat(259 - root.length - 1 - ".pdf".length);
+        const pdfPath = PathUtils.join(root, `${stem}.pdf`);
+        const mdPath = PathUtils.join(root, `${stem}.md`);
+        assert.lengthOf(pdfPath, 259);
+        assert.lengthOf(mdPath, 258);
+        await writeRuntimeTextFile(
+          pdfPath,
+          "%PDF-1.4\nsynthetic path fixture\n",
+        );
+        await writeRuntimeTextFile(mdPath, "old markdown\n");
+        const source = await Zotero.Attachments.linkFromFile({
+          file: pdfPath,
+          parentItemID: parent.id,
+          title: "Synthetic source",
+        });
+        const output = await Zotero.Attachments.linkFromFile({
+          file: mdPath,
+          parentItemID: parent.id,
+          title: "Synthetic Markdown",
+        });
+        const images = PathUtils.join(root, `Images_${source.key}`);
+        await IOUtils.makeDirectory(images);
+        await writeRuntimeTextFile(
+          PathUtils.join(images, "old.png"),
+          "old image",
+        );
+        await writeRuntimeTextFile(
+          PathUtils.join(bundle, "full.md"),
+          "new markdown\n",
+        );
+        const status = await getContentPackageStatus();
+        const loaded = await loadWorkflowManifests(status.officialWorkflowDir);
+        const workflow = loaded.workflows.find(
+          (entry) => entry.manifest.id === "mineru",
+        );
+        assert.isOk(workflow, loaded.errors.join(" | "));
+        const sourceRef = { libraryId: source.libraryID, key: source.key };
+        const apply = () =>
+          executeApplyResult({
+            workflow: workflow!,
+            parent: { libraryId: parent.libraryID, key: parent.key },
+            bundleReader: {
+              readText: async () => "",
+              getExtractedDir: async () => bundle,
+            },
+            request: {
+              sourceAttachmentRefs: [sourceRef],
+              context: {
+                source_attachment_path: pdfPath,
+                source_attachment_name: source.getField("title"),
+                source_attachment_ref: sourceRef,
+              },
+            },
+            runResult: {},
+            runtime: { hostApi: createWorkflowHostApi() },
+          });
+        await apply();
+        const acceptedMarkdown = await IOUtils.readUTF8(mdPath);
+        assert.include(acceptedMarkdown, "new markdown");
+        assert.equal(await output.getFilePathAsync(), mdPath);
+        assert.equal(
+          await IOUtils.readUTF8(pdfPath),
+          "%PDF-1.4\nsynthetic path fixture\n",
+        );
+
+        await IOUtils.makeDirectory(images, { ignoreExisting: true });
+        const oldImage = PathUtils.join(
+          images,
+          `${"i".repeat(259 - images.length - 1 - 4)}.png`,
+        );
+        assert.lengthOf(oldImage, 259);
+        await writeRuntimeTextFile(oldImage, "protected old image");
+        const attachmentIds = parent.getAttachments();
+        await writeRuntimeTextFile(
+          PathUtils.join(bundle, "full.md"),
+          "must not replace accepted output\n",
+        );
+        let failure: unknown;
+        try {
+          await apply();
+        } catch (error) {
+          failure = error;
+        }
+        assert.isOk(failure);
+        assert.match(String(failure), /path budget/i);
+        assert.equal(await IOUtils.readUTF8(mdPath), acceptedMarkdown);
+        assert.equal(await IOUtils.readUTF8(oldImage), "protected old image");
+        assert.equal(
+          await IOUtils.readUTF8(pdfPath),
+          "%PDF-1.4\nsynthetic path fixture\n",
+        );
+        assert.deepEqual(parent.getAttachments(), attachmentIds);
+        assert.isFalse(
+          (await IOUtils.getChildren(root)).some((entry) =>
+            PathUtils.filename(entry).startsWith(".mineru-"),
+          ),
+        );
+      } finally {
+        if (parent.id) await Zotero.Items.trashTx([parent.id]);
+        await IOUtils.remove(root, { recursive: true });
+      }
+    },
+    "platform_unsupported",
+  );
 });

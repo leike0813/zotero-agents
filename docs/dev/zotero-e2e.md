@@ -64,6 +64,8 @@ sidecar 提供 `reference-after-first-page` 和 `maintenance-after-admission` �
 
 `HB-02` 比较冲突前后完整的 canonical observation（`output.data.data`），并核对其与首次写入结果一致；CLI envelope 的 `meta.operationId` 属于每次查询请求，不属于持久化 mutation evidence。
 
+`SL-01` 在 sidecar 自动恢复后通过默认 Host Bridge 导出合成受管文献材料，核对导出 manifest 与实际文件，再由既有 family cleanup 清理。discovery 客户端只负责进程身份和健康观察；导出使用插件的默认生产组合，以覆盖 Reverse Host 与内容 transfer 是否跟随新实例。定点运行可用 `ZOTERO_TEST_GREP='System E2E runner foundation|SL-01' npm run test:zotero:e2e`；真实库与 profile 仍只允许作为隔离输入来源。
+
 恢复进程通过 `ZOTERO_SYSTEM_E2E_RESUME_CASE` 指定所属 case，outer runner 通过 `ZOTERO_SYSTEM_E2E_COMPLETED_CASES` 传入已有终态的 case ID。实际 Mocha test 对象携带稳定 ID，reporter 从实际 grep 与 family 选择得到本次所选清单，在执行前确认清单已落盘，再从恢复进程移除已完成的 tests，空 suite 的 hooks 因此不会执行。HB-03 恢复后继续普通 Phase 2；AC-05 恢复后继续 SR-02。已经完成的 admission 不会重放。
 
 `pending` 表示当前进程没有执行该用例，不能作为整轮失败或通过的判据。outer runner 最后输出 `[system-e2e-summary]`，按全部进程累计所选、通过、失败、允许的平台跳过和缺少证据的用例数，并打印 manifest 路径。任一先前失败、异常跳过、空选择、缺少终态或 family evidence 都使命令非零退出；只有明确声明的 `platform_unsupported` 跳过可作为终态。Run Manifest 的 `cases` 与 `summary` 保存这份逻辑运行结果。

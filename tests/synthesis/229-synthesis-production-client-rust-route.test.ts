@@ -36,7 +36,10 @@ import {
 import protocolRegistry from "../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/registry.json" with { type: "json" };
 import productionOperations from "../../packages/synthesis-contracts/contract-set/synthesis-production-client-v1/operations.json" with { type: "json" };
 import reverseHostSchema from "../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/reverse-host.schema.json" with { type: "json" };
-import { synthesisProductionOperationPolicy } from "../../src/modules/synthesis/production/synthesisProductionRpcPolicy";
+import {
+  SYNTHESIS_PRODUCTION_RPC_TRANSPORT_ERRORS,
+  synthesisProductionOperationPolicy,
+} from "../../src/modules/synthesis/production/synthesisProductionRpcPolicy";
 import {
   buildSynthesisCitationGraphBuildTransferManifest,
   buildSynthesisCitationGraphBuildTransferPage,
@@ -63,7 +66,14 @@ import {
   createSynthesisHostRunWorkspaceMaterializationPort,
 } from "../../src/modules/synthesis/exportDeliveryAdapter";
 import { createSyntheticSynthesisProductionRouteDataset } from "../fixtures/synthesisSyntheticDatasets";
-import { buildTestSynthesisHostItemSummary } from "../helpers/synthesisHostReadPort";
+import {
+  buildTestSynthesisHostItemSummary,
+  createTestSynthesisHostReadPort,
+} from "../helpers/synthesisHostReadPort";
+import { createSynthesisReverseHostBroker } from "../../src/modules/synthesis/reverseHost/synthesisReverseHostBroker";
+import { createScopedSynthesisReverseHostHandlers } from "../../src/modules/synthesis/reverseHost/synthesisReverseHostHandlers";
+import { createSynthesisProductionOwner } from "../../src/modules/synthesis/production/synthesisProductionOwner";
+import type { SynthesisSidecarSupervisorSnapshot } from "../../src/modules/synthesis/sidecar/synthesisSidecarRuntimeSupervisor";
 import {
   SYNTHESIS_PRODUCTION_ROUTE_CLIENT_TOKEN as CLIENT_TOKEN,
   buildTestSynthesisLibrarySnapshotPage,
@@ -2144,6 +2154,216 @@ describe("Synthesis Rust production client route", function () {
       );
     } finally {
       await harness.stop();
+    }
+  });
+
+  it("delivers artifacts through production Reverse Host composition after instance replacement", async function () {
+    this.timeout(30_000);
+    const markdown =
+      "# Synthetic recovery export\n\nDelivered through native content transfer.";
+    let connection: ReturnType<
+      Awaited<
+        ReturnType<typeof startSynthesisProductionRouteHarness>
+      >["getReadyConnection"]
+    > | null = null;
+    let bound: string | null = null;
+    let failTransfer = false;
+    let snapshot: SynthesisSidecarSupervisorSnapshot = {
+      status: "ready",
+      recoveryState: "none",
+      restartCount: 0,
+    };
+    const subscribers = new Set<
+      (value: SynthesisSidecarSupervisorSnapshot) => void
+    >();
+    const publish = (value: SynthesisSidecarSupervisorSnapshot) => {
+      snapshot = value;
+      for (const subscriber of subscribers) subscriber(value);
+    };
+    let root = "";
+    const handlers = createScopedSynthesisReverseHostHandlers({
+      libraryId: 1,
+      hostReadPort: createTestSynthesisHostReadPort([
+        {
+          libraryId: 1,
+          itemKey: "RECOVER1",
+          title: "Synthetic recovery export",
+          year: "2026",
+          itemType: "journalArticle",
+          notes: [
+            {
+              key: "RECNOTE1",
+              title: "Digest",
+              updatedAt: "2026-01-01T00:00:00Z",
+              noteKind: "digest",
+              payload: { markdown },
+              issue: null,
+            },
+          ],
+        },
+      ]),
+      exportDeliveryPort: {} as never,
+      runWorkspaceMaterializationPort: {
+        materialize: (request) =>
+          createSynthesisHostRunWorkspaceMaterializationPort({
+            runtimeRoot: root,
+          }).materialize(request),
+      },
+      representativeImagePort: {} as never,
+      relatedItemsEffectPort: {} as never,
+      stagedTagBindingPort: {} as never,
+      tagEffectPort: {} as never,
+      webDavPort: {
+        describe: async () => SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION,
+      } as never,
+      exportTransfer: {
+        getConnection: () =>
+          connection
+            ? {
+                baseUrl: `http://127.0.0.1:${connection.discovery.port}`,
+                profileId: connection.discovery.profileId,
+                clientToken: connection.clientToken,
+                serviceInstanceId: connection.discovery.serviceInstanceId,
+              }
+            : null,
+        rpcClient: createSynthesisSidecarRpcClient({
+          transportErrors: SYNTHESIS_PRODUCTION_RPC_TRANSPORT_ERRORS,
+          fetch: async (input, init) => {
+            if (failTransfer) throw new Error("private transfer failure");
+            return fetch(input, init);
+          },
+        }),
+      },
+    });
+    const broker = createSynthesisReverseHostBroker({
+      profileId: "1".repeat(64),
+      serviceInstanceId: () => bound,
+      authorizationToken: "9".repeat(64),
+      now: Date.now,
+      isHostConnected: () => true,
+      authorizeCapability: () => true,
+      allowUnboundServiceInstance: true,
+      handlers,
+    });
+    const first = await startSynthesisProductionRouteHarness({
+      id: "export-first",
+      reverseHostBroker: broker,
+    });
+    root = first.root;
+    connection = first.getReadyConnection();
+    const owner = createSynthesisProductionOwner({
+      createReverseHostEndpoint: () => ({
+        start: () => ({
+          host: "127.0.0.1",
+          port: 1,
+          authorizationToken: "9".repeat(64),
+        }),
+        bindServiceInstance: (value) => {
+          bound = value;
+        },
+        stop() {},
+      }),
+      startProductionSupervisor: () => ({
+        subscribe: (subscriber) => {
+          subscribers.add(subscriber);
+          return () => subscribers.delete(subscriber);
+        },
+        getSnapshot: () => snapshot,
+        getReadyConnection: () => connection,
+        getDiagnosticEvidence: () => ({ stdoutTail: "", stderrTail: "" }),
+        recover() {},
+      }),
+      stopProductionSupervisor: async () => {},
+      invalidateClient() {},
+    });
+    const composition = createNativeSynthesisClientComposition({
+      getReadyConnection: () => connection,
+    });
+    let second: typeof first | undefined;
+    const exportAndRead = async (suffix: string) => {
+      const runRoot = path.join(
+        root,
+        "runtime/acp/skill-runs",
+        `acp-skill-${suffix}`,
+      );
+      const result = await composition.client.artifacts.exportFiltered(
+        {
+          paper_refs: ["1:RECOVER1"],
+          artifact_types: ["digest"],
+          run_root: runRoot,
+        },
+        { mode: "local" },
+      );
+      assert.deepEqual(result.paper_refs, ["1:RECOVER1"]);
+      assert.equal(result.artifact_statuses[0]?.status, "available");
+      const manifest = JSON.parse(
+        fs.readFileSync(path.join(runRoot, result.manifest_file), "utf8"),
+      );
+      assert.deepEqual(manifest.paper_refs, ["1:RECOVER1"]);
+      const [artifact] = manifest.papers[0].artifacts;
+      const content = fs.readFileSync(
+        path.join(runRoot, artifact.content_file),
+        "utf8",
+      );
+      assert.include(content, "Delivered through native content transfer.");
+      assert.equal(
+        artifact.content_hash,
+        `sha256:${crypto.createHash("sha256").update(content).digest("hex")}`,
+      );
+    };
+    try {
+      const initial = await owner.start();
+      await exportAndRead("before-recovery");
+      await first.stopProcess();
+      connection = null;
+      publish({
+        status: "unavailable",
+        recoveryState: "scheduled",
+        restartCount: 1,
+      });
+      second = await startSynthesisProductionRouteHarness({
+        id: "export-replacement",
+        root,
+        reverseHostBroker: broker,
+      });
+      connection = second.getReadyConnection();
+      publish({ status: "ready", recoveryState: "none", restartCount: 1 });
+      assert.notEqual(
+        connection.discovery.serviceInstanceId,
+        initial.discovery.serviceInstanceId,
+      );
+      assert.equal(await owner.whenReady(), connection);
+      await exportAndRead("after-recovery");
+      failTransfer = true;
+      const failedRoot = path.join(
+        root,
+        "runtime/acp/skill-runs/acp-skill-failed-transfer",
+      );
+      const [failure] = await Promise.allSettled([
+        composition.client.artifacts.exportFiltered(
+          {
+            paper_refs: ["1:RECOVER1"],
+            artifact_types: ["digest"],
+            run_root: failedRoot,
+          },
+          { mode: "local" },
+        ),
+      ]);
+      assert.equal(failure.status, "rejected");
+      if (failure.status === "rejected") {
+        assert.instanceOf(failure.reason, SynthesisClientError);
+        assert.equal(
+          failure.reason.details.sidecarReason,
+          "transport_unavailable",
+        );
+      }
+      assert.isFalse(fs.existsSync(failedRoot));
+    } finally {
+      await owner.shutdown();
+      await composition.dispose();
+      await second?.stop();
+      await first.stop();
+      broker.dispose();
     }
   });
 

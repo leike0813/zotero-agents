@@ -1270,6 +1270,8 @@ export type FluentMessageId =
   | 'synthesis-index-cleanup-body'
   | 'synthesis-index-cleanup-kind'
   | 'synthesis-index-cleanup-review'
+  | 'synthesis-index-count-failed'
+  | 'synthesis-index-counting'
   | 'synthesis-index-dedupe-review'
   | 'synthesis-index-deletion-review'
   | 'synthesis-index-empty'

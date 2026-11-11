@@ -1040,7 +1040,7 @@ describe("Synthesis native client composition", function () {
     }
   });
 
-  it("preserves failure reason and sidecar code from client error details", function () {
+  it("preserves safe failure reasons and sidecar codes from client error details", function () {
     beginSynthesisSidecarBusinessAudit({
       operation: "client.listTopics",
     }).failed(
@@ -1062,12 +1062,24 @@ describe("Synthesis native client composition", function () {
         },
       ),
     );
+    beginSynthesisSidecarBusinessAudit({
+      operation: "client.listTopics",
+    }).failed(
+      new SynthesisClientError(
+        "unavailable",
+        "The native Synthesis request failed",
+        {
+          reason: "C:/private/library/token",
+          sidecarCode: "private credential",
+        },
+      ),
+    );
 
     const entries = listRuntimeLogs({
       component: "synthesis-sidecar-business",
       order: "asc",
     });
-    assert.lengthOf(entries, 2);
+    assert.lengthOf(entries, 3);
     assert.deepInclude(entries[0]?.details as Record<string, unknown>, {
       classification: "unavailable",
       reason: "service_not_ready",
@@ -1079,11 +1091,17 @@ describe("Synthesis native client composition", function () {
     assert.deepInclude(entries[1]?.details as Record<string, unknown>, {
       classification: "unavailable",
       sidecarCode: "worker_unavailable",
+      reason: "repository_unavailable",
     });
     assert.notProperty(
-      entries[1]?.details as Record<string, unknown>,
+      entries[2]?.details as Record<string, unknown>,
       "reason",
     );
+    assert.notProperty(
+      entries[2]?.details as Record<string, unknown>,
+      "sidecarCode",
+    );
+    assert.notInclude(JSON.stringify(entries[2]), "C:/private/library/token");
   });
 
   it("classifies public maintenance receipts by lifecycle state for every receipt operation", function () {

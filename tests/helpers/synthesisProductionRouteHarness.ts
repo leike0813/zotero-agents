@@ -37,6 +37,7 @@ import {
   createNativeSynthesisRetrievalPort,
 } from "../../src/modules/synthesisClient/nativeComposition";
 import { createSynthesisSidecarRpcClient } from "../../src/modules/synthesis/sidecar/synthesisSidecarRpcClient";
+import { handleSynthesisReverseHostHttpRequest } from "../../src/modules/synthesis/reverseHost/synthesisReverseHostEndpoint";
 import {
   SYNTHESIS_PRODUCTION_RPC_TRANSPORT_ERRORS,
   synthesisProductionOperationPolicy,
@@ -525,6 +526,9 @@ export function readProcessPeakRss(pid: number | undefined) {
 export async function startSynthesisProductionRouteHarness(args: {
   id: string;
   hostFixture?: SynthesisProductionRouteHostFixture;
+  reverseHostBroker?: Parameters<
+    typeof handleSynthesisReverseHostHttpRequest
+  >[1];
   root?: string;
   profileId?: string;
   runtimeRootId?: string;
@@ -553,6 +557,24 @@ export async function startSynthesisProductionRouteHarness(args: {
     const source = await readRequestBody(request);
     let capability = "";
     try {
+      if (args.reverseHostBroker) {
+        const result = await handleSynthesisReverseHostHttpRequest(
+          {
+            method: request.method || "",
+            path: request.url || "",
+            headers: { authorization: request.headers.authorization || "" },
+            body: JSON.parse(source.toString("utf8")),
+          },
+          args.reverseHostBroker,
+        );
+        const body = JSON.stringify(result.body);
+        response.writeHead(result.status, {
+          "content-type": "application/json",
+          "content-length": Buffer.byteLength(body),
+        });
+        response.end(body);
+        return;
+      }
       const call = JSON.parse(source.toString("utf8")) as {
         capability?: string;
         payload?: Record<string, unknown>;
@@ -884,6 +906,7 @@ export async function startSynthesisProductionRouteHarness(args: {
     port,
     pid: sidecar.child.pid,
     client: composition.client,
+    getReadyConnection,
     retrieval: createNativeSynthesisRetrievalPort({
       getReadyConnection,
       rpcClient,

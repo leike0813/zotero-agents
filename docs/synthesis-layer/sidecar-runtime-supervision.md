@@ -153,6 +153,15 @@ budget or schedule another launch. Explicit Workbench recovery starts one fresh,
 non-overlapping generation. Recovery does not inspect legacy receipt,
 admission, activation, pointer, version, owner, or lease files.
 
+The production owner follows automatic replacements even when recovery finishes
+before the next client call. Leaving ready revokes the Reverse Host binding and
+its cached readiness task; replacement initialization binds the current service
+instance. Readiness checks both before and after asynchronous reconciliation
+reject a departed instance's result, including late failure and shutdown.
+Shutdown settles readiness waiters and prevents further binding. Export delivery
+resolves its transfer connection from the supervisor for each operation, just
+like ordinary client requests; reconciliation never owns a cached export port.
+
 The supervisor caches only the bounded health fields needed by Workbench:
 lifecycle/recovery state, stable reason code, observation time, service and
 bundle identity, restart time, and compute-pool state with active/queued counts.
@@ -167,6 +176,12 @@ Health-triggered retirement persists `controlFailureCode` beside the existing
 It uses the control client's bounded stable-code normalization; unknown raw
 errors become `control_failed`. Intentional process exit does not replace the
 first cause. Business audit entries retain their existing semantic projection.
+RPC transport failures carry `transport_unavailable`; content transfer uses the
+shared client error normalization so Reverse Host preserves known causes instead
+of converting them to `internal`. Business audit projects a safe `reason` or
+`sidecarReason` into its existing `reason` field. Raw exceptions, paths, tokens,
+and prose are excluded by the observation reason filter. These diagnostics do
+not authorize replay of a failed export or change retry policy.
 
 Command progress uses the normal 500 ms cadence only while reads are eligible.
 Known non-ready sidecar states suspend service-dependent progress and accepted

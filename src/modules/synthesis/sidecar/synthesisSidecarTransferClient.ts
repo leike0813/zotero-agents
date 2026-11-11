@@ -18,13 +18,13 @@ import {
   type SynthesisJsonValue,
 } from "../../../../packages/synthesis-contracts/src/common";
 import { hashSynthesisContractCanonicalJson } from "../../../../packages/synthesis-contracts/src/canonicalJson";
-import type { SynthesisSidecarErrorCode } from "../../../../packages/synthesis-contracts/src/sidecarSystem";
 import {
   rebuildSynthesisCitationGraphBuildTransferManifest,
   rebuildSynthesisCitationGraphBuildTransferPage,
 } from "../../../../packages/synthesis-engine/src/citationGraphBuildTransfer";
 import {
   createSynthesisSidecarRpcClient,
+  normalizeSynthesisSidecarRpcError,
   SynthesisSidecarRpcError,
   type SynthesisSidecarRpcConnection,
 } from "./synthesisSidecarRpcClient";
@@ -40,13 +40,6 @@ export type SynthesisSidecarTransferCallOptions = {
   signal?: AbortSignal;
   deadlineMs?: number;
 };
-
-export class SynthesisSidecarTransferClientError extends Error {
-  constructor(readonly code: SynthesisSidecarErrorCode) {
-    super(code);
-    this.name = "SynthesisSidecarTransferClientError";
-  }
-}
 
 function createTransferActions(args: {
   rpc: SynthesisSidecarTransferRpcClient;
@@ -71,7 +64,10 @@ function createTransferActions(args: {
       });
     } catch (error) {
       if (error instanceof SynthesisSidecarRpcError) {
-        throw new SynthesisSidecarTransferClientError(error.code);
+        throw normalizeSynthesisSidecarRpcError(
+          error,
+          "The native Synthesis content transfer failed",
+        );
       }
       throw error;
     }

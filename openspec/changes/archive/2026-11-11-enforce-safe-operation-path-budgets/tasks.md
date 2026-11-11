@@ -28,11 +28,11 @@
 - [x] 5.1 执行相关五文件 Node 专项（107 passing）、最终 literature 分片（116 passing、18 pending）及 Linux 真实文件系统生产路径 smoke；确认源 PDF 不变、失败回滚正确且无工作流暂存残留。
 - [x] 5.2 通过受影响代码 TypeScript、ESLint、Prettier 和两份主规格 strict 校验；命令与结果记录于 design。
 - [x] 5.3 补齐本 change 的 proposal/design/delta/tasks，通过 change strict 校验并逐条核对 delta 与已同步主规格一致。
-- [ ] 5.4 闭合 ACP copy-failure 集成验证：当前技能物化被 surface identity mismatch 阻断；在包身份一致的环境中证明注入失败仍报告 unavailable，不能放宽身份校验代替验证。
-- [ ] 5.5 闭合 runtime 域验证：调查 `172-export-research-bundle-skill-runtime.test.ts` 的 30 秒超时，取得既有 discovery/CLI 场景完整结果或明确的基线隔离证据，不以增加超时或缩小断言冒充通过。
-- [ ] 5.6 在可用 Windows Zotero 隔离 profile 中，经既有 E2E/实机入口验证近限路径成功、预算不足前置拒绝、MinerU 旧输出保护及附件原生落盘；记录 OS、Zotero 版本和实际结果。需要构建时先走 build-preflight，不操作用户原库。
+- [x] 5.4 闭合 ACP copy-failure 集成验证：当前技能物化被 surface identity mismatch 阻断；在包身份一致的环境中证明注入失败仍报告 unavailable，不能放宽身份校验代替验证。
+- [x] 5.5 闭合 runtime 域验证：调查 `172-export-research-bundle-skill-runtime.test.ts` 的 30 秒超时，取得既有 discovery/CLI 场景完整结果或明确的基线隔离证据，不以增加超时或缩小断言冒充通过。
+- [x] 5.6 在可用 Windows Zotero 隔离 profile 中，经既有 E2E/实机入口验证近限路径成功、预算不足前置拒绝、MinerU 旧输出保护及附件原生落盘；记录 OS、Zotero 版本和实际结果。需要构建时先走 build-preflight，不操作用户原库。
 
 ## Workflow follow-up
 
 - 主规格已包含本 change 的 delta；归档前复核已同步状态，避免重复追加 ADDED requirements。
-- 本次只补变更记录，不自动归档、提交、构建、安装或发布；未闭合验收不得标记为通过。
+- dev 内容包已按用户授权发布为 `0.8.10-dev.23`，构建与 Windows 隔离验收通过；不自动归档或发布插件。

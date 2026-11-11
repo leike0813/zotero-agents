@@ -8,7 +8,10 @@ import {
   type SynthesisSidecarTraceContext,
   type SynthesisJsonValue,
 } from "../../../../packages/synthesis-contracts/src";
-import { rebuildSynthesisSidecarTraceContext } from "../../../../packages/synthesis-contracts/src/sidecarObservability";
+import {
+  rebuildSynthesisSidecarTraceContext,
+  safeSynthesisSidecarObservationReason,
+} from "../../../../packages/synthesis-contracts/src/sidecarObservability";
 import { ZoteroHostCapabilityError } from "../../zoteroHostCapabilityBroker";
 import {
   beginHostHttpRequestRead,
@@ -113,6 +116,9 @@ export async function handleSynthesisReverseHostHttpRequest(
       });
     }
     if (error instanceof SynthesisClientError) {
+      const reason = safeSynthesisSidecarObservationReason(
+        error.details?.sidecarReason,
+      );
       const status =
         error.code === "invalid_request"
           ? 400
@@ -123,7 +129,11 @@ export async function handleSynthesisReverseHostHttpRequest(
               : 503;
       return errorResponse(status, {
         code: error.code,
-        details: error.details || {},
+        details: {
+          ...error.details,
+          // The native Reverse Host consumer reads details.reason.
+          ...(error.details?.reason === undefined && reason ? { reason } : {}),
+        },
       });
     }
     return response(500, {

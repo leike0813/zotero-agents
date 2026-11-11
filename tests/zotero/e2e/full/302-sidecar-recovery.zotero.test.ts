@@ -28,6 +28,8 @@ import {
 } from "../../../../scripts/system-e2e/healthGate";
 import {
   getRuntimePersistencePaths,
+  ensureRuntimeDirectoryExclusive,
+  ensureRuntimeDirectoryStrict,
   getRuntimeFilePermissions,
   moveRuntimePath,
   readRuntimeTextFile,
@@ -776,17 +778,49 @@ describe("System E2E sidecar recovery", function () {
   this.timeout(readDiagnosticsEnv("ZOTERO_E2E_GOLD_ID") ? 900_000 : 240_000);
 
   // prettier-ignore
-  sl("SL-01", "SL-01 stops through public system.shutdown and restores a healthy owner", async function () {
+  sl("SL-01", "SL-01 restores a healthy owner and exports through the default Bridge", async function () {
     const initial = await responsiveReadyDiscovery();
     const composition = await clientFor(initial);
     let shutdownAccepted = false;
     let restored: SidecarDiscoveryEntry;
     let caseError = "";
+    const ownedItems: Zotero.Item[] = [];
+    const runRoot = joinPath(getRuntimePersistencePaths().runtimeRoot, "acp", "skill-runs", `acp-skill-sl01-${Date.now().toString(36)}`);
+    let runRootReserved = false;
+    let exportVerified = false;
 
     const result = await runFamilyLifecycle({
       declaration: PHASE1_FAMILY_DECLARATIONS.SL,
       execute: async () => {
         try {
+          const contentChannel = readDiagnosticsEnv("ZOTERO_TEST_CONTENT_CHANNEL");
+          if (contentChannel) {
+            assert.oneOf(contentChannel, ["stable", "beta", "dev"]);
+            if (contentChannel === "dev") {
+              setDebugModeOverrideForTests(true);
+              const primary = getConfiguredContentFeedUrls("dev").find((source) => source.kind === "primary")!;
+              setPref("contentDevFeedMirrorUrl", primary.url);
+            }
+            setPref("contentFeedChannel", contentChannel);
+            const installed = await installContentPackageFromFeed({ channel: contentChannel as "stable" | "beta" | "dev" });
+            if (!installed.ok) throw new Error(`content_install:${installed.code}`);
+            assert.equal(installed.installed.package.version, readDiagnosticsEnv("ZOTERO_TEST_CONTENT_VERSION"));
+          }
+          const [paper] = await createSyntheticReferences("SL01 recovery export", 1);
+          ownedItems.push(paper);
+          const applied = await createWorkflowHostApi({ ownerId: "system-e2e:sl01", interactionMode: "non_interactive" }).literatureArtifacts.applyAnalysis({
+            operationId: "system-e2e:sl01:digest",
+            parentRef: { libraryId: paper.libraryID, key: paper.key },
+            digest: { markdown: "## Summary\n\nSynthetic recovered export digest." },
+          });
+          assert.equal(applied.outcome, "committed");
+          await ensureRuntimeDirectoryStrict(parentPath(runRoot));
+          await ensureRuntimeDirectoryExclusive(runRoot);
+          runRootReserved = true;
+          const plugin = (Zotero as any)[config.addonInstance];
+          const bridge = await plugin.hooks.onPrefsEvent("showHostBridgeEndpoint", {});
+          assert.isTrue(bridge.ok);
+          assert.equal(bridge.details.status, "running");
           const fetchOwner = Zotero.getMainWindow() as unknown as {
             fetch: typeof globalThis.fetch;
           };
@@ -806,6 +840,27 @@ describe("System E2E sidecar recovery", function () {
               ? true
               : null,
           );
+          const exported = await runHostBridgeCli([
+            "synthesis", "artifact", "export-filtered", "--query",
+            JSON.stringify({ paper_refs: [paperRef(paper)], artifact_types: ["digest"], run_root: runRoot }),
+          ]);
+          assert.equal(exported.exitCode, 0, JSON.stringify(exported.output.error));
+          assert.isTrue(exported.output.ok);
+          const data = exported.output.data?.data as {
+            manifest_file: string;
+            artifact_statuses: Array<{ status: string }>;
+          };
+          assert.equal(data.artifact_statuses[0]?.status, "available");
+          const manifest = JSON.parse(await readRuntimeTextFile(joinPath(runRoot, data.manifest_file)));
+          assert.equal(manifest.schema_id, "synthesis.filtered_paper_artifacts_manifest");
+          assert.deepEqual(manifest.paper_refs, [paperRef(paper)]);
+          assert.lengthOf(manifest.papers, 1);
+          assert.lengthOf(manifest.papers[0].artifacts, 1);
+          const artifact = manifest.papers[0].artifacts[0];
+          assert.equal(artifact.artifact_type, "digest");
+          const content = await readRuntimeTextFile(joinPath(runRoot, artifact.content_file));
+          assert.include(content, "Synthetic recovered export digest.");
+          exportVerified = true;
         } catch (error) {
           caseError = error instanceof Error ? error.message : String(error);
           throw error;
@@ -813,6 +868,11 @@ describe("System E2E sidecar recovery", function () {
       },
       cleanup: async () => {
         await composition.dispose();
+        await eraseItems(ownedItems);
+        if (runRootReserved) {
+          await removeRuntimePath(runRoot);
+          assert.isFalse(await runtimePathExists(runRoot));
+        }
         restored ||= await waitUntil(
           async () =>
             (await readyDiscovery(initial.discovery.serviceInstanceId)) || null,
@@ -828,15 +888,20 @@ describe("System E2E sidecar recovery", function () {
       result,
       publicOutcome: result.abort
         ? undefined
-        : "shutdown_response_flushed_and_owner_restored",
+        : "shutdown_response_flushed_owner_restored_and_default_export_delivered",
       evidence:
-        result.abort || !shutdownAccepted
+        result.abort || !shutdownAccepted || !exportVerified
           ? []
           : [
               {
                 kind: "sidecar-lifecycle",
                 schemaVersion: "synthesis-sidecar-discovery.v2",
                 terminalStatus: "stopped",
+              },
+              {
+                kind: "paper-artifacts-export",
+                schemaVersion: "synthesis.filtered_paper_artifacts_manifest",
+                terminalStatus: "available",
               },
             ],
     });
