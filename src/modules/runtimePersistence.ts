@@ -4,6 +4,8 @@ import {
   isNonNativeAbsolutePath,
   isWindowsAbsolutePath,
   normalizeAttachmentFilename,
+  normalizeWindowsFilesystemPath,
+  toExtendedWindowsFilesystemPath,
 } from "../platform/path";
 import { detectRuntimePlatform } from "../platform/runtimePlatform";
 import {
@@ -126,6 +128,8 @@ export const MANAGED_PATH_MAX_SEGMENT_LENGTH = 96;
 export const MANAGED_RELATIVE_PATH_MAX_LENGTH = 220;
 export const MANAGED_TRANSACTION_ID_MAX_LENGTH = 64;
 
+export type RuntimePathPolicy = "native" | "interop";
+
 export class RuntimePathBudgetError extends Error {
   readonly code = "resource_limited";
   constructor(
@@ -134,6 +138,9 @@ export class RuntimePathBudgetError extends Error {
       limit: number;
       observed: number;
       unit: "utf16" | "utf8";
+      policy?: RuntimePathPolicy;
+      operation?: string;
+      pathRole?: "source" | "target" | "staging" | "backup";
     },
   ) {
     super(
@@ -146,6 +153,7 @@ export class RuntimePathBudgetError extends Error {
 const RUNTIME_PATH_LIMITS = Object.freeze({
   windowsFile: 259,
   windowsDirectory: 247,
+  windowsNative: 32767,
   linux: 4095,
   otherPosix: 1023,
   component: 255,
@@ -153,14 +161,20 @@ const RUNTIME_PATH_LIMITS = Object.freeze({
 
 function runtimeAbsolutePath(pathRaw: string) {
   const path = normalizeNativeLocalPath(pathRaw);
-  return /^(?:[A-Za-z]:[\\/]|[/\\])/.test(path)
+  if (path.includes("\0") || /^\\(?:\?\?|\\\.)/.test(path))
+    throw new TypeError("Invalid filesystem path namespace");
+  const absolute = /^(?:[A-Za-z]:[\\/]|[/\\])/.test(path)
     ? path
     : joinPath(getRuntimeCwd(), path);
+  return isWindowsAbsolutePath(absolute)
+    ? normalizeWindowsFilesystemPath(absolute)
+    : absolute;
 }
 
 export function assertRuntimePathBudget(
   pathRaw: string,
   kind: "file" | "directory" = "file",
+  policy: RuntimePathPolicy = "interop",
 ): void {
   const absolute = runtimeAbsolutePath(pathRaw);
   const windows =
@@ -173,14 +187,30 @@ export function assertRuntimePathBudget(
     unit: "utf16" | "utf8",
   ) => {
     if (observed > limit)
-      throw new RuntimePathBudgetError({ resource, limit, observed, unit });
+      throw new RuntimePathBudgetError({
+        resource,
+        limit,
+        observed,
+        unit,
+        policy,
+      });
   };
   if (!/^(?:[A-Za-z]:[\\/]|[/\\])/.test(absolute)) {
     throw new Error(
       "An absolute filesystem path is required for a safe path budget",
     );
   }
-  if (windows) {
+  if (windows && policy === "native") {
+    const native = isWindowsAbsolutePath(absolute)
+      ? toExtendedWindowsFilesystemPath(absolute)
+      : absolute;
+    check(
+      native.length + 1,
+      RUNTIME_PATH_LIMITS.windowsNative,
+      "path_length",
+      "utf16",
+    );
+  } else if (windows) {
     check(
       absolute.length,
       kind === "directory"
@@ -226,6 +256,30 @@ export function assertRuntimePathBudget(
   }
 }
 
+export function toRuntimeNativeFsPath(pathRaw: string): string {
+  const path = runtimeAbsolutePath(pathRaw);
+  assertNativeRuntimeFsPath(path, "access native runtime path");
+  if (detectRuntimePlatform() !== "win32" || !isWindowsAbsolutePath(path))
+    return path;
+  const runtime = globalThis as {
+    PathUtils?: { toExtendedWindowsPath?: (path: string) => string };
+    process?: { platform?: string };
+  };
+  const convert = runtime.PathUtils?.toExtendedWindowsPath;
+  if (typeof convert === "function")
+    return convert.call(
+      runtime.PathUtils,
+      normalizeWindowsFilesystemPath(path),
+    );
+  if (
+    runtime.process?.platform === "win32" &&
+    path.length > RUNTIME_PATH_LIMITS.windowsDirectory
+  )
+    return toExtendedWindowsFilesystemPath(path);
+  assertRuntimePathBudget(path);
+  return path;
+}
+
 export function normalizeRuntimeOutputFilename(
   directory: string,
   name: string,
@@ -260,7 +314,7 @@ export async function ensureRuntimeDirectoryExclusive(
   pathRaw: string,
 ): Promise<void> {
   const path = normalizeNativeLocalPath(pathRaw);
-  assertRuntimePathBudget(path, "directory");
+  assertRuntimePathBudget(path, "directory", "native");
   assertNativeRuntimeFsPath(path, "reserve runtime directory");
   const runtime = globalThis as {
     IOUtils?: {
@@ -280,19 +334,23 @@ export async function ensureRuntimeDirectoryExclusive(
   };
   try {
     if (runtime.IOUtils?.makeDirectory) {
-      await runtime.IOUtils.makeDirectory(path, {
+      await runtime.IOUtils.makeDirectory(toRuntimeNativeFsPath(path), {
         createAncestors: false,
         ignoreExisting: false,
       });
     } else if (runtime.OS?.File?.makeDir) {
-      await runtime.OS.File.makeDir(path, { ignoreExisting: false });
+      await runtime.OS.File.makeDir(toRuntimeNativeFsPath(path), {
+        ignoreExisting: false,
+      });
     } else {
       const fs = await tryNodeFs();
       if (fs) {
         assertNodeRuntimeFsPath(path, "reserve runtime directory");
         await fs.mkdir(path);
       } else {
-        const file = runtime.Zotero?.File?.pathToFile?.(path);
+        const file = runtime.Zotero?.File?.pathToFile?.(
+          toRuntimeNativeFsPath(path),
+        );
         if (!file)
           throw new Error("No exclusive directory creation API is available");
         file.create(
@@ -317,16 +375,16 @@ let runtimeTemporarySequence = 0;
 export async function createRuntimeTemporarySiblingDirectory(
   targetPath: string,
 ): Promise<string> {
-  assertRuntimePathBudget(targetPath);
+  assertRuntimePathBudget(targetPath, "file", "native");
   const parent = getParentPath(targetPath) || ".";
-  assertRuntimePathBudget(parent, "directory");
+  assertRuntimePathBudget(parent, "directory", "native");
   for (let attempt = 0; attempt < 8; attempt++) {
     runtimeTemporarySequence = (runtimeTemporarySequence + 1) >>> 0;
     const directory = joinPath(
       parent,
       `.zs-${Date.now().toString(36)}-${runtimeTemporarySequence.toString(36)}`,
     );
-    assertRuntimePathBudget(directory, "directory");
+    assertRuntimePathBudget(directory, "directory", "native");
     await ensureRuntimeDirectoryStrict(parent);
     try {
       await ensureRuntimeDirectoryExclusive(directory);
@@ -421,8 +479,188 @@ export async function withRuntimeTemporaryCleanup<T>(
   }
 }
 
+export function runtimeTemporaryFilename(
+  name: string,
+  ordinal: number,
+): string {
+  if (!Number.isSafeInteger(ordinal) || ordinal < 1)
+    throw new TypeError("A positive temporary file ordinal is required");
+  const extension = /\.([A-Za-z0-9]{1,16})$/.exec(name)?.[1] || "bin";
+  return `f${ordinal.toString(36)}.${extension}`;
+}
+
+export type RuntimeTemporaryDirectory = {
+  path: string;
+  cleanup(): Promise<void>;
+  release(): void;
+};
+
+function runtimeCompatibilityTemporaryParents(): string[] {
+  return Array.from(
+    new Set(
+      [
+        resolveRuntimeTemporaryDirectory(),
+        readEnv("TEMP"),
+        readEnv("TMP"),
+        readEnv("TMPDIR"),
+      ]
+        .filter(Boolean)
+        .map((root) => joinPath(root, ".zs-t")),
+    ),
+  );
+}
+
+function runtimeTemporaryOwner(root = getRuntimePersistencePaths().root) {
+  const absolute = runtimeAbsolutePath(root);
+  return isWindowsAbsolutePath(absolute) ? absolute.toLowerCase() : absolute;
+}
+
+export async function getRuntimeTemporaryRoots(
+  root?: string,
+): Promise<string[]> {
+  const roots = [getRuntimePersistencePaths(root).tmpDir];
+  const owner = runtimeTemporaryOwner(root);
+  for (const parent of runtimeCompatibilityTemporaryParents()) {
+    const children = await listRuntimeChildren(parent);
+    for (const directory of children) {
+      const stat = await statRuntimePathInternal(directory, true, false);
+      if (!stat.isDir || stat.isSymlink) continue;
+      const markerPath = joinPath(directory, ".owner.json");
+      const markerStat = await statRuntimePathInternal(
+        markerPath,
+        false,
+        false,
+      );
+      if (
+        !markerStat.exists ||
+        markerStat.isDir ||
+        markerStat.isSymlink ||
+        markerStat.size > 256 * 1024
+      )
+        continue;
+      const marker = await readRuntimeTextFile(markerPath);
+      try {
+        const value = JSON.parse(marker);
+        if (
+          value.schema === "runtime-compatibility-temp.v1" &&
+          value.owner === owner
+        )
+          roots.push(directory);
+      } catch {
+        /* Unowned directories are not admitted to cleanup. */
+      }
+    }
+  }
+  return roots;
+}
+
+export async function reserveRuntimeTemporaryDirectory(args: {
+  category: string;
+  rootPath?: string;
+  relativePaths?: Array<{ path: string; kind?: "file" | "directory" }>;
+  policy?: RuntimePathPolicy;
+}): Promise<RuntimeTemporaryDirectory> {
+  const policy = args.policy || "interop";
+  const relativePaths = args.relativePaths || [];
+  for (const entry of relativePaths) {
+    const parts = entry.path.replace(/\\/g, "/").split("/");
+    if (
+      !entry.path ||
+      /^(?:[A-Za-z]:|[/\\])/.test(entry.path) ||
+      parts.some((part) => !part || part === "." || part === "..")
+    )
+      throw new TypeError(
+        "Temporary destinations must be relative child paths",
+      );
+  }
+  const category = assertManagedRelativePath(args.category);
+  const preferred =
+    args.rootPath || joinPath(getRuntimePersistencePaths().tmpDir, category);
+  const release = acquireRuntimeTemporaryOwnership();
+  try {
+    const parents = [
+      preferred,
+      ...(policy === "interop" ? runtimeCompatibilityTemporaryParents() : []),
+    ];
+    let lastBudgetError: RuntimePathBudgetError | undefined;
+    for (const parent of Array.from(new Set(parents))) {
+      for (let attempt = 0; attempt < 8; attempt++) {
+        const token = `t${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+        const directory = joinPath(parent, token);
+        try {
+          assertRuntimePathBudget(directory, "directory", policy);
+          assertRuntimePathBudget(
+            joinPath(directory, "f".repeat(48)),
+            "file",
+            policy,
+          );
+          for (const entry of relativePaths)
+            assertRuntimePathBudget(
+              joinPath(directory, entry.path),
+              entry.kind || "file",
+              policy,
+            );
+        } catch (error) {
+          if (!(error instanceof RuntimePathBudgetError)) throw error;
+          lastBudgetError = error;
+          break;
+        }
+        await ensureRuntimeDirectoryStrict(parent);
+        try {
+          await ensureRuntimeDirectoryExclusive(directory);
+        } catch (error) {
+          if ((error as { code?: string }).code === "conflict") continue;
+          throw error;
+        }
+        const fallback = parent !== preferred;
+        try {
+          if (fallback)
+            await writeRuntimeTextFileStrict(
+              joinPath(directory, ".owner.json"),
+              JSON.stringify({
+                schema: "runtime-compatibility-temp.v1",
+                owner: runtimeTemporaryOwner(),
+              }),
+            );
+        } catch (error) {
+          await removeRuntimePath(directory).catch(() => false);
+          throw error;
+        }
+        let cleaned = false;
+        return {
+          path: directory,
+          release,
+          async cleanup() {
+            if (cleaned) return;
+            if (await runtimePathExistsStrict(directory)) {
+              if (!(await removeRuntimePath(directory)))
+                throw new Error("Temporary directory cleanup did not complete");
+            }
+            cleaned = true;
+            release();
+          },
+        };
+      }
+    }
+    if (lastBudgetError) throw lastBudgetError;
+    throw Object.assign(
+      new Error("Cannot reserve a unique runtime temporary directory"),
+      {
+        code: "conflict",
+        details: { reason: "ambiguous_state" },
+      },
+    );
+  } catch (error) {
+    release();
+    throw error;
+  }
+}
+
 function normalizeString(value: unknown) {
-  return String(value || "").trim();
+  const text = String(value || "").trim();
+  return /^\\\\\?\\(?:[A-Za-z]:\\|UNC\\)/i.test(text)
+    ? normalizeWindowsFilesystemPath(text)
+    : text;
 }
 
 function normalizeSlashes(path: string) {
@@ -443,8 +681,17 @@ function assertNativeRuntimeFsPath(
   path: string,
   operation: string,
   platform?: string,
+  pathRole?: "source" | "target" | "staging" | "backup",
 ) {
-  assertRuntimePathBudget(path);
+  try {
+    assertRuntimePathBudget(path, "file", "native");
+  } catch (error) {
+    if (error instanceof RuntimePathBudgetError) {
+      error.details.operation = operation;
+      error.details.pathRole = pathRole;
+    }
+    throw error;
+  }
   if (!isNonNativeAbsolutePath(path, platform)) {
     return;
   }
@@ -973,14 +1220,14 @@ export async function runtimePathExists(pathRaw: string) {
   };
   if (typeof runtime.IOUtils?.exists === "function") {
     try {
-      return await runtime.IOUtils.exists(path);
+      return await runtime.IOUtils.exists(toRuntimeNativeFsPath(path));
     } catch {
       return false;
     }
   }
   if (typeof runtime.OS?.File?.exists === "function") {
     try {
-      return await runtime.OS.File.exists(path);
+      return await runtime.OS.File.exists(toRuntimeNativeFsPath(path));
     } catch {
       return false;
     }
@@ -1012,7 +1259,7 @@ async function ensureRuntimeDirectoryInternal(
     return;
   }
   assertNativeRuntimeFsPath(path, "create runtime directory");
-  assertRuntimePathBudget(path, "directory");
+  assertRuntimePathBudget(path, "directory", "native");
   const runtime = globalThis as {
     IOUtils?: {
       makeDirectory?: (path: string, options?: unknown) => Promise<void>;
@@ -1030,7 +1277,7 @@ async function ensureRuntimeDirectoryInternal(
   };
   if (typeof runtime.IOUtils?.makeDirectory === "function") {
     try {
-      await runtime.IOUtils.makeDirectory(path, {
+      await runtime.IOUtils.makeDirectory(toRuntimeNativeFsPath(path), {
         createAncestors: true,
         ignoreExisting: true,
       });
@@ -1042,7 +1289,7 @@ async function ensureRuntimeDirectoryInternal(
       // fall through to other runtimes
     }
   }
-  const file = runtime.Zotero?.File?.pathToFile?.(path);
+  const file = runtime.Zotero?.File?.pathToFile?.(toRuntimeNativeFsPath(path));
   if (file) {
     const ensureOne = (entry: any): boolean => {
       if (!entry) {
@@ -1086,8 +1333,8 @@ export async function copyRuntimeFileIfMissing(args: {
 }) {
   const sourcePath = normalizeString(args.sourcePath);
   const targetPath = normalizeString(args.targetPath);
-  assertNativeRuntimeFsPath(sourcePath, "copy from runtime file");
-  assertNativeRuntimeFsPath(targetPath, "copy to runtime file");
+  assertNativeRuntimeFsPath(sourcePath, "copy", undefined, "source");
+  assertNativeRuntimeFsPath(targetPath, "copy", undefined, "target");
   if (!sourcePath || !targetPath || sourcePath === targetPath) {
     return false;
   }
@@ -1110,8 +1357,8 @@ export async function copyRuntimeFile(args: {
   if (!sourcePath || !targetPath) {
     throw new Error("sourcePath and targetPath are required to copy a file");
   }
-  assertNativeRuntimeFsPath(sourcePath, "copy from runtime file");
-  assertNativeRuntimeFsPath(targetPath, "copy to runtime file");
+  assertNativeRuntimeFsPath(sourcePath, "copy", undefined, "source");
+  assertNativeRuntimeFsPath(targetPath, "copy", undefined, "target");
   if (sourcePath === targetPath) {
     return false;
   }
@@ -1138,11 +1385,17 @@ export async function copyRuntimeFile(args: {
     };
   };
   if (typeof runtime.IOUtils?.copy === "function") {
-    await runtime.IOUtils.copy(sourcePath, targetPath);
+    await runtime.IOUtils.copy(
+      toRuntimeNativeFsPath(sourcePath),
+      toRuntimeNativeFsPath(targetPath),
+    );
     return true;
   }
   if (typeof runtime.OS?.File?.copy === "function") {
-    await runtime.OS.File.copy(sourcePath, targetPath);
+    await runtime.OS.File.copy(
+      toRuntimeNativeFsPath(sourcePath),
+      toRuntimeNativeFsPath(targetPath),
+    );
     return true;
   }
   const fs = await tryNodeFs();
@@ -1167,10 +1420,10 @@ export async function readRuntimeBytes(pathRaw: string) {
     OS?: { File?: { read?: (path: string) => Promise<Uint8Array> } };
   };
   if (typeof runtime.IOUtils?.read === "function") {
-    return runtime.IOUtils.read(path);
+    return runtime.IOUtils.read(toRuntimeNativeFsPath(path));
   }
   if (typeof runtime.OS?.File?.read === "function") {
-    return runtime.OS.File.read(path);
+    return runtime.OS.File.read(toRuntimeNativeFsPath(path));
   }
   assertNativeRuntimeFsPath(path, "read binary runtime file");
   const fs = await tryNodeFs();
@@ -1215,7 +1468,7 @@ export async function writeRuntimeBytes(
     };
   };
   if (typeof runtime.IOUtils?.write === "function") {
-    await runtime.IOUtils.write(path, data, {
+    await runtime.IOUtils.write(toRuntimeNativeFsPath(path), data, {
       mode: options.overwrite ? "overwrite" : "create",
     });
     return;
@@ -1224,8 +1477,8 @@ export async function writeRuntimeBytes(
     const temporaryDirectory =
       await createRuntimeTemporarySiblingDirectory(path);
     try {
-      await runtime.OS.File.writeAtomic(path, data, {
-        tmpPath: joinPath(temporaryDirectory, "data"),
+      await runtime.OS.File.writeAtomic(toRuntimeNativeFsPath(path), data, {
+        tmpPath: toRuntimeNativeFsPath(joinPath(temporaryDirectory, "data")),
       });
     } finally {
       await removeRuntimePath(temporaryDirectory).catch(() => false);
@@ -1285,7 +1538,11 @@ async function assertRuntimeMoveDestinationBudget(
   while (pending.length) {
     const current = pending.pop()!;
     const stat = await statRuntimePathInternal(current.source, true, false);
-    assertRuntimePathBudget(current.target, stat.isDir ? "directory" : "file");
+    assertRuntimePathBudget(
+      current.target,
+      stat.isDir ? "directory" : "file",
+      "native",
+    );
     entries++;
     assertRuntimeMoveInspectionBudget(entries, current.depth);
     if (stat.isDir && !stat.isSymlink) {
@@ -1310,8 +1567,8 @@ export async function moveRuntimePath(args: {
   if (!sourcePath || !targetPath) {
     throw new Error("runtime move source and target paths are required");
   }
-  assertNativeRuntimeFsPath(sourcePath, "move runtime source path");
-  assertNativeRuntimeFsPath(targetPath, "move runtime target path");
+  assertNativeRuntimeFsPath(sourcePath, "move", undefined, "source");
+  assertNativeRuntimeFsPath(targetPath, "move", undefined, "target");
   await assertRuntimeMoveDestinationBudget(sourcePath, targetPath);
   await ensureRuntimeDirectory(parentPath(targetPath));
   const runtime = globalThis as {
@@ -1334,11 +1591,19 @@ export async function moveRuntimePath(args: {
   };
   const options = { noOverwrite: args.overwrite !== true };
   if (typeof runtime.IOUtils?.move === "function") {
-    await runtime.IOUtils.move(sourcePath, targetPath, options);
+    await runtime.IOUtils.move(
+      toRuntimeNativeFsPath(sourcePath),
+      toRuntimeNativeFsPath(targetPath),
+      options,
+    );
     return;
   }
   if (typeof runtime.OS?.File?.move === "function") {
-    await runtime.OS.File.move(sourcePath, targetPath, options);
+    await runtime.OS.File.move(
+      toRuntimeNativeFsPath(sourcePath),
+      toRuntimeNativeFsPath(targetPath),
+      options,
+    );
     return;
   }
   const fs = await tryNodeFs();
@@ -1380,7 +1645,9 @@ export async function setRuntimeFilePermissions(pathRaw: string, mode: number) {
       interfaces?: { nsIFile?: unknown };
     };
   };
-  const zoteroFile = runtime.Zotero?.File?.pathToFile?.(path);
+  const zoteroFile = runtime.Zotero?.File?.pathToFile?.(
+    toRuntimeNativeFsPath(path),
+  );
   if (zoteroFile && "permissions" in zoteroFile) {
     zoteroFile.permissions = mode;
     return true;
@@ -1391,7 +1658,7 @@ export async function setRuntimeFilePermissions(pathRaw: string, mode: number) {
     runtime.Components?.interfaces?.nsIFile,
   );
   if (file && typeof file.initWithPath === "function") {
-    file.initWithPath(path);
+    file.initWithPath(toRuntimeNativeFsPath(path));
     file.permissions = mode;
     return true;
   }
@@ -1426,7 +1693,7 @@ export async function getRuntimeFilePermissions(pathRaw: string) {
       };
     };
   };
-  const file = runtime.Zotero?.File?.pathToFile?.(path);
+  const file = runtime.Zotero?.File?.pathToFile?.(toRuntimeNativeFsPath(path));
   if (
     file &&
     (typeof file.exists !== "function" || file.exists()) &&
@@ -1476,10 +1743,10 @@ async function readRuntimeTextFileInternal(
     };
   };
   if (typeof runtime.IOUtils?.readUTF8 === "function") {
-    return runtime.IOUtils.readUTF8(path);
+    return runtime.IOUtils.readUTF8(toRuntimeNativeFsPath(path));
   }
   if (typeof runtime.OS?.File?.read === "function") {
-    const bytes = await runtime.OS.File.read(path);
+    const bytes = await runtime.OS.File.read(toRuntimeNativeFsPath(path));
     const Decoder = runtime.TextDecoder || TextDecoder;
     return new Decoder("utf-8").decode(bytes);
   }
@@ -1546,7 +1813,10 @@ export async function readRuntimeTextRanges(
       await handle.close().catch(() => undefined);
     }
   }
-  const bytes = await readRuntimeFileRangesWithWorker(path, ranges);
+  const bytes = await readRuntimeFileRangesWithWorker(
+    toRuntimeNativeFsPath(path),
+    ranges,
+  );
   return bytes.map((entry) => decoder.decode(entry));
 }
 
@@ -1637,7 +1907,7 @@ export async function scanRuntimeUtf8Lines(args: {
         const result = await handle.read(buffer, 0, requestedBytes, cursor);
         chunk = buffer.subarray(0, result.bytesRead);
       } else {
-        chunk = await runtime.IOUtils!.read!(path, {
+        chunk = await runtime.IOUtils!.read!(toRuntimeNativeFsPath(path), {
           offset: cursor,
           maxBytes: requestedBytes,
         });
@@ -1726,7 +1996,7 @@ async function writeRuntimeTextFileInternal(
     TextEncoder?: new () => { encode: (input: string) => Uint8Array };
   };
   if (typeof runtime.IOUtils?.writeUTF8 === "function") {
-    await runtime.IOUtils.writeUTF8(path, content);
+    await runtime.IOUtils.writeUTF8(toRuntimeNativeFsPath(path), content);
     return;
   }
   if (typeof runtime.OS?.File?.writeAtomic === "function") {
@@ -1734,9 +2004,13 @@ async function writeRuntimeTextFileInternal(
     const temporaryDirectory =
       await createRuntimeTemporarySiblingDirectory(path);
     try {
-      await runtime.OS.File.writeAtomic(path, new Encoder().encode(content), {
-        tmpPath: joinPath(temporaryDirectory, "data"),
-      });
+      await runtime.OS.File.writeAtomic(
+        toRuntimeNativeFsPath(path),
+        new Encoder().encode(content),
+        {
+          tmpPath: toRuntimeNativeFsPath(joinPath(temporaryDirectory, "data")),
+        },
+      );
     } finally {
       await removeRuntimePath(temporaryDirectory).catch(() => false);
     }
@@ -1846,9 +2120,13 @@ export async function appendRuntimeTextFile(pathRaw: string, content: string) {
         ) {
           end -= 1;
         }
-        await runtime.IOUtils.writeUTF8(path, content.slice(offset, end), {
-          mode: "appendOrCreate",
-        });
+        await runtime.IOUtils.writeUTF8(
+          toRuntimeNativeFsPath(path),
+          content.slice(offset, end),
+          {
+            mode: "appendOrCreate",
+          },
+        );
         offset = end;
       }
     });
@@ -1985,10 +2263,14 @@ async function statRuntimePathInternal(
   };
   if (typeof runtime.IOUtils?.stat === "function") {
     try {
-      const link = await runtime.IOUtils.stat(path, { followSymlinks: false });
+      const link = await runtime.IOUtils.stat(toRuntimeNativeFsPath(path), {
+        followSymlinks: false,
+      });
       const isSymlink = link.type === "symlink";
       const stat =
-        isSymlink && followSymlinks ? await runtime.IOUtils.stat(path) : link;
+        isSymlink && followSymlinks
+          ? await runtime.IOUtils.stat(toRuntimeNativeFsPath(path))
+          : link;
       return {
         exists: true,
         isSymlink,
@@ -2073,11 +2355,18 @@ export async function setRuntimeFileModificationTime(
     };
   };
   if (runtime.IOUtils?.setModificationTime) {
-    await runtime.IOUtils.setModificationTime(path, modifiedAtMs);
+    await runtime.IOUtils.setModificationTime(
+      toRuntimeNativeFsPath(path),
+      modifiedAtMs,
+    );
     return;
   }
   if (runtime.OS?.File?.setDates) {
-    await runtime.OS.File.setDates(path, null, new Date(modifiedAtMs));
+    await runtime.OS.File.setDates(
+      toRuntimeNativeFsPath(path),
+      null,
+      new Date(modifiedAtMs),
+    );
     return;
   }
   const fs = await tryNodeFs();
@@ -2096,7 +2385,14 @@ async function listRuntimeChildrenInternal(
   };
   if (typeof runtime.IOUtils?.getChildren === "function") {
     try {
-      return await runtime.IOUtils.getChildren(path);
+      const children = await runtime.IOUtils.getChildren(
+        toRuntimeNativeFsPath(path),
+      );
+      return children.map((child) =>
+        isWindowsAbsolutePath(child)
+          ? normalizeWindowsFilesystemPath(child)
+          : child,
+      );
     } catch (error) {
       if (surfaceErrors) throw error;
       return [] as string[];
@@ -2215,10 +2511,12 @@ export async function removeRuntimePath(pathRaw: string) {
   if (
     typeof runtime.IOUtils?.remove === "function" &&
     typeof runtime.IOUtils.exists === "function" &&
-    (await runtime.IOUtils.exists(path).catch(() => false))
+    (await runtime.IOUtils.exists(toRuntimeNativeFsPath(path)).catch(
+      () => false,
+    ))
   ) {
     attempt = () =>
-      runtime.IOUtils!.remove!(path, {
+      runtime.IOUtils!.remove!(toRuntimeNativeFsPath(path), {
         recursive: true,
         ignoreAbsent: true,
       });
@@ -2234,18 +2532,22 @@ export async function removeRuntimePath(pathRaw: string) {
     } else if (typeof runtime.IOUtils?.remove === "function") {
       if (
         typeof runtime.IOUtils.exists === "function" &&
-        !(await runtime.IOUtils.exists(path).catch(() => false))
+        !(await runtime.IOUtils.exists(toRuntimeNativeFsPath(path)).catch(
+          () => false,
+        ))
       ) {
         return false;
       }
       attempt = () =>
-        runtime.IOUtils!.remove!(path, {
+        runtime.IOUtils!.remove!(toRuntimeNativeFsPath(path), {
           recursive: true,
           ignoreAbsent: true,
         });
     } else if (typeof runtime.OS?.File?.removeDir === "function") {
       attempt = () =>
-        runtime.OS!.File!.removeDir!(path, { ignoreAbsent: true });
+        runtime.OS!.File!.removeDir!(toRuntimeNativeFsPath(path), {
+          ignoreAbsent: true,
+        });
     }
   }
   if (!attempt) {
@@ -2307,11 +2609,12 @@ export async function copyRuntimeTree(args: {
     args.manifest.entries.length + 1,
     args.manifest.maxDepth,
   );
-  assertRuntimePathBudget(targetDir, "directory");
+  assertRuntimePathBudget(targetDir, "directory", "native");
   for (const entry of args.manifest.entries) {
     assertRuntimePathBudget(
       joinPath(targetDir, entry.relativePath),
       entry.kind,
+      "native",
     );
   }
   return withRuntimeTreeCopySlot(async () => {
@@ -2323,11 +2626,12 @@ export async function copyRuntimeTree(args: {
     let promoted = false;
     let backupMayExist = false;
     try {
-      assertRuntimePathBudget(stagingDir, "directory");
+      assertRuntimePathBudget(stagingDir, "directory", "native");
       for (const entry of args.manifest.entries) {
         assertRuntimePathBudget(
           joinPath(stagingDir, entry.relativePath),
           entry.kind,
+          "native",
         );
       }
       const hadTarget = await runtimePathExistsStrict(targetDir);

@@ -1,4 +1,5 @@
 import { assert } from "chai";
+import { copyRuntimeFile } from "../../src/modules/runtimePersistence";
 import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
 import { setDiagnosticVerboseOverrideForTests } from "../../src/modules/diagnosticVerbosity";
 import {
@@ -70,6 +71,35 @@ describe("workflow package runtime diagnostics", function () {
     assert.lengthOf(listRuntimeLogs(), 0);
     assert.equal(consoleCalls, 0);
     assert.equal(zoteroCalls, 0);
+  });
+
+  it("records numeric path budget diagnostics with source role without leaking the path", async function () {
+    setDebugModeOverrideForTests(true);
+    const path = `C:\\private-paper\\${"a".repeat(256)}.pdf`;
+    let failure: unknown;
+    try {
+      await copyRuntimeFile({ sourcePath: path, targetPath: "C:\\target.pdf" });
+    } catch (error) {
+      failure = error;
+    }
+    const entry = emitWorkflowPackageDiagnostic({
+      level: "error",
+      stage: "path-budget-test",
+      message: "budget failure",
+      error: failure,
+    });
+    assert.nestedPropertyVal(entry, "details.filesystemBudget.role", "source");
+    assert.nestedPropertyVal(
+      entry,
+      "details.filesystemBudget.policy",
+      "native",
+    );
+    assert.nestedPropertyVal(
+      entry,
+      "details.filesystemBudget.resource",
+      "path_component_length",
+    );
+    assert.notInclude(JSON.stringify(entry?.details), "private-paper");
   });
 
   it("records runtime logs without console diagnostics by default", function () {

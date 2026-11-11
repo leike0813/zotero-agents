@@ -132,6 +132,12 @@ function createDeepReadingResultBundleReader(html: string) {
 }
 
 describe("workflow: literature-deep-reading", function () {
+  const bundleReaders: ZipBundleReader[] = [];
+  function trackBundleReader(path: string) {
+    const reader = new ZipBundleReader(path);
+    bundleReaders.push(reader);
+    return reader;
+  }
   let restoreTransaction: () => void;
   beforeEach(() => {
     restoreTransaction = installNodeZoteroTransactionStub();
@@ -141,7 +147,10 @@ describe("workflow: literature-deep-reading", function () {
       );
     }
   });
-  afterEach(() => {
+  afterEach(async () => {
+    await Promise.all(
+      bundleReaders.splice(0).map((reader) => reader.dispose()),
+    );
     restoreTransaction();
     resetZoteroLibrarySourcePageQueryAdapterForTests();
   });
@@ -168,7 +177,7 @@ describe("workflow: literature-deep-reading", function () {
       ],
     });
 
-    const bundle = new ZipBundleReader(zipPath);
+    const bundle = trackBundleReader(zipPath);
     const extracted = await bundle.getExtractedDir();
     assert.deepEqual(
       Array.from(await readBytes(joinPath(extracted, "array-buffer.bin"))),
@@ -396,12 +405,9 @@ describe("workflow: literature-deep-reading", function () {
       target: "/input/translator_alignment_path",
       required: false,
     });
-    assert.match(
-      request.steps[1].input?.source_bundle_path || "",
-      /runtime[\\/]tmp[\\/]workflow-inputs[\\/]literature-deep-reading-[^\\/]+[\\/]source_bundle_path[\\/].+\.zip$/,
-    );
+    assert.match(request.steps[1].input?.source_bundle_path || "", /\.zip$/);
 
-    const bundle = new ZipBundleReader(
+    const bundle = trackBundleReader(
       request.steps[1].input?.source_bundle_path || "",
     );
     const extracted = await bundle.getExtractedDir();
@@ -579,7 +585,7 @@ describe("workflow: literature-deep-reading", function () {
     const deepReadingStep = requests[0].steps.find(
       (step) => step.id === "deep_reading",
     );
-    const bundle = new ZipBundleReader(
+    const bundle = trackBundleReader(
       deepReadingStep?.input?.source_bundle_path || "",
     );
     assert.equal(
@@ -702,7 +708,7 @@ describe("workflow: literature-deep-reading", function () {
       on_failure: "continue",
     });
 
-    const bundle = new ZipBundleReader(
+    const bundle = trackBundleReader(
       requests[0].steps[0].input?.source_bundle_path || "",
     );
     const alignment = JSON.parse(
@@ -738,7 +744,7 @@ describe("workflow: literature-deep-reading", function () {
     const deepReadingStep = requests[0].steps.find(
       (step) => step.id === "deep_reading",
     );
-    const bundle = new ZipBundleReader(
+    const bundle = trackBundleReader(
       deepReadingStep?.input?.source_bundle_path || "",
     );
     const manifest = JSON.parse(await bundle.readText("source-manifest.json"));

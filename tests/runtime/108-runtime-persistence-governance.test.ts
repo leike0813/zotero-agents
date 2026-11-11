@@ -9,6 +9,10 @@ import {
   appendRuntimeTextFile,
   ensureRuntimeDirectoryStrict,
   copyRuntimeDirectory,
+  copyRuntimeFile,
+  readRuntimeBytes,
+  assertRuntimePathBudget,
+  reserveRuntimeTemporaryDirectory,
   getRuntimePersistencePaths,
   getSynthesisSidecarLifecyclePaths,
   replacePrivateRuntimeTextFileAtomically,
@@ -143,6 +147,197 @@ describe("runtime persistence governance", function () {
       missingError = error;
     }
     assert.instanceOf(missingError, Error);
+  });
+
+  it("copies and atomically replaces ordinary long native paths without changing their identity", async function () {
+    const directory = path.join(
+      tempRoot,
+      "a".repeat(90),
+      "研究😀".repeat(18),
+      "c".repeat(90),
+    );
+    const source = path.join(directory, "source.pdf");
+    const target = path.join(directory, "result.txt");
+    const shortTarget = path.join(tempRoot, "copy.pdf");
+    await fs.mkdir(directory, { recursive: true });
+    await fs.writeFile(source, "source bytes");
+    await fs.writeFile(target, "old bytes");
+    assert.isAbove(source.length, 259);
+    await copyRuntimeFile({ sourcePath: source, targetPath: shortTarget });
+    assert.equal(
+      new TextDecoder().decode(await readRuntimeBytes(shortTarget)),
+      "source bytes",
+    );
+    await replaceRuntimeTextFileAtomically(target, "new 甲😀 bytes");
+    assert.equal(await readRuntimeTextFileStrict(target), "new 甲😀 bytes");
+    assert.include(await listRuntimeChildrenStrict(directory), target);
+    const moved = path.join(directory, "moved.txt");
+    await moveRuntimePath({ sourcePath: target, targetPath: moved });
+    assert.equal(await readRuntimeTextFileStrict(moved), "new 甲😀 bytes");
+    await removeRuntimePathStrict(moved);
+    assert.isFalse(await pathExists(moved));
+    assert.equal(await fs.readFile(source, "utf8"), "source bytes");
+  });
+
+  it("uses the Gecko native path capability for long source, destination, and returned directory children", async function () {
+    if (process.platform !== "win32") this.skip();
+    const runtime = globalThis as any;
+    const descriptors = ["IOUtils", "PathUtils"].map(
+      (key) => [key, Object.getOwnPropertyDescriptor(runtime, key)] as const,
+    );
+    const native = (candidate: string) => {
+      assert.match(candidate, /^\\\\\?\\[A-Za-z]:\\/);
+      return candidate;
+    };
+    Object.defineProperty(runtime, "PathUtils", {
+      configurable: true,
+      value: {
+        toExtendedWindowsPath: (candidate: string) => `\\\\?\\${candidate}`,
+      },
+    });
+    Object.defineProperty(runtime, "IOUtils", {
+      configurable: true,
+      value: {
+        exists: async (candidate: string) =>
+          fs.access(native(candidate)).then(
+            () => true,
+            () => false,
+          ),
+        stat: async (candidate: string) => {
+          const stat = await fs.lstat(native(candidate));
+          return {
+            type: stat.isDirectory() ? "directory" : "regular",
+            size: stat.size,
+          };
+        },
+        makeDirectory: async (
+          candidate: string,
+          options: { createAncestors: boolean },
+        ) =>
+          fs.mkdir(native(candidate), { recursive: options.createAncestors }),
+        copy: async (source: string, target: string) =>
+          fs.copyFile(native(source), native(target)),
+        readUTF8: async (candidate: string) =>
+          fs.readFile(native(candidate), "utf8"),
+        getChildren: async (candidate: string) =>
+          (await fs.readdir(native(candidate))).map((name) =>
+            path.join(candidate, name),
+          ),
+      },
+    });
+    try {
+      const directory = path.join(
+        tempRoot,
+        "gecko",
+        "a".repeat(90),
+        "b".repeat(90),
+      );
+      const source = path.join(directory, "source.txt");
+      const target = path.join(directory, "target.txt");
+      await fs.mkdir(directory, { recursive: true });
+      await fs.writeFile(source, "native bytes");
+      await copyRuntimeFile({ sourcePath: source, targetPath: target });
+      const children = await listRuntimeChildrenStrict(directory);
+      assert.include(children, target);
+      assert.notMatch(children[0], /^\\\\\?\\/);
+      assert.equal(await readRuntimeTextFileStrict(target), "native bytes");
+    } finally {
+      for (const [key, descriptor] of descriptors) {
+        if (descriptor) Object.defineProperty(runtime, key, descriptor);
+        else Reflect.deleteProperty(runtime, key);
+      }
+    }
+  });
+
+  it("reserves temporary directories independently and protects their live bytes from category cleanup", async function () {
+    const root = path.join(getRuntimePersistencePaths().tmpDir, "test-inputs");
+    await fs.mkdir(root, { recursive: true });
+    const sentinel = path.join(root, "keep.txt");
+    await fs.writeFile(sentinel, "existing");
+    const first = await reserveRuntimeTemporaryDirectory({
+      category: "test-inputs",
+      rootPath: root,
+    });
+    const second = await reserveRuntimeTemporaryDirectory({
+      category: "test-inputs",
+      rootPath: root,
+    });
+    try {
+      assert.notEqual(first.path, second.path);
+      await writeRuntimeTextFileStrict(
+        path.join(second.path, "f1.txt"),
+        "keep",
+      );
+      let failure: unknown;
+      try {
+        await cleanupRuntimePersistenceCategory("tmp");
+      } catch (error) {
+        failure = error;
+      }
+      assert.propertyVal(failure, "code", "runtime_temporary_in_use");
+      await first.cleanup();
+      assert.equal(await fs.readFile(sentinel, "utf8"), "existing");
+      assert.equal(
+        await readRuntimeTextFileStrict(path.join(second.path, "f1.txt")),
+        "keep",
+      );
+    } finally {
+      await first.cleanup();
+      await second.cleanup();
+    }
+  });
+
+  it("governs short compatibility copies outside a deep root without deleting another runtime owner's files", async function () {
+    if (process.platform !== "win32") this.skip();
+    const deep = path.join(
+      tempRoot,
+      "r".repeat(90),
+      "s".repeat(90),
+      "t".repeat(40),
+    );
+    const first = await reserveRuntimeTemporaryDirectory({
+      category: "copy",
+      rootPath: deep,
+    });
+    const secondRoot = path.join(tempRoot, "other-owner");
+    process.env.ZOTERO_SKILLS_RUNTIME_ROOT = secondRoot;
+    const second = await reserveRuntimeTemporaryDirectory({
+      category: "copy",
+      rootPath: deep,
+    });
+    process.env.ZOTERO_SKILLS_RUNTIME_ROOT = tempRoot;
+    try {
+      assert.notInclude(first.path, deep);
+      assertRuntimePathBudget(path.join(first.path, "f1.pdf"));
+      await writeRuntimeTextFileStrict(
+        path.join(first.path, "f1.pdf"),
+        "owned-copy",
+      );
+      await writeRuntimeTextFileStrict(
+        path.join(second.path, "f1.pdf"),
+        "other-copy",
+      );
+      first.release();
+      second.release();
+      const snapshot = await scanRuntimePersistenceGovernance();
+      assert.isAtLeast(
+        snapshot.usage.categories.find((item) => item.category === "tmp")!
+          .bytes,
+        10,
+      );
+      await cleanupRuntimePersistenceRetention({
+        nowMs: Date.now() + 2 * 24 * 60 * 60 * 1000,
+      });
+      assert.isFalse(await pathExists(first.path));
+      assert.equal(
+        await readRuntimeTextFileStrict(path.join(second.path, "f1.pdf")),
+        "other-copy",
+      );
+    } finally {
+      await first.cleanup();
+      await second.cleanup();
+      process.env.ZOTERO_SKILLS_RUNTIME_ROOT = tempRoot;
+    }
   });
 
   it("retains the old binary file when a native overwrite is rejected", async function () {

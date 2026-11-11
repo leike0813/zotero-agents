@@ -18,6 +18,11 @@ import type {
   WorkflowFileRef,
 } from "../../src/workflows/types";
 import { normalizeAttachmentFilename } from "../../src/platform/path";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { assertRuntimePathBudget } from "../../src/modules/runtimePersistence";
+import { createRuntimeBoundZoteroHostPreparedFiles } from "../../src/modules/zoteroHost/zoteroHostPreparedFiles";
 import { createCanonicalStoredAttachmentSource } from "../../src/workflows/workflowHostOwners";
 
 function storedAttachmentCreateInput(
@@ -62,6 +67,48 @@ function storedAttachmentCreateRequest(
 }
 
 describe("Workflow Stored Attachment Preparation", function () {
+  it("prepares a long native source and companions through short compatible staging", async function () {
+    const previous = process.env.ZOTERO_SKILLS_RUNTIME_ROOT;
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "zs-prepared-long-"));
+    const directory = path.join(
+      root,
+      "a".repeat(90),
+      "b".repeat(90),
+      "c".repeat(60),
+    );
+    await fs.mkdir(directory, { recursive: true });
+    const source = path.join(directory, "paper.md");
+    const image = path.join(directory, "image.png");
+    await fs.writeFile(source, "![image](assets/image.png)");
+    await fs.writeFile(image, "image bytes");
+    process.env.ZOTERO_SKILLS_RUNTIME_ROOT = directory;
+    const owner = createRuntimeBoundZoteroHostPreparedFiles();
+    try {
+      const prepared = await owner.prepareStoredAttachment({
+        path: source,
+        companionFiles: [
+          { sourcePath: image, relativePath: "assets/image.png" },
+        ],
+      });
+      const resolved = await owner.resolveStoredAttachment(prepared);
+      assertRuntimePathBudget(resolved.mainPath);
+      assert.equal(
+        await fs.readFile(resolved.mainPath, "utf8"),
+        "![image](assets/image.png)",
+      );
+      assert.equal(resolved.companionPaths[0].relativePath, "assets/image.png");
+      assert.equal(
+        await fs.readFile(resolved.companionPaths[0].path, "utf8"),
+        "image bytes",
+      );
+      await resolved.cleanup();
+    } finally {
+      await owner.dispose();
+      if (previous === undefined) delete process.env.ZOTERO_SKILLS_RUNTIME_ROOT;
+      else process.env.ZOTERO_SKILLS_RUNTIME_ROOT = previous;
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
   beforeEach(function () {
     resetPluginStateStoreForTests();
     resetMutationAuthorityRuntimeForTests();
@@ -207,18 +254,26 @@ describe("Workflow Stored Attachment Preparation", function () {
     const effects: string[] = [];
     const stage = createZoteroHostPreparedFileStager({
       getStagingRoot: () => "C:\\managed",
-      async ensureDirectory() { effects.push("mkdir"); },
-      async copyFile() { effects.push("copy"); },
-      async removePath() { effects.push("remove"); },
+      async ensureDirectory() {
+        effects.push("mkdir");
+      },
+      async copyFile() {
+        effects.push("copy");
+      },
+      async removePath() {
+        effects.push("remove");
+      },
     });
     let failure: unknown;
     try {
       await stage({
         path: "/source/main.pdf",
-        companionFiles: [{
-          sourcePath: "/source/image.png",
-          relativePath: `${"a".repeat(140)}/${"b".repeat(140)}.png`,
-        }],
+        companionFiles: [
+          {
+            sourcePath: "/source/image.png",
+            relativePath: `${"a".repeat(140)}/${"b".repeat(140)}.png`,
+          },
+        ],
       });
     } catch (error) {
       failure = error;
@@ -232,10 +287,13 @@ describe("Workflow Stored Attachment Preparation", function () {
     const stage = createZoteroHostPreparedFileStager({
       getStagingRoot: () => "/managed",
       async ensureDirectory(_path, exclusive) {
-        if (exclusive) throw Object.assign(new Error("reserved"), { code: "conflict" });
+        if (exclusive)
+          throw Object.assign(new Error("reserved"), { code: "conflict" });
       },
       async copyFile() {},
-      async removePath() { cleaned = true; },
+      async removePath() {
+        cleaned = true;
+      },
     });
     let failure: unknown;
     try {
@@ -333,9 +391,16 @@ describe("Workflow Stored Attachment Preparation", function () {
       assert.isAtMost(new TextEncoder().encode(normalized).byteLength, 180);
       assert.notMatch(normalized, /[. ]$/);
     }
-    for (const [name, budget] of [["CONSOLE.pdf", 7], ["COM1long.pdf", 8], ["论文".repeat(40) + ".pdf", 14]] as const) {
+    for (const [name, budget] of [
+      ["CONSOLE.pdf", 7],
+      ["COM1long.pdf", 8],
+      ["论文".repeat(40) + ".pdf", 14],
+    ] as const) {
       const normalized = normalizeAttachmentFilename(name, budget);
-      assert.notMatch(normalized, /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i);
+      assert.notMatch(
+        normalized,
+        /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i,
+      );
       assert.isAtMost(new TextEncoder().encode(normalized).byteLength, budget);
       assert.isTrue(normalized.endsWith(".pdf"));
     }

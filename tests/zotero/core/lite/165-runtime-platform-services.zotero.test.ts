@@ -13,7 +13,22 @@ import { defaultAcpRuntimeDependencyProbe } from "../../../../src/modules/acp/sk
 import {
   runtimePathExists,
   writeRuntimeTextFile,
+  ensureRuntimeDirectoryStrict,
+  copyRuntimeFile,
+  appendRuntimeTextFile,
+  replaceRuntimeTextFileAtomically,
+  listRuntimeChildrenStrict,
+  moveRuntimePath,
+  readRuntimeTextFileStrict,
+  readRuntimeTextRanges,
+  removeRuntimePath,
+  assertRuntimePathBudget,
 } from "../../../../src/modules/runtimePersistence";
+import {
+  digestRuntimeFileSource,
+  inspectRuntimeFileSource,
+} from "../../../../src/modules/runtimeFileTransfer";
+import { createWorkflowArchiveApi } from "../../../../src/workflows/archive";
 
 function hasRealZoteroRuntime() {
   const runtime = globalThis as {
@@ -77,6 +92,71 @@ describe("runtime platform services in Zotero", function () {
     );
     await writeRuntimeTextFile(target, "ok");
     assert.isTrue(await runtimePathExists(target));
+  });
+
+  it("supports ordinary Windows long paths through native I/O and compatible ZIP staging", async function () {
+    if (detectRuntimePlatform() !== "win32") this.skip();
+    this.timeout(120000);
+    const root = joinNativePath(
+      getZoteroTempDirectoryPath(),
+      `zs-long-${Date.now()}`,
+    );
+    const directory = joinNativePath(
+      root,
+      "a".repeat(90),
+      "b".repeat(90),
+      "研究😀".repeat(15),
+    );
+    const source = joinNativePath(directory, "source.txt");
+    const target = joinNativePath(directory, "target.txt");
+    const moved = joinNativePath(directory, "moved.txt");
+    const zip = joinNativePath(directory, "result.zip");
+    try {
+      await ensureRuntimeDirectoryStrict(directory);
+      await writeRuntimeTextFile(source, "source 甲😀");
+      assert.isAbove(source.length, 259);
+      await copyRuntimeFile({ sourcePath: source, targetPath: target });
+      await replaceRuntimeTextFileAtomically(target, "new 甲😀");
+      await appendRuntimeTextFile(target, " tail");
+      assert.equal(await readRuntimeTextFileStrict(target), "new 甲😀 tail");
+      assert.deepEqual(
+        await readRuntimeTextRanges(target, [{ offset: 0, length: 3 }]),
+        ["new"],
+      );
+      const sourceDigest = await digestRuntimeFileSource(
+        await inspectRuntimeFileSource(source),
+      );
+      assert.match(sourceDigest.sha256, /^sha256:[a-f0-9]{64}$/);
+      assert.include(await listRuntimeChildrenStrict(directory), target);
+      await moveRuntimePath({ sourcePath: target, targetPath: moved });
+      assert.equal(await readRuntimeTextFileStrict(moved), "new 甲😀 tail");
+      const archive = createWorkflowArchiveApi();
+      await archive.writeZipAtomic({
+        targetPath: zip,
+        entries: [
+          {
+            name: "payload.txt",
+            content: { kind: "file", sourcePath: source },
+          },
+        ],
+      });
+      await archive.withExtractedZip(
+        { sourcePath: zip },
+        {},
+        async (extracted) => {
+          assert.equal(
+            new TextDecoder().decode(await extracted.readBytes("payload.txt")),
+            "source 甲😀",
+          );
+          assertRuntimePathBudget(extracted.rootPath);
+        },
+      );
+      Zotero.debug(
+        `Native long path acceptance: Zotero ${Zotero.version}; path=${source.length} UTF-16; passed`,
+      );
+    } finally {
+      await removeRuntimePath(root);
+    }
   });
 
   it("initializes the startup command registry without requiring every command", async function () {

@@ -3,6 +3,7 @@ import {
   getBaseName,
   getParentPath,
   normalizeNativeLocalPath,
+  normalizeAttachmentFilename,
 } from "../../platform/path";
 import { joinPath } from "../../utils/path";
 import type {
@@ -16,6 +17,8 @@ import {
   ensureRuntimeDirectoryExclusive,
   ensureRuntimeDirectoryStrict,
   getRuntimePersistencePaths,
+  reserveRuntimeTemporaryDirectory,
+  type RuntimeTemporaryDirectory,
   normalizeRuntimeOutputFilename,
   readRuntimeBytes,
   removeRuntimePath,
@@ -38,6 +41,9 @@ export class WorkflowStoredAttachmentInputError extends Error {
 
 type StoredAttachmentStagerDependencies = {
   getStagingRoot(): string;
+  reserveDirectory?(
+    relativePaths: Array<{ path: string }>,
+  ): Promise<RuntimeTemporaryDirectory>;
   validateSource?(
     path: string,
   ): Promise<{ sizeBytes: number; isSymlink?: boolean } | undefined | void>;
@@ -97,14 +103,16 @@ export function createZoteroHostPreparedFileStager(
         "Stored attachment target filename is invalid",
       );
     }
-    const stagingDirectory = joinPath(
+    let stagingDirectory = joinPath(
       dependencies.getStagingRoot(),
       `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10) || "import"}`,
     );
-    const mainFilename = normalizeRuntimeOutputFilename(
-      stagingDirectory,
-      requested || getBaseName(mainPath),
-    );
+    let mainFilename = dependencies.reserveDirectory
+      ? normalizeAttachmentFilename(requested || getBaseName(mainPath))
+      : normalizeRuntimeOutputFilename(
+          stagingDirectory,
+          requested || getBaseName(mainPath),
+        );
     const companions = (request?.companionFiles || []).map((item) => ({
       sourcePath: normalizeNativeLocalPath(String(item?.sourcePath || "")),
       segments: companionSegments(item?.relativePath),
@@ -146,7 +154,7 @@ export function createZoteroHostPreparedFileStager(
       mainPath,
       ...companions.map((item) => item.sourcePath),
     ]) {
-      assertRuntimePathBudget(path);
+      assertRuntimePathBudget(path, "file", "native");
       const stat = await dependencies.validateSource?.(path);
       if (stat?.isSymlink) {
         throw new WorkflowStoredAttachmentInputError(
@@ -161,23 +169,37 @@ export function createZoteroHostPreparedFileStager(
         );
       }
     }
-    const stagedMainPath = joinPath(stagingDirectory, mainFilename);
-    const entries = companions.map((item) => ({
-      relativePath: item.segments.join("/"),
-      stagedPath: joinPath(stagingDirectory, ...item.segments),
-      sourcePath: item.sourcePath,
-    }));
-    for (const target of [
-      stagedMainPath,
-      ...entries.map((entry) => entry.stagedPath),
-    ]) {
-      assertRuntimePathBudget(target);
-    }
+    let reservation: RuntimeTemporaryDirectory | undefined;
     let owned = false;
     try {
-      await dependencies.ensureDirectory(getParentPath(stagingDirectory));
-      await dependencies.ensureDirectory(stagingDirectory, true);
-      owned = true;
+      if (dependencies.reserveDirectory) {
+        reservation = await dependencies.reserveDirectory([
+          { path: mainFilename },
+          ...companions.map((item) => ({ path: item.segments.join("/") })),
+        ]);
+        stagingDirectory = reservation.path;
+        mainFilename = normalizeRuntimeOutputFilename(
+          stagingDirectory,
+          requested || getBaseName(mainPath),
+        );
+      }
+      const stagedMainPath = joinPath(stagingDirectory, mainFilename);
+      const entries = companions.map((item) => ({
+        relativePath: item.segments.join("/"),
+        stagedPath: joinPath(stagingDirectory, ...item.segments),
+        sourcePath: item.sourcePath,
+      }));
+      for (const target of [
+        stagedMainPath,
+        ...entries.map((entry) => entry.stagedPath),
+      ]) {
+        assertRuntimePathBudget(target);
+      }
+      if (!reservation) {
+        await dependencies.ensureDirectory(getParentPath(stagingDirectory));
+        await dependencies.ensureDirectory(stagingDirectory, true);
+        owned = true;
+      }
       await dependencies.copyFile(mainPath, stagedMainPath);
       for (const entry of entries) {
         await dependencies.ensureDirectory(getParentPath(entry.stagedPath));
@@ -191,11 +213,16 @@ export function createZoteroHostPreparedFileStager(
           relativePath,
           stagedPath,
         })),
-        cleanup: () => removeStagingDirectory(dependencies, stagingDirectory),
+        cleanup: () =>
+          reservation
+            ? reservation.cleanup()
+            : removeStagingDirectory(dependencies, stagingDirectory),
       };
     } catch (error) {
       try {
-        if (owned) await removeStagingDirectory(dependencies, stagingDirectory);
+        if (reservation) await reservation.cleanup();
+        else if (owned)
+          await removeStagingDirectory(dependencies, stagingDirectory);
       } catch (cleanupError) {
         attachCleanupFailure(error, cleanupError);
       }
@@ -226,6 +253,11 @@ export function createRuntimeBoundZoteroHostPreparedFiles() {
   let inFlightPreparations = 0;
   const prepareWaiters = new Set<() => void>();
   const stager = createZoteroHostPreparedFileStager({
+    reserveDirectory: (relativePaths) =>
+      reserveRuntimeTemporaryDirectory({
+        category: "workflow-attachment-import",
+        relativePaths,
+      }),
     getStagingRoot: () =>
       joinPath(
         getRuntimePersistencePaths().tmpDir,

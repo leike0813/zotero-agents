@@ -7,17 +7,17 @@ separate contracts.
 
 ## Ingress and ownership
 
-| Input | Preparation owner | Result |
-| --- | --- | --- |
-| Host Bridge upload | Host Bridge file registry owns a private, unique upload directory under `runtime/tmp/host-bridge-uploads/`; attachment mutation takes an upload lease | `attachments.create` stages the upload and imports it into Zotero storage |
-| Host Bridge URL attachment | Host Bridge mutation owner validates the URL and creates the Zotero URL item | `linked_url` attachment; there are no uploaded file bytes to transfer |
-| Downloaded stored URL | Native attachment owner pins the managed download, then the shared prepared-file owner stages its bytes | `stored_url` ingress creates a permanent stored file; download cleanup releases temporary ownership |
-| Workflow local path | Workflow Host prepared-file owner and the shared stored-attachment stager | Validated main file and companions are staged, then imported or used for stored replacement |
-| Workflow resource reference | Workflow resource adapter resolves the trusted source; the same prepared-file owner and stager handle it | Same stored-file, portable-name, companion, and cleanup rules as a local path |
-| Zotero's native file import | Zotero attachment APIs and storage own the import | Native stored attachment lifecycle and configured Zotero sync |
-| Registered attachment or workflow-artifact download | Host Bridge file registry exposes a read handle to an existing source | Download expiry removes the handle only; the Zotero or workflow-owned source remains in place |
-| Note image | Workflow note-image preparation and the note mutation path | Embedded image owned by the note operation, not an ordinary file attachment import |
-| Note payload | Note payload mutation and persistence path | Payload remains part of the note contract, not a file attachment or upload-directory entry |
+| Input                                               | Preparation owner                                                                                                                                     | Result                                                                                              |
+| --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| Host Bridge upload                                  | Host Bridge file registry owns a private, unique upload directory under `runtime/tmp/host-bridge-uploads/`; attachment mutation takes an upload lease | `attachments.create` stages the upload and imports it into Zotero storage                           |
+| Host Bridge URL attachment                          | Host Bridge mutation owner validates the URL and creates the Zotero URL item                                                                          | `linked_url` attachment; there are no uploaded file bytes to transfer                               |
+| Downloaded stored URL                               | Native attachment owner pins the managed download, then the shared prepared-file owner stages its bytes                                               | `stored_url` ingress creates a permanent stored file; download cleanup releases temporary ownership |
+| Workflow local path                                 | Workflow Host prepared-file owner and the shared stored-attachment stager                                                                             | Validated main file and companions are staged, then imported or used for stored replacement         |
+| Workflow resource reference                         | Workflow resource adapter resolves the trusted source; the same prepared-file owner and stager handle it                                              | Same stored-file, portable-name, companion, and cleanup rules as a local path                       |
+| Zotero's native file import                         | Zotero attachment APIs and storage own the import                                                                                                     | Native stored attachment lifecycle and configured Zotero sync                                       |
+| Registered attachment or workflow-artifact download | Host Bridge file registry exposes a read handle to an existing source                                                                                 | Download expiry removes the handle only; the Zotero or workflow-owned source remains in place       |
+| Note image                                          | Workflow note-image preparation and the note mutation path                                                                                            | Embedded image owned by the note operation, not an ordinary file attachment import                  |
+| Note payload                                        | Note payload mutation and persistence path                                                                                                            | Payload remains part of the note contract, not a file attachment or upload-directory entry          |
 
 Host Bridge upload display names, target filenames, and storage paths are
 separate values. The display name supplies the default attachment title and,
@@ -33,6 +33,11 @@ and the display title remains unchanged. Companion paths are never shortened:
 all source and destination budgets are validated before staging starts.
 Upload, download, and prepared-file staging directories are reserved exclusively;
 failed reservation does not authorize removal of a pre-existing directory.
+Long ordinary input paths are read through the shared native adapter. Preparation
+uses the shared compatible-directory reservation, including system-temporary
+fallback when the managed root is too deep. Its owned copy preserves companion
+relative paths; display metadata remains independent. Compatible reservations
+participate in temporary usage and in-use cleanup protection.
 
 New file attachments are imported as stored files with their complete
 companion set. `attachments.create` may create a `linked_url` URL attachment;
@@ -99,8 +104,10 @@ under Zotero's eight-character attachment storage key, the main file, companions
 and the longest native fulltext cache name including its atomic `.tmp` suffix.
 The returned storage location is checked again before copying companions.
 Replacement preflights new storage paths and backup budgets before old content
-is moved. A path-budget failure cannot be rescued by changing a Windows setting
-or by silently renaming an existing attachment target.
+is moved. Native plugin I/O capability does not prove the capabilities of
+Zotero's attachment, fulltext or sync consumers. Their destination budgets remain
+independent; an insufficient destination fails without changing Windows settings
+or silently renaming an existing attachment target.
 
 ## Stored replacement and file sync
 

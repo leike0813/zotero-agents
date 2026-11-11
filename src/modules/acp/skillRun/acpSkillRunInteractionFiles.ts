@@ -10,7 +10,8 @@ import { sha256Hex } from "../../../utils/sha256";
 import {
   assertManagedRelativePath,
   copyRuntimeFile,
-  ensureRuntimeDirectory,
+  reserveRuntimeTemporaryDirectory,
+  runtimeTemporaryFilename,
   moveRuntimePath,
   removeRuntimePath,
   writeRuntimeTextFile,
@@ -96,26 +97,6 @@ function safeManagedFileName(value: unknown) {
   return extension ? `${stem}.${extension}` : stem;
 }
 
-function collisionSafeName(
-  requested: string,
-  used: Set<string>,
-  index: number,
-) {
-  const initial = safeManagedFileName(requested);
-  const dot = initial.lastIndexOf(".");
-  const stem = dot > 0 ? initial.slice(0, dot) : initial;
-  const extension = dot > 0 ? initial.slice(dot) : "";
-  let candidate = initial;
-  let suffix = Math.max(2, index + 1);
-  while (used.has(candidate.toLowerCase())) {
-    const suffixText = `-${suffix}`;
-    candidate = `${stem.slice(0, Math.max(1, 90 - extension.length - suffixText.length))}${suffixText}${extension}`;
-    suffix += 1;
-  }
-  used.add(candidate.toLowerCase());
-  return candidate;
-}
-
 async function renderFileReplyPrompt(files: StagedAcpInteractionFile[]) {
   const template = await loadAcpRuntimePromptTemplate(
     ACP_RUNTIME_PROMPT_TEMPLATES_BY_ID.interaction_file_reply,
@@ -158,17 +139,16 @@ export async function stageAcpSkillRunInteractionFiles(args: {
   const directoryRelativePath = assertManagedRelativePath(
     `.acp-inputs/${requestKey}-${submissionKey}`,
   );
-  const temporaryRelativePath = assertManagedRelativePath(
-    `.acp-inputs/.tmp-${submissionKey}`,
-  );
   const directoryPath = joinNativePath(workspaceDir, directoryRelativePath);
-  const temporaryPath = joinNativePath(workspaceDir, temporaryRelativePath);
-  const usedNames = new Set<string>(["manifest.json"]);
+  const temporary = await reserveRuntimeTemporaryDirectory({
+    category: "acp-inputs",
+    rootPath: joinNativePath(workspaceDir, ".acp-inputs"),
+    policy: "native",
+  });
+  const temporaryPath = temporary.path;
   const files: StagedAcpInteractionFile[] = [];
   let totalBytes = 0;
   try {
-    await ensureRuntimeDirectory(joinNativePath(workspaceDir, ".acp-inputs"));
-    await ensureRuntimeDirectory(temporaryPath);
     for (let index = 0; index < selections.length; index += 1) {
       const selection = selections[index];
       const source = await inspectRuntimeFileSource(selection.sourcePath);
@@ -182,7 +162,7 @@ export async function stageAcpSkillRunInteractionFiles(args: {
       const displayName =
         String(selection.displayName || "").trim() ||
         getBaseName(selection.sourcePath);
-      const managedName = collisionSafeName(displayName, usedNames, index);
+      const managedName = runtimeTemporaryFilename(displayName, index + 1);
       const relativePath = assertManagedRelativePath(
         `${directoryRelativePath}/${managedName}`,
       );
@@ -208,8 +188,9 @@ export async function stageAcpSkillRunInteractionFiles(args: {
       sourcePath: temporaryPath,
       targetPath: directoryPath,
     });
+    temporary.release();
   } catch (error) {
-    await removeRuntimePath(temporaryPath).catch(() => undefined);
+    await temporary.cleanup().catch(() => undefined);
     throw error;
   }
   return {

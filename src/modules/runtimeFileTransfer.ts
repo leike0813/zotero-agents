@@ -1,5 +1,5 @@
 import { createSha256Accumulator } from "../utils/sha256";
-import { statRuntimePath } from "./runtimePersistence";
+import { statRuntimePath, toRuntimeNativeFsPath } from "./runtimePersistence";
 
 export const RUNTIME_FILE_TRANSFER_POLICY = Object.freeze({
   chunkBytes: 0x8000,
@@ -131,7 +131,7 @@ function createLocalFile(path: string, classes: any, interfaces: any) {
   const nsIFile = interfaces?.nsIFile;
   if (!fileFactory || !nsIFile) return undefined;
   const file = fileFactory.createInstance(nsIFile);
-  file.initWithPath(path);
+  file.initWithPath(toRuntimeNativeFsPath(path));
   return file;
 }
 

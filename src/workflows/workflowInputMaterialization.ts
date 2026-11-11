@@ -1,5 +1,6 @@
 import {
-  getRuntimePersistencePaths,
+  reserveRuntimeTemporaryDirectory,
+  runtimeTemporaryFilename,
   writeRuntimeBytes,
   writeRuntimeTextFileStrict,
 } from "../modules/runtimePersistence";
@@ -75,22 +76,13 @@ function normalizeManagedPathSegment(value: unknown, fallback: string) {
   return segment;
 }
 
-function uniqueManagedFileName(fileName: unknown) {
-  const segment = normalizeManagedPathSegment(fileName, "input.dat");
-  const dotIndex = segment.lastIndexOf(".");
-  const stem = dotIndex > 0 ? segment.slice(0, dotIndex) || "input" : segment;
-  const extension =
-    dotIndex > 0 && dotIndex < segment.length - 1
-      ? segment.slice(dotIndex)
-      : "";
-  const nonce = Math.random().toString(36).slice(2, 10);
-  return `${stem}-${Date.now()}-${nonce}${extension}`;
-}
-
 export async function materializeWorkflowInputFile(
   args: WorkflowInputMaterializationRequest,
 ) {
-  const hasContent = Object.prototype.hasOwnProperty.call(args || {}, "content");
+  const hasContent = Object.prototype.hasOwnProperty.call(
+    args || {},
+    "content",
+  );
   const hasBytes = Object.prototype.hasOwnProperty.call(args || {}, "bytes");
   if (hasContent === hasBytes) {
     throw createWorkflowHostError(
@@ -99,25 +91,33 @@ export async function materializeWorkflowInputFile(
       { reason: "invalid_combination", field: "content" },
     );
   }
+  const directory = await reserveRuntimeTemporaryDirectory({
+    category: "workflow-inputs",
+  });
   const targetPath = joinPath(
-    getRuntimePersistencePaths().tmpDir,
-    "workflow-inputs",
-    normalizeManagedPathSegment(args?.workflowId, "workflow"),
-    normalizeManagedPathSegment(args?.key, "input"),
-    uniqueManagedFileName(args?.fileName || "input.dat"),
+    directory.path,
+    runtimeTemporaryFilename(args.fileName || "input.dat", 1),
   );
-  if (hasBytes) {
-    await writeRuntimeBytes(targetPath, args.bytes as Uint8Array | ArrayBuffer);
-  } else {
-    await writeRuntimeTextFileStrict(targetPath, String(args.content ?? ""));
+  try {
+    if (hasBytes)
+      await writeRuntimeBytes(
+        targetPath,
+        args.bytes as Uint8Array | ArrayBuffer,
+      );
+    else
+      await writeRuntimeTextFileStrict(targetPath, String(args.content ?? ""));
+    const source = await inspectRuntimeFileSource(targetPath);
+    const digest = await digestRuntimeFileSource(source);
+    directory.release();
+    return {
+      path: targetPath,
+      sizeBytes: source.size,
+      sha256: digest.sha256.replace(/^sha256:/, ""),
+    };
+  } catch (error) {
+    await directory.cleanup();
+    throw error;
   }
-  const source = await inspectRuntimeFileSource(targetPath);
-  const digest = await digestRuntimeFileSource(source);
-  return {
-    path: targetPath,
-    sizeBytes: source.size,
-    sha256: digest.sha256.replace(/^sha256:/, ""),
-  };
 }
 
 export function createWorkflowInputMaterializer(scope: {

@@ -18,6 +18,7 @@ import { clearRuntimeLogs } from "./runtimeLogManager";
 import {
   collectRuntimeFiles,
   getRuntimePersistencePaths,
+  getRuntimeTemporaryRoots,
   listRuntimeChildren,
   removeRuntimePath,
   runtimePathExists,
@@ -168,11 +169,14 @@ async function collectExpiredRuntimeAssets(args?: {
 }) {
   const paths = getRuntimePersistencePaths(args?.root);
   const nowMs = Math.max(0, Number(args?.nowMs || 0) || 0) || Date.now();
-  const roots = {
-    tmp: paths.tmpDir,
-    cache: paths.cacheDir,
-    logs: paths.logsDir,
-  } satisfies Record<RuntimeExpiredAssetOwner, string>;
+  const roots: Array<{ owner: RuntimeExpiredAssetOwner; root: string }> = [
+    ...(await getRuntimeTemporaryRoots(args?.root)).map((root) => ({
+      owner: "tmp" as const,
+      root,
+    })),
+    { owner: "cache", root: paths.cacheDir },
+    { owner: "logs", root: paths.logsDir },
+  ];
   const assets: Array<{
     owner: RuntimeExpiredAssetOwner;
     root: string;
@@ -180,10 +184,12 @@ async function collectExpiredRuntimeAssets(args?: {
     relativePath: string;
     lastModified?: number;
   }> = [];
-  for (const owner of Object.keys(roots) as RuntimeExpiredAssetOwner[]) {
-    const root = roots[owner];
+  for (const { owner, root } of roots) {
     const ttlMs = RUNTIME_EXPIRED_ASSET_TTL_MS[owner];
-    for (const file of await collectRuntimeFiles(root)) {
+    const files = await collectRuntimeFiles(root);
+    const expired = [] as typeof assets;
+    let allExpired = files.length > 0;
+    for (const file of files) {
       const stat = await statRuntimePath(file);
       const lastModified = Number(stat.lastModified || 0);
       if (
@@ -192,15 +198,30 @@ async function collectExpiredRuntimeAssets(args?: {
         lastModified <= 0 ||
         nowMs - lastModified < ttlMs
       ) {
+        allExpired = false;
         continue;
       }
-      assets.push({
+      expired.push({
         owner,
         root,
         path: file,
         relativePath: runtimeRelativePath(paths.root, file),
         lastModified: stat.lastModified,
       });
+    }
+    if (owner === "tmp" && root !== paths.tmpDir && allExpired) {
+      assets.push({
+        owner,
+        root,
+        path: root,
+        relativePath: runtimeRelativePath(paths.root, root),
+      });
+    } else {
+      assets.push(
+        ...expired.filter(
+          (asset) => asset.path !== joinPath(root, ".owner.json"),
+        ),
+      );
     }
   }
   return assets.sort((left, right) => left.path.localeCompare(right.path));
@@ -535,6 +556,7 @@ async function cleanupPersistenceIssues(args?: {
 }): Promise<PersistenceCleanupResult> {
   const paths = getRuntimePersistencePaths(args?.root);
   const report = await scanPersistenceIntegrity(args);
+  const temporaryRoots = await getRuntimeTemporaryRoots(args?.root);
   const dryRun = args?.dryRun !== false;
   const selected = new Set(
     (args?.issueIds || []).map(cleanString).filter(Boolean),
@@ -549,7 +571,8 @@ async function cleanupPersistenceIssues(args?: {
     const cleanable =
       issue.eligibleForCleanup &&
       path &&
-      isUnderPath(paths.runtimeRoot, path) &&
+      (isUnderPath(paths.runtimeRoot, path) ||
+        temporaryRoots.some((root) => isUnderPath(root, path))) &&
       !isUnderPath(paths.dataDir, path) &&
       path !== paths.stateDbPath &&
       path !== paths.synthesisDbPath;
@@ -559,7 +582,7 @@ async function cleanupPersistenceIssues(args?: {
     }
     if (!dryRun) {
       try {
-        const removed = isUnderPath(paths.tmpDir, path)
+        const removed = temporaryRoots.some((root) => isUnderPath(root, path))
           ? await withRuntimeTemporaryCleanup(() => removeRuntimePath(path))
           : await removeRuntimePath(path);
         if (removed) removedPaths.push(path);
@@ -669,6 +692,14 @@ async function scanRuntimePersistenceUsage(
       definition.path && definition.fileBacked
         ? await getRuntimePathSize(definition.path)
         : { bytes: 0, itemCount: 0, exists: false };
+    if (definition.category === "tmp") {
+      for (const root of (await getRuntimeTemporaryRoots()).slice(1)) {
+        const extra = await getRuntimePathSize(root);
+        size.bytes += extra.bytes;
+        size.itemCount += extra.itemCount;
+        size.exists ||= extra.exists;
+      }
+    }
     const recordCount = definition.recordCount?.() || 0;
     const recordBytes = definition.recordBytes?.() || 0;
     categories.push({
@@ -810,7 +841,10 @@ export async function cleanupRuntimePersistenceCategory(
   } else if (category === "cache") {
     await removeAndTrack(paths.cacheDir);
   } else if (category === "tmp") {
-    await withRuntimeTemporaryCleanup(() => removeAndTrack(paths.tmpDir));
+    await withRuntimeTemporaryCleanup(async () => {
+      for (const root of await getRuntimeTemporaryRoots())
+        await removeAndTrack(root);
+    });
   }
 
   return {

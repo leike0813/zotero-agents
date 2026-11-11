@@ -733,7 +733,11 @@ describe("Synthesis read-only workflow producer routes", function () {
         );
       }
     });
-    afterEach(() => {
+    const bundleReaders: ZipBundleReader[] = [];
+    afterEach(async () => {
+      await Promise.all(
+        bundleReaders.splice(0).map((reader) => reader.dispose()),
+      );
       restoreTransaction();
       resetZoteroLibrarySourcePageQueryAdapterForTests();
     });
@@ -756,6 +760,7 @@ describe("Synthesis read-only workflow producer routes", function () {
       );
       assert.isOk(step, "the deep_reading step must be built");
       const bundle = new ZipBundleReader(step?.input?.source_bundle_path || "");
+      bundleReaders.push(bundle);
       const manifest = JSON.parse(
         await bundle.readText("source-manifest.json"),
       );

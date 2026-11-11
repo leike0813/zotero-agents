@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { openRunResultBundleReader } from "../../src/modules/workflowExecution/bundleIO";
+import { createStoreZipBytes } from "../../src/modules/zipStore";
 
 async function mkTempRoot() {
   return fs.mkdtemp(path.join(os.tmpdir(), "zs-run-result-bundle-"));
@@ -20,6 +21,27 @@ async function assertPathMissing(filePath: string) {
 }
 
 describe("workflow run result bundle reader", function () {
+  it("keeps long request identities out of temporary paths and disposes extracted bytes", async function () {
+    const handle = await openRunResultBundleReader({
+      result: {
+        bundleBytes: createStoreZipBytes([
+          { name: "result.txt", bytes: new TextEncoder().encode("result") },
+        ]),
+      },
+      requestId: "request-".repeat(80),
+    });
+    let extracted = "";
+    try {
+      assert.equal(await handle.bundleReader.readText("result.txt"), "result");
+      extracted = (await handle.bundleReader.getExtractedDir?.()) || "";
+      assert.isNotEmpty(extracted);
+    } finally {
+      await handle.dispose();
+    }
+    await assertPathMissing(handle.bundlePath);
+    await assertPathMissing(extracted);
+  });
+
   it("opens bundle bytes as a temp zip and dispose removes the file", async function () {
     const handle = await openRunResultBundleReader({
       result: { bundleBytes: new Uint8Array([1, 2, 3]) },

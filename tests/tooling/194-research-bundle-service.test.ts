@@ -1,7 +1,14 @@
 import { strict as assert } from "node:assert";
-import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 
 import {
   createDirectResearchBundleApplication,
@@ -16,7 +23,10 @@ import {
   type ResearchBundleEntry,
   type ResearchBundleCommittedPaper,
 } from "../../src/modules/hostBridge/workflow/researchBundleService";
-import { createWorkflowRunResourceStore } from "../../src/modules/hostBridge/workflow/hostBridgeWorkflowResources";
+import {
+  createHostBridgeWorkflowResourceApi,
+  createWorkflowRunResourceStore,
+} from "../../src/modules/hostBridge/workflow/hostBridgeWorkflowResources";
 import {
   MutationAuthorityExecutionError,
   resetMutationAuthorityRuntimeForTests,
@@ -857,7 +867,7 @@ describe("Research Bundle service", function () {
           displayName: "bad.pdf",
         }),
       );
-      assert.deepEqual(await readdir(stageRoot), ["0001-good.pdf"]);
+      assert.deepEqual(await readdir(dirname(first.path)), ["f1.pdf"]);
       assert.equal(
         (await resources.resolveResource(first.ref)).path,
         first.path,
@@ -866,6 +876,107 @@ describe("Research Bundle service", function () {
       (globalThis as any).IOUtils = originalIo;
       await resources.cleanup();
       await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("separates long run and Unicode display identities from bounded resource paths", async function () {
+    const root = await mkdtemp(join(tmpdir(), "zs-resource-identity-"));
+    const parent = join(root, "managed-parent");
+    const originalPath = join(parent, "original.txt");
+    await mkdir(parent);
+    await writeFile(originalPath, "keep");
+    const sourcePath = join(root, "source.pdf");
+    await writeFile(sourcePath, "pdf bytes");
+    const runId = `long-run-${"x".repeat(240)}`;
+    const displayNames = [
+      `文献${"长".repeat(180)}.pdf`,
+      `文献${"长".repeat(181)}.pdf`,
+    ];
+    const resources = createWorkflowRunResourceStore({
+      runId,
+      rootPath: parent,
+    });
+    try {
+      const first = await resources.stageFile({
+        slotId: "source",
+        sourcePath,
+        displayName: displayNames[0],
+      });
+      const second = await resources.stageFile({
+        slotId: "source",
+        sourcePath,
+        displayName: displayNames[1],
+      });
+
+      assert.deepEqual([first.displayName, second.displayName], displayNames);
+      assert.notEqual(first.ref.id, second.ref.id);
+      assert.notEqual(first.path, second.path);
+      for (const resource of [first, second]) {
+        assert.match(basename(resource.path), /^f[0-9a-z]+\.pdf$/);
+        assert.notEqual(dirname(resource.path), parent);
+        assert.ok(!resource.path.includes(runId));
+        assert.ok(
+          displayNames.every(
+            (displayName) => !resource.path.includes(displayName),
+          ),
+        );
+      }
+
+      await resources.cleanup();
+      assert.equal(await readFile(originalPath, "utf8"), "keep");
+    } finally {
+      await resources.cleanup();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("uses the allocation display name when publishing an output", async function () {
+    const suggestedName = `研究${"长".repeat(180)}.zip`;
+    const resources = await createHostBridgeWorkflowResourceApi({
+      workflowId: "bounded-output",
+      runId: `long-output-${"x".repeat(240)}`,
+      manifest: {
+        id: "bounded-output",
+        resourceRequirements: [
+          {
+            id: "result",
+            direction: "output",
+            kind: "file",
+            cardinality: "one",
+            required: true,
+            suggestedName,
+          },
+        ],
+      } as any,
+      inputs: {},
+      outputBindings: { result: { delivery: "bridge-download" } },
+    });
+    let downloadPath = "";
+    try {
+      const allocation = await resources.allocateOutput({
+        slotId: "result",
+        contentType: "application/zip",
+      });
+      assert.match(basename(allocation.path), /^f[0-9a-z]+\.zip$/);
+      downloadPath = allocation.path;
+      await writeFile(allocation.path, "zip bytes");
+      const output = await resources.publishOutput({
+        slotId: "result",
+        path: allocation.path,
+        contentType: "application/zip",
+      });
+      assert.equal(output.displayName, suggestedName);
+
+      const download = await resolveHostBridgeFileDownload(output.fileId);
+      downloadPath = download.source.path;
+      await resources.cleanup();
+      assert.equal(await readFile(downloadPath, "utf8"), "zip bytes");
+    } finally {
+      await resources.cleanup();
+      if (downloadPath) {
+        await rm(dirname(downloadPath), { recursive: true, force: true });
+      }
+      resetHostBridgeFileRegistryForTests();
     }
   });
 

@@ -169,6 +169,89 @@ export function normalizeNativeLocalPath(targetPath: string) {
   return path;
 }
 
+function normalizeWindowsPathSegments(segments: string[]) {
+  const normalized: string[] = [];
+  for (const segment of segments) {
+    if (!segment || segment === ".") {
+      continue;
+    }
+    if (segment === "..") {
+      normalized.pop();
+      continue;
+    }
+    normalized.push(segment);
+  }
+  return normalized;
+}
+
+export function normalizeWindowsFilesystemPath(pathRaw: string) {
+  const raw = String(pathRaw || "");
+  if (!raw.trim() || raw.includes("\0")) {
+    return "";
+  }
+
+  let path = raw.trim().replace(/\//g, "\\");
+  if (path.startsWith("\\\\.\\") || path.startsWith("\\??\\")) {
+    return "";
+  }
+  if (path.startsWith("\\\\?\\")) {
+    path = path.slice(4);
+    if (/^UNC\\/i.test(path)) {
+      path = `\\\\${path.slice(4)}`;
+    } else if (!/^[A-Za-z]:\\/.test(path)) {
+      return "";
+    }
+    if (
+      path.startsWith("\\\\.\\") ||
+      path.startsWith("\\??\\") ||
+      path.startsWith("\\\\?")
+    ) {
+      return "";
+    }
+  } else if (path.startsWith("\\\\?") || path.startsWith("\\??")) {
+    return "";
+  }
+
+  if (/^[A-Za-z]:\\/.test(path)) {
+    const drive = path.slice(0, 2);
+    const segments = normalizeWindowsPathSegments(path.slice(3).split("\\"));
+    return `${drive}\\${segments.join("\\")}`;
+  }
+
+  if (!path.startsWith("\\\\")) {
+    return "";
+  }
+  const uncSegments = path.slice(2).split("\\");
+  const server = uncSegments.shift() || "";
+  const share = uncSegments.shift() || "";
+  if (
+    !server ||
+    !share ||
+    [".", ".."].includes(server) ||
+    [".", ".."].includes(share)
+  ) {
+    return "";
+  }
+  const segments = normalizeWindowsPathSegments(uncSegments);
+  return `\\\\${server}\\${share}${
+    segments.length ? `\\${segments.join("\\")}` : ""
+  }`;
+}
+
+export function toExtendedWindowsFilesystemPath(pathRaw: string) {
+  const path = normalizeWindowsFilesystemPath(pathRaw);
+  if (!path) {
+    return "";
+  }
+  if (/^[A-Za-z]:\\/.test(path)) {
+    return `\\\\?\\${path}`;
+  }
+  if (path.startsWith("\\\\")) {
+    return `\\\\?\\UNC\\${path.slice(2)}`;
+  }
+  return "";
+}
+
 export function normalizePortablePath(targetPath: string) {
   return normalizeString(targetPath).replace(/\\/g, "/");
 }

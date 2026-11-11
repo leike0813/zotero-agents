@@ -1777,8 +1777,8 @@ export async function applyHostBridgeWorkflowAgentRun(args: {
     for (const result of results) {
       const prepared = preparedById.get(result.agentRequestId)!;
       const bundleReader = createAgentApplyBundleReader(result.bundle.path);
-      await validateAgentApplyBundle({ bundleReader, prepared });
       preflight.push({ result, prepared, bundleReader });
+      await validateAgentApplyBundle({ bundleReader, prepared });
     }
     recordHostBridgeAgentRunApplyReceipt(agentRunId, {
       agentRunId,
@@ -1795,10 +1795,16 @@ export async function applyHostBridgeWorkflowAgentRun(args: {
       scope: args.scope,
     });
   } catch (error) {
+    await Promise.allSettled(
+      preflight.map(({ bundleReader }) => bundleReader.dispose?.()),
+    );
     releaseHostBridgeAgentRunApplyLease(agentRunId);
     throw error;
   }
   if (!sealHostBridgeAgentRunRecord(agentRunId)) {
+    await Promise.allSettled(
+      preflight.map(({ bundleReader }) => bundleReader.dispose?.()),
+    );
     releaseHostBridgeAgentRunApplyLease(agentRunId);
     throw codedAgentApplyError(
       "agent_run_already_consumed",
@@ -1893,6 +1899,12 @@ export async function applyHostBridgeWorkflowAgentRun(args: {
         errorCount: 1,
         error: message,
       });
+    } finally {
+      try {
+        await bundleReader.dispose?.();
+      } catch (error) {
+        warnings.push(`${prepared.agentRequestId}: ${String(error)}`);
+      }
     }
   }
 

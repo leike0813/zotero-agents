@@ -639,6 +639,12 @@ const itFullOnly = isFullTestMode() ? it : it.skip;
 const itNodeOnly = isZoteroRuntime() ? it.skip : it;
 
 describe("workflow: literature-analysis", function () {
+  const bundleReaders: ZipBundleReader[] = [];
+  function trackBundleReader(path: string) {
+    const reader = new ZipBundleReader(path);
+    bundleReaders.push(reader);
+    return reader;
+  }
   let restoreNodeZoteroTransaction: (() => void) | undefined;
   let restoreNoteImageWorker: (() => void) | undefined;
 
@@ -652,7 +658,10 @@ describe("workflow: literature-analysis", function () {
     }
   });
 
-  afterEach(function () {
+  afterEach(async function () {
+    await Promise.all(
+      bundleReaders.splice(0).map((reader) => reader.dispose()),
+    );
     restoreNodeZoteroTransaction?.();
     restoreNoteImageWorker?.();
     restoreNodeZoteroTransaction = undefined;
@@ -1332,7 +1341,7 @@ describe("workflow: literature-analysis", function () {
     });
     const attachment = await createApplySourceAttachment(parent);
 
-    const currentBundle = new ZipBundleReader(
+    const currentBundle = trackBundleReader(
       fixturePath("literature-analysis", "run_bundle_canonical.zip"),
     );
     const legacyBundle = {
@@ -1892,7 +1901,7 @@ describe("workflow: literature-analysis", function () {
       const applied = (await executeApplyResult({
         workflow,
         parent: itemRef(parent),
-        bundleReader: new ZipBundleReader(
+        bundleReader: trackBundleReader(
           fixturePath("literature-analysis", "run_bundle_canonical.zip"),
         ),
         request: {
@@ -1944,7 +1953,7 @@ describe("workflow: literature-analysis", function () {
       const applied = (await executeApplyResult({
         workflow,
         parent: itemRef(parent),
-        bundleReader: new ZipBundleReader(
+        bundleReader: trackBundleReader(
           fixturePath("literature-analysis", "run_bundle_canonical.zip"),
         ),
         request: {
@@ -2009,7 +2018,7 @@ describe("workflow: literature-analysis", function () {
       await executeApplyResult({
         workflow,
         parent: itemRef(parent),
-        bundleReader: new ZipBundleReader(
+        bundleReader: trackBundleReader(
           fixturePath("literature-analysis", "run_bundle_canonical.zip"),
         ),
         request: {
@@ -2020,7 +2029,7 @@ describe("workflow: literature-analysis", function () {
       const second = (await executeApplyResult({
         workflow,
         parent: itemRef(parent),
-        bundleReader: new ZipBundleReader(
+        bundleReader: trackBundleReader(
           fixturePath("literature-analysis", "run_bundle_canonical.zip"),
         ),
         request: {
@@ -2572,7 +2581,7 @@ describe("workflow: literature-analysis", function () {
       }>;
       assert.lengthOf(requests, 1);
 
-      const bundle = new ZipBundleReader(
+      const bundle = trackBundleReader(
         fixturePath("literature-analysis", "run_bundle_canonical.zip"),
       );
       const applied = (await executeApplyResult({
@@ -2620,7 +2629,7 @@ describe("workflow: literature-analysis", function () {
         title: "Workflow Source Metadata Parent",
       });
 
-      const bundle = new ZipBundleReader(
+      const bundle = trackBundleReader(
         fixturePath("literature-analysis", "run_bundle_canonical.zip"),
       );
       const loaded = await loadWorkflowManifests(workflowsPath());
@@ -3610,7 +3619,7 @@ describe("workflow: literature-analysis", function () {
         .getNotes()
         .map((id) => ({ id, html: Zotero.Items.get(id)!.getNote() }));
 
-      const bundle = new ZipBundleReader(
+      const bundle = trackBundleReader(
         fixturePath("literature-analysis", "run_bundle_canonical.zip"),
       );
       const loaded = await loadWorkflowManifests(workflowsPath());

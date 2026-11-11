@@ -1,8 +1,9 @@
 import {
   copyRuntimeFile,
-  ensureRuntimeDirectory,
-  getRuntimePersistencePaths,
   removeRuntimePath,
+  reserveRuntimeTemporaryDirectory,
+  runtimeTemporaryFilename,
+  type RuntimeTemporaryDirectory,
 } from "../../runtimePersistence";
 import {
   digestRuntimeFileSource,
@@ -34,15 +35,22 @@ export function createWorkflowRunResourceStore(args: {
   rootPath?: string;
 }) {
   const runId = safeName(args.runId, "run");
-  const rootPath =
-    args.rootPath ||
-    joinPath(getRuntimePersistencePaths().tmpDir, "workflow-resources", runId);
   const resources = new Map<
     string,
     WorkflowResourceFile & { sizeBytes: number; sha256: string }
   >();
+  let temporaryDirectory: Promise<RuntimeTemporaryDirectory> | undefined;
+  let rootPath = "";
   let sequence = 0;
   let active = true;
+  const ensureRoot = async () => {
+    temporaryDirectory ||= reserveRuntimeTemporaryDirectory({
+      category: "workflow-resources",
+      ...(args.rootPath ? { rootPath: args.rootPath } : {}),
+    });
+    if (!rootPath) rootPath = (await temporaryDirectory).path;
+    return rootPath;
+  };
   const requireActive = () => {
     if (!active) {
       throw new HostBridgeWorkflowResourceError(
@@ -63,14 +71,14 @@ export function createWorkflowRunResourceStore(args: {
       const source = await inspectRuntimeFileSource(stageArgs.sourcePath);
       const sourceDigest = await digestRuntimeFileSource(source);
       const resourceSequence = ++sequence;
-      const targetPath = joinPath(
-        rootPath,
-        `${String(resourceSequence).padStart(4, "0")}-${safeName(
-          stageArgs.displayName,
-          "resource.bin",
-        )}`,
+      const displayName = normalizeDisplayName(
+        stageArgs.displayName,
+        "resource.bin",
       );
-      await ensureRuntimeDirectory(rootPath);
+      const targetPath = joinPath(
+        await ensureRoot(),
+        runtimeTemporaryFilename(displayName, resourceSequence),
+      );
       try {
         await copyRuntimeFile({
           sourcePath: source.path,
@@ -97,7 +105,7 @@ export function createWorkflowRunResourceStore(args: {
           slotId: stageArgs.slotId,
           fileId: ref.id,
           path: targetPath,
-          displayName: safeName(stageArgs.displayName, "resource.bin"),
+          displayName,
           contentType:
             normalizeText(stageArgs.contentType) || "application/octet-stream",
           kind: stageArgs.kind || "file",
@@ -165,7 +173,8 @@ export function createWorkflowRunResourceStore(args: {
       if (!active) return;
       active = false;
       resources.clear();
-      await removeRuntimePath(rootPath).catch(() => false);
+      const reserved = await temporaryDirectory?.catch(() => null);
+      await reserved?.cleanup().catch(() => false);
     },
   };
 }
@@ -469,12 +478,16 @@ function safeName(value: string, fallback: string) {
   return name || fallback;
 }
 
-function numberedName(name: string, ordinal: number) {
-  if (ordinal <= 1) return name;
-  const extensionIndex = name.lastIndexOf(".");
-  return extensionIndex > 0
-    ? `${name.slice(0, extensionIndex)}-${ordinal}${name.slice(extensionIndex)}`
-    : `${name}-${ordinal}`;
+function normalizeDisplayName(value: unknown, fallback: string) {
+  const name = normalizeText(value)
+    .split(/[\\/]/)
+    .filter(Boolean)
+    .pop()
+    ?.split("")
+    .filter((character) => character.charCodeAt(0) > 0x1f)
+    .join("")
+    .trim();
+  return name || fallback;
 }
 
 export async function createHostBridgeWorkflowResourceApi(args: {
@@ -489,21 +502,12 @@ export async function createHostBridgeWorkflowResourceApi(args: {
       `${args.workflowId}-${Date.now().toString(36)}-${(++resourceApiSequence).toString(36)}`,
     "run",
   );
-  const outputRoot = joinPath(
-    getRuntimePersistencePaths().tmpDir,
-    "host-bridge-workflow-outputs",
-    runId,
-  );
-  await ensureRuntimeDirectory(outputRoot);
-  const requirements = requirementMap(args.manifest);
-  const materializedResources = createWorkflowRunResourceStore({
-    runId,
-    rootPath: joinPath(
-      getRuntimePersistencePaths().tmpDir,
-      "host-bridge-workflow-resources",
-      runId,
-    ),
+  const outputDirectory = await reserveRuntimeTemporaryDirectory({
+    category: "host-bridge-workflow-outputs",
   });
+  const outputRoot = outputDirectory.path;
+  const requirements = requirementMap(args.manifest);
+  const materializedResources = createWorkflowRunResourceStore({ runId });
   const resourceFiles = new Map<string, WorkflowResourceFile>();
   const inputs = Object.fromEntries(
     Object.entries(args.inputs).map(([slotId, files]) => [
@@ -529,10 +533,11 @@ export async function createHostBridgeWorkflowResourceApi(args: {
   );
   const allocations = new Map<
     string,
-    { allocationId: string; slotId: string; path: string }
+    { allocationId: string; slotId: string; path: string; displayName: string }
   >();
   const allocationByPath = new Map<string, string>();
   const allocationCountBySlot = new Map<string, number>();
+  let outputSequence = 0;
   const materializedCountBySlot = new Map<string, number>();
   let materializedBytes = 0;
   const outputs: WorkflowResourceOutputDescriptor[] = [];
@@ -603,7 +608,7 @@ export async function createHostBridgeWorkflowResourceApi(args: {
           { slotId: materializeArgs.slotId },
         );
       }
-      const displayName = safeName(
+      const displayName = normalizeDisplayName(
         materializeArgs.displayName ||
           getBaseName(materializeArgs.sourcePath) ||
           "resource.bin",
@@ -668,7 +673,7 @@ export async function createHostBridgeWorkflowResourceApi(args: {
           { slotId: outputArgs.slotId },
         );
       }
-      const suggestedName = safeName(
+      const displayName = normalizeDisplayName(
         outputArgs.suggestedName || requirement.suggestedName || "output.bin",
         "output.bin",
       );
@@ -682,12 +687,20 @@ export async function createHostBridgeWorkflowResourceApi(args: {
         );
       }
       allocationCountBySlot.set(outputArgs.slotId, ordinal);
-      const path = joinPath(outputRoot, numberedName(suggestedName, ordinal));
+      const path = joinPath(
+        outputRoot,
+        runtimeTemporaryFilename(displayName, ++outputSequence),
+      );
       const allocationId = `${runId}:allocation:${safeName(
         outputArgs.slotId,
         "slot",
       )}:${ordinal}`;
-      const allocation = { allocationId, slotId: outputArgs.slotId, path };
+      const allocation = {
+        allocationId,
+        slotId: outputArgs.slotId,
+        path,
+        displayName,
+      };
       allocations.set(allocationId, allocation);
       allocationByPath.set(path, allocationId);
       return allocation;
@@ -732,9 +745,9 @@ export async function createHostBridgeWorkflowResourceApi(args: {
           { slotId: outputArgs.slotId },
         );
       }
-      const displayName = safeName(
-        outputArgs.displayName || getBaseName(allocation.path) || "output.bin",
-        "output.bin",
+      const displayName = normalizeDisplayName(
+        outputArgs.displayName,
+        allocation.displayName,
       );
       if (
         requirement.accept?.extensions?.length &&
@@ -817,7 +830,9 @@ export async function createHostBridgeWorkflowResourceApi(args: {
       allocations.clear();
       allocationByPath.clear();
       if (outputs.length === 0) {
-        await removeRuntimePath(outputRoot).catch(() => false);
+        await outputDirectory.cleanup().catch(() => false);
+      } else {
+        outputDirectory.release();
       }
       await materializedResources.cleanup();
       materializedCountBySlot.clear();

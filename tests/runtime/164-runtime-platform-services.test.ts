@@ -4,6 +4,8 @@ import {
   isNonNativeAbsolutePath,
   joinNativePath,
   normalizeNativeLocalPath,
+  normalizeWindowsFilesystemPath,
+  toExtendedWindowsFilesystemPath,
 } from "../../src/platform/path";
 import {
   buildSubprocessEnvironment,
@@ -38,6 +40,7 @@ import {
   ensureRuntimeDirectoryStrict,
   removeRuntimePath,
   runtimePathExists,
+  toRuntimeNativeFsPath,
   writeRuntimeTextFile,
 } from "../../src/modules/runtimePersistence";
 import {
@@ -675,6 +678,90 @@ describe("runtime platform services", function () {
     assert.isTrue(isAbsolutePathLike("C:\\Users\\leike\\Zotero"));
     assert.isTrue(isAbsolutePathLike("/home/leike/zotero"));
     assert.isFalse(isAbsolutePathLike("C:relative"));
+  });
+
+  it("normalizes Windows drive and UNC filesystem paths lexically", function () {
+    assert.equal(
+      normalizeWindowsFilesystemPath("C:/Users/测试/🦊/./folder/../结果.txt"),
+      "C:\\Users\\测试\\🦊\\结果.txt",
+    );
+    assert.equal(
+      normalizeWindowsFilesystemPath("C:\\..\\..\\结果.txt"),
+      "C:\\结果.txt",
+    );
+    assert.equal(normalizeWindowsFilesystemPath("C:\\folder\\..\\.."), "C:\\");
+    assert.equal(
+      normalizeWindowsFilesystemPath("\\\\server\\share\\目录\\..\\文件.txt"),
+      "\\\\server\\share\\文件.txt",
+    );
+    assert.equal(
+      normalizeWindowsFilesystemPath("\\\\server\\share\\folder\\..\\.."),
+      "\\\\server\\share",
+    );
+    assert.equal(
+      normalizeWindowsFilesystemPath("\\\\?\\C:\\Users\\..\\文件.txt"),
+      "C:\\文件.txt",
+    );
+    assert.equal(
+      normalizeWindowsFilesystemPath(
+        "//?/UNC/server/share/目录/../emoji-🦊.txt",
+      ),
+      "\\\\server\\share\\emoji-🦊.txt",
+    );
+  });
+
+  it("rejects Windows relative and device-namespace filesystem paths", function () {
+    for (const invalidPath of [
+      "",
+      "C:",
+      "C:relative\\文件.txt",
+      "relative\\文件.txt",
+      "\\root-relative.txt",
+      "\\\\server",
+      "C:\\bad\u0000name.txt",
+      "\\\\.\\pipe\\agent",
+      "\\??\\C:\\agent",
+      "\\\\?\\GLOBALROOT\\Device\\HarddiskVolumeShadowCopy1\\file.txt",
+      "\\\\?\\Volume{00000000-0000-0000-0000-000000000000}\\file.txt",
+      "\\\\?\\C:relative\\file.txt",
+      "\\\\?\\UNC\\server\\..\\file.txt",
+      "\\\\?\\UNC\\??\\share\\file.txt",
+    ]) {
+      assert.equal(
+        normalizeWindowsFilesystemPath(invalidPath),
+        "",
+        invalidPath,
+      );
+      assert.equal(
+        toExtendedWindowsFilesystemPath(invalidPath),
+        "",
+        invalidPath,
+      );
+    }
+  });
+
+  it("preserves long Unicode Windows paths in extended form idempotently", function () {
+    const longPath = `C:\\${Array.from(
+      { length: 40 },
+      (_, index) => `长路径-${index}-🦊`,
+    ).join("\\")}\\结果.txt`;
+    const extendedPath = `\\\\?\\${longPath}`;
+    const longUncPath = `\\\\server\\share\\${Array.from(
+      { length: 40 },
+      (_, index) => `研究-${index}-🦊`,
+    ).join("\\")}\\结果.txt`;
+    const extendedUncPath = `\\\\?\\UNC\\${longUncPath.slice(2)}`;
+
+    assert.isAbove(longPath.length, 260);
+    assert.equal(normalizeWindowsFilesystemPath(extendedPath), longPath);
+    assert.equal(toExtendedWindowsFilesystemPath(longPath), extendedPath);
+    assert.equal(toExtendedWindowsFilesystemPath(extendedPath), extendedPath);
+    assert.equal(normalizeWindowsFilesystemPath(extendedUncPath), longUncPath);
+    assert.equal(toExtendedWindowsFilesystemPath(longUncPath), extendedUncPath);
+    assert.equal(
+      toExtendedWindowsFilesystemPath(extendedUncPath),
+      extendedUncPath,
+    );
   });
 
   it("detects Windows absolute paths as non-native outside Windows", function () {
@@ -1723,7 +1810,7 @@ describe("runtime platform services", function () {
                 script.match(/\$outputPath = '([^']+)'/)?.[1] || "";
               assert.match(outputPath, /zotero-agents-env-.+\.json$/);
               files.set(
-                outputPath,
+                toRuntimeNativeFsPath(outputPath),
                 JSON.stringify({
                   Machine: { Path: "C:\\Program Files\\nodejs" },
                   User: { Path: "C:\\Users\\tester\\AppData\\Roaming\\npm" },
@@ -1736,10 +1823,11 @@ describe("runtime platform services", function () {
       }),
     });
     const previousIOUtils = redefineGlobalProperty("IOUtils", {
-      exists: async (path: string) => files.has(path),
-      readUTF8: async (path: string) => files.get(path) || "",
+      exists: async (path: string) => files.has(toRuntimeNativeFsPath(path)),
+      readUTF8: async (path: string) =>
+        files.get(toRuntimeNativeFsPath(path)) || "",
       remove: async (path: string) => {
-        files.delete(path);
+        files.delete(toRuntimeNativeFsPath(path));
       },
     });
 
@@ -1750,7 +1838,11 @@ describe("runtime platform services", function () {
         powershellCommands: ["C:\\Program Files\\PowerShell\\7\\pwsh.exe"],
       });
 
-      assert.equal(snapshot.source, "windows-login");
+      assert.equal(
+        snapshot.source,
+        "windows-login",
+        JSON.stringify(snapshot.diagnostics),
+      );
       assert.include(buildSubprocessEnvironment().Path, "Roaming\\npm");
       assert.equal(files.size, 0);
     } finally {

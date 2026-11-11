@@ -1,5 +1,6 @@
 import { isDebugModeEnabled } from "../../debugMode";
 import { isDiagnosticVerboseEnabled } from "../../diagnosticVerbosity";
+import { RuntimePathBudgetError } from "../../runtimePersistence";
 import {
   appendRuntimeLog,
   setRuntimeLogAllowedLevels,
@@ -181,6 +182,19 @@ export function emitWorkflowPackageDiagnostic(args: {
       filePath: String(args.filePath || "").trim() || undefined,
       moduleSpecifier: String(args.moduleSpecifier || "").trim() || undefined,
       runtimeCapabilitySummary: args.runtimeCapabilitySummary,
+      ...(args.error instanceof RuntimePathBudgetError
+        ? {
+            filesystemBudget: {
+              resource: args.error.details.resource,
+              limit: args.error.details.limit,
+              observed: args.error.details.observed,
+              unit: args.error.details.unit,
+              policy: args.error.details.policy,
+              operation: args.error.details.operation,
+              role: args.error.details.pathRole,
+            },
+          }
+        : {}),
       ...(args.details || {}),
     },
     error: args.error,

@@ -1,13 +1,10 @@
 import { joinPath } from "../utils/path";
 import type { PortableItemRef } from "../workflows/types";
 import { sha256PrefixedHex } from "../utils/sha256";
-import { getParentPath } from "../platform/path";
 import { appendRuntimeLog } from "./runtimeLogManager";
 import {
-  ensureRuntimeDirectoryExclusive,
-  ensureRuntimeDirectoryStrict,
   normalizeRuntimeOutputFilename,
-  getRuntimePersistencePaths,
+  reserveRuntimeTemporaryDirectory,
   writeRuntimeBytes,
   removeRuntimePath,
   acquireRuntimeTemporaryOwnership,
@@ -359,21 +356,15 @@ export async function registerHostBridgeUploadedFile(
   }
   const fileId = createFileId();
   const displayName = sanitizeDisplayName(args.displayName || "upload.bin");
-  const ownedDirectory = joinPath(
-    getRuntimePersistencePaths().tmpDir,
-    "host-bridge-uploads",
-    fileId,
-  );
+  const reservation = await reserveRuntimeTemporaryDirectory({
+    category: "host-bridge-uploads",
+  });
+  const ownedDirectory = reservation.path;
   const uploadPath = joinPath(
     ownedDirectory,
     normalizeRuntimeOutputFilename(ownedDirectory, displayName),
   );
-  const release = acquireRuntimeTemporaryOwnership();
-  let owned = false;
   try {
-    await ensureRuntimeDirectoryStrict(getParentPath(ownedDirectory));
-    await ensureRuntimeDirectoryExclusive(ownedDirectory);
-    owned = true;
     await writeRuntimeBytes(uploadPath, bytes, { overwrite: false });
     const createdAt = nowIso();
     const ttlMs =
@@ -397,10 +388,10 @@ export async function registerHostBridgeUploadedFile(
     handles.set(fileId, handle);
     return descriptorFromHandle(handle);
   } catch (error) {
-    if (owned) await removeRuntimePath(ownedDirectory).catch(() => false);
+    await reservation.cleanup().catch(() => false);
     throw error;
   } finally {
-    release();
+    reservation.release();
   }
 }
 

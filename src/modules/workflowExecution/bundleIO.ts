@@ -3,31 +3,18 @@ import { ZipBundleReader } from "../../workflows/zipBundleReader";
 import {
   readRuntimeBytes,
   readRuntimeTextFile,
-  removeRuntimePath,
-  resolveRuntimeTemporaryDirectory,
+  reserveRuntimeTemporaryDirectory,
   runtimePathExists,
   writeRuntimeBytes,
+  type RuntimeTemporaryDirectory,
 } from "../runtimePersistence";
 
 export type BundleReader = {
   readText: (entryPath: string) => Promise<string>;
   readBytes?: (entryPath: string) => Promise<Uint8Array>;
   getExtractedDir?: () => Promise<string>;
+  dispose?: () => Promise<void>;
 };
-
-export function buildTempBundlePath(requestId: string) {
-  const tempDir = resolveRuntimeTemporaryDirectory();
-  const stamp = Date.now().toString(36);
-  return joinPath(tempDir, `zotero-skills-${requestId}-${stamp}.zip`);
-}
-
-export async function writeBytes(filePath: string, bytes: Uint8Array) {
-  await writeRuntimeBytes(filePath, bytes, { overwrite: true });
-}
-
-export async function removeFileIfExists(filePath: string) {
-  await removeRuntimePath(filePath);
-}
 
 export function createUnavailableBundleReader(requestId: string): BundleReader {
   return {
@@ -86,12 +73,22 @@ export async function openRunResultBundleReader(args: {
   requestId: string;
 }): Promise<RunResultBundleReaderHandle> {
   let bundlePath = "";
+  let scope: RuntimeTemporaryDirectory | undefined;
   let bundleReader: BundleReader = createUnavailableBundleReader(
     args.requestId,
   );
   if (args.result.bundleBytes && args.result.bundleBytes.length > 0) {
-    bundlePath = buildTempBundlePath(args.requestId);
-    await writeBytes(bundlePath, args.result.bundleBytes);
+    scope = await reserveRuntimeTemporaryDirectory({
+      category: "workflow-result-bundle",
+      relativePaths: [{ path: "bundle.zip" }],
+    });
+    bundlePath = joinPath(scope.path, "bundle.zip");
+    try {
+      await writeRuntimeBytes(bundlePath, args.result.bundleBytes);
+    } catch (error) {
+      await scope.cleanup().catch(() => undefined);
+      throw error;
+    }
     bundleReader = new ZipBundleReader(bundlePath);
   } else if (args.result.bundleDir) {
     bundleReader = createDirectoryBundleReader(args.result.bundleDir);
@@ -106,8 +103,10 @@ export async function openRunResultBundleReader(args: {
         return;
       }
       disposed = true;
-      if (bundlePath) {
-        await removeFileIfExists(bundlePath);
+      try {
+        await bundleReader.dispose?.();
+      } finally {
+        await scope?.cleanup();
       }
     },
   };

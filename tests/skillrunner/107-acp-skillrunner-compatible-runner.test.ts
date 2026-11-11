@@ -10551,7 +10551,7 @@ describe("ACP SkillRunner-compatible runner", function () {
   it("atomically stages flat collision-safe ACP interaction files without source-path leakage", async function () {
     const root = await mkTempRoot();
     try {
-      const workspaceDir = path.join(root, "workspace");
+      const workspaceDir = path.join(root, "w".repeat(90), "x".repeat(90));
       const firstDir = path.join(root, "source-a");
       const secondDir = path.join(root, "source-b");
       await fs.mkdir(firstDir, { recursive: true });
@@ -10566,7 +10566,11 @@ describe("ACP SkillRunner-compatible runner", function () {
         workspaceDir,
         submissionKey: "abc12345",
         selections: [
-          { slot: "primary", sourcePath: firstPath, displayName: "paper.pdf" },
+          {
+            slot: "primary",
+            sourcePath: firstPath,
+            displayName: "文献".repeat(100) + ".pdf",
+          },
           {
             slot: "secondary",
             sourcePath: secondPath,
@@ -10585,8 +10589,16 @@ describe("ACP SkillRunner-compatible runner", function () {
       );
       assert.deepEqual(
         staged.files.map((entry) => path.posix.basename(entry.relativePath)),
-        ["paper.pdf", "paper-2.pdf"],
+        ["f1.pdf", "f2.pdf"],
       );
+      assert.equal(
+        await fs.readFile(
+          path.join(workspaceDir, staged.files[0].relativePath),
+          "utf8",
+        ),
+        "first",
+      );
+      assert.equal(staged.files[0].displayName, "文献".repeat(100) + ".pdf");
       const manifest = await fs.readFile(
         path.join(staged.directoryPath, "manifest.json"),
         "utf8",

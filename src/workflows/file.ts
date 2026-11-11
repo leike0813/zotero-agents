@@ -19,10 +19,7 @@ import {
   writeRuntimeTextFileStrict,
 } from "../modules/runtimePersistence";
 import { openRuntimeFilePicker } from "../platform/filePicker";
-import {
-  getParentPath,
-  normalizeNativeLocalPath,
-} from "../platform/path";
+import { getParentPath, normalizeNativeLocalPath } from "../platform/path";
 import { joinPath } from "../utils/path";
 import {
   assertWorkflowCallNotCanceled,
@@ -50,7 +47,7 @@ const FILE_LIMITS = Object.freeze({
   transferBytes: 4 * 1024 * 1024 * 1024,
   entries: 100_000,
   depth: 64,
-  pathCharacters: 4_096,
+  pathCharacters: 32_767,
   pickerFilterGroups: 32,
   pickerFilterExtensions: 64,
 });
@@ -122,10 +119,14 @@ function requirePath(value: unknown, field = "path") {
   }
   const path = normalizeNativeLocalPath(raw);
   if (!path) {
-    throw invalidRequest("invalid_value", field, "Workflow file path is invalid");
+    throw invalidRequest(
+      "invalid_value",
+      field,
+      "Workflow file path is invalid",
+    );
   }
   try {
-    assertRuntimePathBudget(path);
+    assertRuntimePathBudget(path, "file", "native");
   } catch (error) {
     throwFilePathError(error);
   }
@@ -185,7 +186,10 @@ async function atomicWrite(
   targetPath: string,
   write: (temporaryPath: string) => Promise<void>,
 ) {
-  const directory = await createRuntimeTemporarySiblingDirectory(targetPath).catch(throwFilePathError);
+  const directory =
+    await createRuntimeTemporarySiblingDirectory(targetPath).catch(
+      throwFilePathError,
+    );
   const temporaryPath = joinPath(directory, "data");
   try {
     await write(temporaryPath);
@@ -244,7 +248,9 @@ function normalizePickerFilters(filters: FilePickerFilterDto[] | undefined) {
   });
 }
 
-function pickerArgs(args: FilePickerRequestDto | SaveFilePickerRequestDto | undefined) {
+function pickerArgs(
+  args: FilePickerRequestDto | SaveFilePickerRequestDto | undefined,
+) {
   return {
     title: args?.title,
     directory: args?.initialDirectory,
@@ -327,7 +333,10 @@ export function createWorkflowFileApi() {
       );
       assertWorkflowCallNotCanceled(control);
     },
-    async copy(args: WorkflowFileCopyRequestDto, control?: WorkflowCallControl) {
+    async copy(
+      args: WorkflowFileCopyRequestDto,
+      control?: WorkflowCallControl,
+    ) {
       assertWorkflowCallNotCanceled(control);
       const sourcePath = requirePath(args?.sourcePath, "sourcePath");
       const targetPath = requirePath(args?.targetPath, "targetPath");
@@ -351,7 +360,9 @@ export function createWorkflowFileApi() {
       }
       if (overwrite) {
         await atomicWrite(targetPath, (temporaryPath) =>
-          copyRuntimeFile({ sourcePath, targetPath: temporaryPath }).then(() => undefined),
+          copyRuntimeFile({ sourcePath, targetPath: temporaryPath }).then(
+            () => undefined,
+          ),
         );
       } else {
         await copyRuntimeFile({ sourcePath, targetPath });
@@ -373,7 +384,7 @@ export function createWorkflowFileApi() {
       assertWorkflowCallNotCanceled(control);
       const path = requirePath(args?.path);
       try {
-        assertRuntimePathBudget(path, "directory");
+        assertRuntimePathBudget(path, "directory", "native");
       } catch (error) {
         throwFilePathError(error);
       }
@@ -390,8 +401,17 @@ export function createWorkflowFileApi() {
         try {
           await ensureRuntimeDirectoryExclusive(path);
         } catch (error) {
-          if (error && typeof error === "object" && "code" in error && error.code === "conflict") {
-            throw createWorkflowHostError("conflict", "Workflow directory is already reserved", { reason: "ambiguous_state" });
+          if (
+            error &&
+            typeof error === "object" &&
+            "code" in error &&
+            error.code === "conflict"
+          ) {
+            throw createWorkflowHostError(
+              "conflict",
+              "Workflow directory is already reserved",
+              { reason: "ambiguous_state" },
+            );
           }
           throw error;
         }
@@ -409,7 +429,9 @@ export function createWorkflowFileApi() {
         return statDto(path, stat);
       } catch (error) {
         if (isRuntimePathInspectionUnavailableError(error)) {
-          throw unavailable("Workflow file cannot be inspected in this runtime");
+          throw unavailable(
+            "Workflow file cannot be inspected in this runtime",
+          );
         }
         if ((error as Error)?.name === "WorkflowHostError") throw error;
         if (!(await runtimePathExists(path))) throw notFound();
@@ -449,7 +471,9 @@ export function createWorkflowFileApi() {
           : Number.POSITIVE_INFINITY;
       const rootStat = await statRuntimePathStrict(rootPath).catch((error) => {
         if (isRuntimePathInspectionUnavailableError(error)) {
-          throw unavailable("Workflow file cannot be inspected in this runtime");
+          throw unavailable(
+            "Workflow file cannot be inspected in this runtime",
+          );
         }
         throw error;
       });
@@ -507,7 +531,10 @@ export function createWorkflowFileApi() {
         totalFileBytes,
       };
     },
-    async move(args: WorkflowFileMoveRequestDto, control?: WorkflowCallControl) {
+    async move(
+      args: WorkflowFileMoveRequestDto,
+      control?: WorkflowCallControl,
+    ) {
       assertWorkflowCallNotCanceled(control);
       await moveRuntimePath({
         sourcePath: requirePath(args?.sourcePath, "sourcePath"),

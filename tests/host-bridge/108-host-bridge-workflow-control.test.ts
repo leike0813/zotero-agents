@@ -3,6 +3,7 @@ import crypto from "crypto";
 import fs from "fs";
 import os from "os";
 import path from "path";
+import { createStoreZipBytes } from "../../src/modules/zipStore";
 import {
   configureHostBridgeServerForTests,
   handleHostBridgeHttpRequestForTests,
@@ -260,6 +261,7 @@ function agentRunRequests(handoff: any) {
 }
 
 describe("host bridge workflow control", function () {
+  const bundleReaders: ZipBundleReader[] = [];
   it("rejects an oversized Gecko zip entry before extraction", async function () {
     const runtime = globalThis as any;
     const previousCc = runtime.Cc;
@@ -316,7 +318,10 @@ describe("host bridge workflow control", function () {
       createMockZoteroLibrarySourcePageQueryAdapter(),
     );
   });
-  afterEach(function () {
+  afterEach(async function () {
+    await Promise.all(
+      bundleReaders.splice(0).map((reader) => reader.dispose()),
+    );
     setZoteroLibrarySourcePageQueryAdapterForTests();
     resetHostBridgeServerForTests();
     resetHostBridgePermissionManagerForTests();
@@ -700,6 +705,7 @@ describe("host bridge workflow control", function () {
         .digest("hex")}`,
     );
     const reader = new ZipBundleReader(download.source.path);
+    bundleReaders.push(reader);
     const workflowJson = JSON.parse(
       await reader.readText("workflow/workflow.json"),
     );
@@ -828,6 +834,7 @@ describe("host bridge workflow control", function () {
       parsed.json.result.bundle.file.fileId,
     );
     const reader = new ZipBundleReader(download.source.path);
+    bundleReaders.push(reader);
     const requestEntry = `agent-run/requests/${preparedRequests[0].agentRequestId}/request.json`;
     const requestText = await reader.readText(requestEntry);
     const bundleRequest = JSON.parse(requestText);
@@ -930,6 +937,7 @@ describe("host bridge workflow control", function () {
       parsed.json.result.bundle.file.fileId,
     );
     const reader = new ZipBundleReader(download.source.path);
+    bundleReaders.push(reader);
     const requestEntry = `agent-run/requests/${preparedRequests[0].agentRequestId}/request.json`;
     const requestText = await reader.readText(requestEntry);
     assert.notInclude(requestText, attachmentPath);
@@ -961,8 +969,11 @@ describe("host bridge workflow control", function () {
   it("applies finalized workflow agent-run bundles once through workflow applyResult", async function () {
     const entry = workflow("bridge-workflow");
     let applyCalls = 0;
-    entry.hooks.applyResult = async () => {
+    let extractedPath = "";
+    entry.hooks.applyResult = async ({ bundleReader }) => {
       applyCalls += 1;
+      extractedPath = (await bundleReader.getExtractedDir?.()) || "";
+      assert.isTrue(fs.existsSync(extractedPath));
     };
     installWorkflowRegistryForTests([entry]);
     const token = configureHostBridgeServerForTests({
@@ -991,6 +1002,21 @@ describe("host bridge workflow control", function () {
     assert.strictEqual(handoff.status, 200);
     const request = agentRunRequests(handoff)[0];
     const applyBody = createAgentRunApplyBody(request);
+    const zipPath = `${applyBody.results[0].bundle.path}.zip`;
+    fs.writeFileSync(
+      zipPath,
+      createStoreZipBytes([
+        {
+          name: `result/${request.namespace}/result.json`,
+          text: JSON.stringify({ status: "ok" }),
+        },
+        {
+          name: `bundle/${request.namespace}/manifest.json`,
+          text: JSON.stringify({ namespace: request.namespace }),
+        },
+      ]),
+    );
+    applyBody.results[0].bundle.path = zipPath;
 
     const applied = await bridgeRequest({
       token,
@@ -1003,6 +1029,8 @@ describe("host bridge workflow control", function () {
     assert.strictEqual(applied.json.status, "ok");
     assert.strictEqual(applied.json.result.summary.succeeded, 1);
     assert.strictEqual(applyCalls, 1);
+    assert.isNotEmpty(extractedPath);
+    assert.isFalse(fs.existsSync(extractedPath));
 
     const second = await bridgeRequest({
       token,
@@ -4128,11 +4156,16 @@ describe("host bridge workflow control", function () {
   it("exposes permission projections for approved cache invalidation", async function () {
     const token = configureHostBridgeServerForTests({ token: "task-token" });
     let permissionRequestId = "";
+    let permissionStarted!: () => void;
+    const permissionReady = new Promise<void>((resolve) => {
+      permissionStarted = resolve;
+    });
     let approve: (() => void) | null = null;
     configureHostBridgeGlobalApprovalHandlerForTests(
       (request) =>
         new Promise((resolve) => {
           permissionRequestId = request.requestId;
+          permissionStarted();
           approve = () =>
             resolve({
               outcome: "approved",
@@ -4151,7 +4184,14 @@ describe("host bridge workflow control", function () {
         id: "metrics",
       },
     });
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await Promise.race([
+      permissionReady,
+      pendingInvalidate.then((response) => {
+        throw new Error(
+          `Invalidation settled before requesting approval: ${JSON.stringify(response)}`,
+        );
+      }),
+    ]);
 
     assert.match(permissionRequestId, /^host-bridge-permission-/);
     const pending = await bridgeRequest({

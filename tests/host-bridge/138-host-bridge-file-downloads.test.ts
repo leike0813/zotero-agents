@@ -28,7 +28,11 @@ import {
   releaseHostBridgeAcquisitionFiles,
 } from "../../src/modules/runtimeFileRegistry";
 import { createHostBridgeWorkflowResourceApi } from "../../src/modules/hostBridge/workflow/hostBridgeWorkflowResources";
-import { withRuntimeTemporaryCleanup } from "../../src/modules/runtimePersistence";
+import {
+  withRuntimeTemporaryCleanup,
+  assertRuntimePathBudget,
+  removeRuntimePath,
+} from "../../src/modules/runtimePersistence";
 import { executeHostBridgeCapability } from "../../src/modules/hostBridgeCapabilityRegistry";
 import {
   configureHostBridgeGlobalApprovalHandlerForTests,
@@ -101,6 +105,32 @@ function sha256(bytes: Uint8Array) {
 }
 
 describe("host bridge file downloads", function () {
+  it("keeps uploads portable under a deep runtime root while preserving the display name", async function () {
+    const previous = process.env.ZOTERO_SKILLS_RUNTIME_ROOT;
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "zs-upload-long-"));
+    process.env.ZOTERO_SKILLS_RUNTIME_ROOT = path.join(
+      root,
+      "a".repeat(90),
+      "b".repeat(90),
+    );
+    let uploadedPath = "";
+    try {
+      const descriptor = await registerHostBridgeUploadedFile({
+        bytes: new TextEncoder().encode("upload"),
+        displayName: "文献标题.pdf",
+      });
+      const uploaded = await resolveHostBridgeUploadedFile(descriptor.fileId);
+      uploadedPath = uploaded.source.path;
+      assertRuntimePathBudget(uploadedPath);
+      assert.equal(descriptor.displayName, "文献标题.pdf");
+      assert.equal(await fs.readFile(uploadedPath, "utf8"), "upload");
+    } finally {
+      if (uploadedPath) await removeRuntimePath(path.dirname(uploadedPath));
+      if (previous === undefined) delete process.env.ZOTERO_SKILLS_RUNTIME_ROOT;
+      else process.env.ZOTERO_SKILLS_RUNTIME_ROOT = previous;
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
   it("keeps acquisition files local and pins their bytes through an owned import lease", async function () {
     const fixture = await writeTempFile("authorized.pdf", "%PDF-1.7\nlocal");
     const file = await registerHostBridgeFileHandle({

@@ -3,7 +3,11 @@ import { rejects as assertRejects } from "node:assert";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { getRuntimePersistencePaths } from "../../src/modules/runtimePersistence";
+import {
+  getRuntimePersistencePaths,
+  assertRuntimePathBudget,
+  removeRuntimePath,
+} from "../../src/modules/runtimePersistence";
 import {
   createWorkflowInputMaterializer,
   materializeWorkflowInputFile,
@@ -12,6 +16,32 @@ import { createWorkflowFileApi } from "../../src/workflows/file";
 import { createWorkflowHostApi } from "../../src/workflows/hostApi";
 
 describe("Workflow Input Materialization", function () {
+  it("keeps generated provider inputs compatible when workflow identity and runtime root are long", async function () {
+    const previous = process.env.ZOTERO_SKILLS_RUNTIME_ROOT;
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "zs-input-long-"));
+    process.env.ZOTERO_SKILLS_RUNTIME_ROOT = path.join(
+      root,
+      "a".repeat(90),
+      "b".repeat(90),
+    );
+    let result: { path: string } | undefined;
+    try {
+      result = await materializeWorkflowInputFile({
+        workflowId: "workflow".repeat(40),
+        key: "key".repeat(60),
+        fileName: `${"paper".repeat(60)}.yaml`,
+        content: "甲😀 input",
+      });
+      assertRuntimePathBudget(result.path);
+      assert.equal(path.extname(result.path), ".yaml");
+      assert.equal(await fs.readFile(result.path, "utf8"), "甲😀 input");
+    } finally {
+      if (result) await removeRuntimePath(path.dirname(result.path));
+      if (previous === undefined) delete process.env.ZOTERO_SKILLS_RUNTIME_ROOT;
+      else process.env.ZOTERO_SKILLS_RUNTIME_ROOT = previous;
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
   it("materializes isolated text and binary provider inputs under managed runtime tmp", async function () {
     const first = await materializeWorkflowInputFile({
       workflowId: "tag-regulator/../unsafe",
@@ -86,7 +116,7 @@ describe("Workflow Input Materialization", function () {
       content: { kind: "text", text: "- topic:sequence\n" },
     });
     const normalized = materialized.path.replace(/\\/g, "/");
-    assert.include(normalized, "tag-regulator-run-1");
+    assert.include(normalized, "/workflow-inputs/");
     assert.isNumber(materialized.sizeBytes);
     assert.match(materialized.sha256, /^[a-f0-9]{64}$/);
     assert.equal(
@@ -145,13 +175,17 @@ describe("Workflow Input Materialization", function () {
     const file = createWorkflowFileApi();
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "zs-long-file-"));
     try {
-      const stemLength = process.platform === "win32" ? Math.min(238, 254 - root.length) : 238;
+      const stemLength =
+        process.platform === "win32" ? Math.min(238, 254 - root.length) : 238;
       for (const binary of [false, true]) {
-        const target = path.join(root, `${"a".repeat(stemLength)}${binary ? ".bin" : ".txt"}`);
+        const target = path.join(
+          root,
+          `${"a".repeat(stemLength)}${binary ? ".bin" : ".txt"}`,
+        );
         await fs.writeFile(target, "old");
         if (binary) {
           await file.writeBytes(target, new Uint8Array([0, 128, 255]));
-          assert.deepEqual([...await fs.readFile(target)], [0, 128, 255]);
+          assert.deepEqual([...(await fs.readFile(target))], [0, 128, 255]);
         } else {
           await file.writeText(target, "new text");
           assert.equal(await fs.readFile(target, "utf8"), "new text");
@@ -172,10 +206,20 @@ describe("Workflow Input Materialization", function () {
     const descriptor = Object.getOwnPropertyDescriptor(globalThis, "IOUtils");
     Object.defineProperty(globalThis, "IOUtils", {
       configurable: true,
-      value: { copy: async () => { throw new Error("copy interrupted"); } },
+      value: {
+        copy: async () => {
+          throw new Error("copy interrupted");
+        },
+      },
     });
     try {
-      await assertRejects(createWorkflowFileApi().copy({ sourcePath, targetPath, overwrite: true }));
+      await assertRejects(
+        createWorkflowFileApi().copy({
+          sourcePath,
+          targetPath,
+          overwrite: true,
+        }),
+      );
       assert.equal(await fs.readFile(targetPath, "utf8"), "old");
     } finally {
       if (descriptor) Object.defineProperty(globalThis, "IOUtils", descriptor);
@@ -192,35 +236,68 @@ describe("Workflow Input Materialization", function () {
     const previousZotero = Object.getOwnPropertyDescriptor(runtime, "Zotero");
     const previousIO = Object.getOwnPropertyDescriptor(runtime, "IOUtils");
     const effects: string[] = [];
-    Object.defineProperty(runtime, "Zotero", { configurable: true, value: { ...runtime.Zotero, isWin: true } });
-    Object.defineProperty(runtime, "IOUtils", { configurable: true, value: {
-      makeDirectory: async () => { effects.push("mkdir"); },
-      stat: async () => ({ type: "regular", size: 1 }),
-      writeUTF8: async () => { effects.push("write"); },
-      write: async () => { effects.push("write"); },
-      copy: async () => { effects.push("copy"); },
-      move: async () => { effects.push("move"); },
-      remove: async () => { effects.push("remove"); },
-    } });
+    Object.defineProperty(runtime, "Zotero", {
+      configurable: true,
+      value: { ...runtime.Zotero, isWin: true },
+    });
+    Object.defineProperty(runtime, "IOUtils", {
+      configurable: true,
+      value: {
+        makeDirectory: async () => {
+          effects.push("mkdir");
+        },
+        stat: async () => ({ type: "regular", size: 1 }),
+        writeUTF8: async () => {
+          effects.push("write");
+        },
+        write: async () => {
+          effects.push("write");
+        },
+        copy: async () => {
+          effects.push("copy");
+        },
+        move: async () => {
+          effects.push("move");
+        },
+        remove: async () => {
+          effects.push("remove");
+        },
+      },
+    });
     try {
       const file = createWorkflowFileApi();
-      const tooLong = `C:\\${"segment\\".repeat(32)}file.txt`;
+      const tooLong = `C:\\${"segment\\".repeat(4100)}file.txt`;
       for (const operation of [
         () => file.writeText(tooLong, "new"),
         () => file.writeBytes(tooLong, new Uint8Array([1])),
         () => file.makeDirectory({ path: tooLong }),
-        () => file.move({ sourcePath: "C:\\old.txt", targetPath: tooLong, overwrite: true }),
-        () => file.copy({ sourcePath: "C:\\old.txt", targetPath: tooLong, overwrite: true }),
+        () =>
+          file.move({
+            sourcePath: "C:\\old.txt",
+            targetPath: tooLong,
+            overwrite: true,
+          }),
+        () =>
+          file.copy({
+            sourcePath: "C:\\old.txt",
+            targetPath: tooLong,
+            overwrite: true,
+          }),
         () => file.stat(tooLong),
       ]) {
-        await assertRejects(operation, (error: { code?: string; details?: { resource?: string } }) =>
-          error.code === "resource_limited" && error.details?.resource === "path_length");
+        await assertRejects(
+          operation,
+          (error: { code?: string; details?: { resource?: string } }) =>
+            error.code === "resource_limited" &&
+            error.details?.resource === "path_length",
+        );
       }
       const unicodePath = `C:\\safe\\${"文".repeat(86)}.md`;
       assert.equal((await file.stat(unicodePath)).sizeBytes, 1);
       assert.deepEqual(effects, []);
     } finally {
-      if (previousZotero) Object.defineProperty(runtime, "Zotero", previousZotero);
+      if (previousZotero)
+        Object.defineProperty(runtime, "Zotero", previousZotero);
       else Reflect.deleteProperty(runtime, "Zotero");
       if (previousIO) Object.defineProperty(runtime, "IOUtils", previousIO);
       else Reflect.deleteProperty(runtime, "IOUtils");
@@ -234,8 +311,13 @@ describe("Workflow Input Materialization", function () {
     try {
       await file.makeDirectory({ path: reserved, exclusive: true });
       await file.writeText(path.join(reserved, "owned.txt"), "keep");
-      await assertRejects(file.makeDirectory({ path: reserved, exclusive: true }));
-      assert.equal(await fs.readFile(path.join(reserved, "owned.txt"), "utf8"), "keep");
+      await assertRejects(
+        file.makeDirectory({ path: reserved, exclusive: true }),
+      );
+      assert.equal(
+        await fs.readFile(path.join(reserved, "owned.txt"), "utf8"),
+        "keep",
+      );
     } finally {
       await fs.rm(root, { recursive: true, force: true });
     }
@@ -246,18 +328,26 @@ describe("Workflow Input Materialization", function () {
     const source = path.join(root, "source");
     const target = path.join(root, "target");
     await fs.mkdir(source);
-    await fs.symlink(path.join(root, "missing"), path.join(source, "broken"),
-      process.platform === "win32" ? "junction" : "file");
+    await fs.symlink(
+      path.join(root, "missing"),
+      path.join(source, "broken"),
+      process.platform === "win32" ? "junction" : "file",
+    );
     try {
-      await createWorkflowFileApi().move({ sourcePath: source, targetPath: target });
-      assert.isTrue((await fs.lstat(path.join(target, "broken"))).isSymbolicLink());
+      await createWorkflowFileApi().move({
+        sourcePath: source,
+        targetPath: target,
+      });
+      assert.isTrue(
+        (await fs.lstat(path.join(target, "broken"))).isSymbolicLink(),
+      );
       await assertRejects(fs.access(source));
     } finally {
       await fs.rm(root, { recursive: true, force: true });
     }
   });
 
-  it("rejects a directory move whose children would exceed the Windows budget", async function () {
+  it("moves ordinary directory descendants beyond the interoperability budget", async function () {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "zs-tree-"));
     const source = path.join(root, "s");
     const target = path.join(root, "d".repeat(60));
@@ -270,10 +360,15 @@ describe("Workflow Input Materialization", function () {
       value: { ...Zotero, isWin: true },
     });
     try {
-      await assertRejects(createWorkflowFileApi().move({ sourcePath: source, targetPath: target }),
-        (error: { code?: string }) => error.code === "resource_limited");
-      assert.equal(await fs.readFile(path.join(source, leaf), "utf8"), "source");
-      assert.isFalse(await createWorkflowFileApi().exists(target));
+      await createWorkflowFileApi().move({
+        sourcePath: source,
+        targetPath: target,
+      });
+      assert.equal(
+        await fs.readFile(path.join(target, leaf), "utf8"),
+        "source",
+      );
+      assert.isFalse(await createWorkflowFileApi().exists(source));
     } finally {
       if (descriptor) Object.defineProperty(globalThis, "Zotero", descriptor);
       await fs.rm(root, { recursive: true, force: true });

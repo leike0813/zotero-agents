@@ -28,8 +28,10 @@ All filesystem adapter selection is late-bound by
 
 File paths are checked against the complete runtime path budget before effects,
 including generated atomic-write siblings and descendant destinations of directory
-moves. An unrepresentable path fails with `resource_limited`; the host does not
-enable Windows long-path behavior or rename an exact caller-selected target.
+moves. Ordinary Windows I/O uses the host's native extended-path capability;
+the representation remains private to the adapter. An unrepresentable path
+fails with `resource_limited`. Short-path consumers use owned compatible
+copies, and exact caller-selected output targets retain their identity.
 Atomic writes and overwrite copies preserve the previous target if preparation
 fails. `makeDirectory({ path, exclusive: true })` reserves a new directory and
 returns `conflict` if it already exists; that failure does not grant cleanup
@@ -79,7 +81,7 @@ Hook receives `runtime` with these fields:
 
 | Field                | Type                                                   | Description                                                                                                                           |
 | -------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `hostApi`            | `WorkflowHostApiV12`                                   | Exact 24-top-level/22-module/97-callable host projection                                                                               |
+| `hostApi`            | `WorkflowHostApiV12`                                   | Exact 24-top-level/22-module/97-callable host projection                                                                              |
 | `hostApiVersion`     | `12`                                                   | Exact API version                                                                                                                     |
 | `invocationMode`     | `"interactive" \| "non-interactive"`                   | Current invocation mode                                                                                                               |
 | `debugMode`          | `boolean \| undefined`                                 | Debug mode flag                                                                                                                       |

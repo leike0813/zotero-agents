@@ -141,6 +141,8 @@ export async function startMockSkillRunnerServer(args: {
     }
   } catch {
     // keep fallback result template when fixture result JSON is unavailable
+  } finally {
+    await bundleReader.dispose();
   }
   const pollDelayMs = Math.max(0, args.pollDelayMs ?? 50);
   let handshakeDelayMs = Math.max(0, args.handshakeDelayMs ?? 0);

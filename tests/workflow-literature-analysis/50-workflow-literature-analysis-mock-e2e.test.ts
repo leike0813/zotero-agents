@@ -63,6 +63,7 @@ describeLiteratureDigestE2ESuite(
   function () {
     this.timeout(30000);
     let restoreNodeZoteroTransaction: (() => void) | undefined;
+    let bundleReader: ZipBundleReader | undefined;
 
     beforeEach(function () {
       restoreNodeZoteroTransaction = installNodeZoteroTransactionStub();
@@ -72,7 +73,9 @@ describeLiteratureDigestE2ESuite(
         );
     });
 
-    afterEach(function () {
+    afterEach(async function () {
+      await bundleReader?.dispose();
+      bundleReader = undefined;
       restoreNodeZoteroTransaction?.();
       restoreNodeZoteroTransaction = undefined;
       resetZoteroLibrarySourcePageQueryAdapterForTests();
@@ -162,7 +165,7 @@ describeLiteratureDigestE2ESuite(
         assert.equal(digestStep?.input?.source_path, attachmentAbsPath);
         assert.equal(digestStep?.parameter?.language, "zh-CN");
 
-        const bundleReader = new ZipBundleReader(
+        bundleReader = new ZipBundleReader(
           fixturePath("literature-analysis", "run_bundle_canonical.zip"),
         );
         const applyResult = (await executeApplyResult({
