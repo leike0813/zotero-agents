@@ -186,10 +186,9 @@ export function RetrievalPanel(props: {
   const maintenanceStatus = maintenance?.status;
   const maintenanceRunning =
     maintenanceStatus === "pending" || maintenanceStatus === "running";
-  // Cancel applies to an in-flight run; retry to a failed or canceled one; and
-  // continue only resumes a pending continuation-required run. They are
-  // distinct states, so one shared flag cannot gate all three buttons.
-  const canCancel = maintenanceRunning;
+  // Retry applies to a failed or canceled run, and continue only resumes a
+  // pending continuation-required run. They are distinct states, so one shared
+  // flag cannot gate both buttons.
   const canRetry =
     maintenanceStatus === "failed" || maintenanceStatus === "canceled";
   // Continue only resumes a run that is explicitly continuation-required; a
@@ -259,23 +258,31 @@ export function RetrievalPanel(props: {
           </span>
         </div>
       </div>
-      <div class="retrieval-counters">
-        <span class="badge warn">
-          {t("synthesis-retrieval-coverage", {
-            count: retrieval.progress.missingGroups,
-          })}
-        </span>
-        <span class="badge danger">
-          {t("synthesis-retrieval-failures", {
-            count: retrieval.progress.failedGroups,
-          })}
-        </span>
-        {retrieval.updatedAt ? (
-          <span class="muted">
-            {t("synthesis-retrieval-updated", { time: retrieval.updatedAt })}
-          </span>
-        ) : null}
-      </div>
+      {retrieval.progress.missingGroups > 0 ||
+      retrieval.progress.failedGroups > 0 ||
+      retrieval.updatedAt ? (
+        <div class="retrieval-counters">
+          {retrieval.progress.missingGroups > 0 ? (
+            <span class="badge warn">
+              {t("synthesis-retrieval-coverage", {
+                count: retrieval.progress.missingGroups,
+              })}
+            </span>
+          ) : null}
+          {retrieval.progress.failedGroups > 0 ? (
+            <span class="badge danger">
+              {t("synthesis-retrieval-failures", {
+                count: retrieval.progress.failedGroups,
+              })}
+            </span>
+          ) : null}
+          {retrieval.updatedAt ? (
+            <span class="muted">
+              {t("synthesis-retrieval-updated", { time: retrieval.updatedAt })}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
       {retrieval.issues.length ? (
         <div class="retrieval-issues">
           {retrieval.issues.map((issue, index) => (
@@ -389,259 +396,328 @@ export function RetrievalPanel(props: {
           patchDraft({ secret: "" });
         }}
       >
-        <label class="retrieval-field retrieval-field-enabled">
-          <input
-            type="checkbox"
-            checked={enabled}
-            onChange={(event) =>
-              setEnabled((event.target as HTMLInputElement).checked)
-            }
-          />
-          <span>{t("synthesis-retrieval-enabled")}</span>
-        </label>
-        <label class="retrieval-field retrieval-field-name">
-          <span>{t("synthesis-retrieval-field-name")}</span>
-          <input
-            type="text"
-            value={draft.name}
-            onInput={(event) =>
-              patchDraft({ name: (event.target as HTMLInputElement).value })
-            }
-          />
-        </label>
-        <label class="retrieval-field">
-          <span>{t("synthesis-retrieval-field-protocol")}</span>
-          <select
-            value={draft.protocol}
-            onChange={(event) =>
-              patchDraft({
-                protocol: (event.target as HTMLSelectElement)
-                  .value as RetrievalDraft["protocol"],
-              })
-            }
-          >
-            <option value="openai">openai</option>
-            <option value="ollama">ollama</option>
-          </select>
-        </label>
-        <label class="retrieval-field">
-          <span>{t("synthesis-retrieval-field-base-url")}</span>
-          <input
-            type="text"
-            value={draft.baseUrl}
-            onInput={(event) =>
-              patchDraft({ baseUrl: (event.target as HTMLInputElement).value })
-            }
-          />
-        </label>
-        <label class="retrieval-field retrieval-field-model">
-          <span>{t("synthesis-retrieval-field-model")}</span>
-          <input
-            type="text"
-            value={draft.modelId}
-            onInput={(event) =>
-              patchDraft({ modelId: (event.target as HTMLInputElement).value })
-            }
-          />
-        </label>
-        <label class="retrieval-field retrieval-field-dimensions">
-          <span>{t("synthesis-column-dimension")}</span>
-          <input
-            type="text"
-            inputMode="numeric"
-            value={draft.dimensions}
-            onInput={(event) =>
-              patchDraft({
-                dimensions: (event.target as HTMLInputElement).value,
-              })
-            }
-          />
-        </label>
-        <label class="retrieval-field">
-          <span>{t("synthesis-retrieval-field-query-prefix")}</span>
-          <input
-            type="text"
-            value={draft.queryPrefix}
-            onInput={(event) =>
-              patchDraft({
-                queryPrefix: (event.target as HTMLInputElement).value,
-              })
-            }
-          />
-        </label>
-        <label class="retrieval-field">
-          <span>{t("synthesis-retrieval-field-document-prefix")}</span>
-          <input
-            type="text"
-            value={draft.documentPrefix}
-            onInput={(event) =>
-              patchDraft({
-                documentPrefix: (event.target as HTMLInputElement).value,
-              })
-            }
-          />
-        </label>
-        <label class="retrieval-field">
-          <span>{t("synthesis-retrieval-field-secret")}</span>
-          <input
-            type="password"
-            autocomplete="off"
-            value={draft.secret}
-            onInput={(event) =>
-              patchDraft({ secret: (event.target as HTMLInputElement).value })
-            }
-          />
-          <span class="retrieval-field-note">
-            {t("synthesis-retrieval-secret-note")}
-          </span>
-        </label>
-        <label class="retrieval-field">
-          <span>{t("synthesis-retrieval-field-libraries")}</span>
-          <input
-            type="text"
-            value={libraries}
-            onInput={(event) =>
-              setLibraries((event.target as HTMLInputElement).value)
-            }
-          />
-        </label>
-        <label class="retrieval-field">
-          <span>{t("synthesis-retrieval-field-sources")}</span>
-          <input
-            type="text"
-            value={sources}
-            onInput={(event) =>
-              setSources((event.target as HTMLInputElement).value)
-            }
-          />
-        </label>
-        <label class="retrieval-field retrieval-field-checkbox">
-          <input
-            type="checkbox"
-            checked={includeTopics}
-            onChange={(event) =>
-              setIncludeTopics((event.target as HTMLInputElement).checked)
-            }
-          />
-          <span>{t("synthesis-retrieval-field-include-topics")}</span>
-        </label>
-        <label class="retrieval-field retrieval-primary">
-          <span>{t("synthesis-retrieval-primary")}</span>
-          <select
-            value={primary}
-            onChange={(event) =>
-              setPrimary((event.target as HTMLSelectElement).value)
-            }
-          >
-            <option value="">{t("synthesis-retrieval-none")}</option>
+        <fieldset class="retrieval-form-group">
+          <legend>
+            {draft.id
+              ? draft.name || draft.id
+              : t("synthesis-retrieval-group-connection")}
+          </legend>
+          <label class="retrieval-field retrieval-field-enabled">
+            <input
+              type="checkbox"
+              checked={enabled}
+              onChange={(event) =>
+                setEnabled((event.target as HTMLInputElement).checked)
+              }
+            />
+            <span>{t("synthesis-retrieval-enabled")}</span>
+          </label>
+          <label class="retrieval-field retrieval-field-name">
+            <span>{t("synthesis-retrieval-field-name")}</span>
+            <input
+              type="text"
+              value={draft.name}
+              onInput={(event) =>
+                patchDraft({ name: (event.target as HTMLInputElement).value })
+              }
+            />
+          </label>
+          <label class="retrieval-field">
+            <span>{t("synthesis-retrieval-field-protocol")}</span>
+            <select
+              value={draft.protocol}
+              onChange={(event) =>
+                patchDraft({
+                  protocol: (event.target as HTMLSelectElement)
+                    .value as RetrievalDraft["protocol"],
+                })
+              }
+            >
+              <option value="openai">openai</option>
+              <option value="ollama">ollama</option>
+            </select>
+          </label>
+          <label class="retrieval-field">
+            <span>{t("synthesis-retrieval-field-base-url")}</span>
+            <input
+              type="text"
+              value={draft.baseUrl}
+              onInput={(event) =>
+                patchDraft({
+                  baseUrl: (event.target as HTMLInputElement).value,
+                })
+              }
+            />
+          </label>
+          <label class="retrieval-field retrieval-field-model">
+            <span>{t("synthesis-retrieval-field-model")}</span>
+            <input
+              type="text"
+              value={draft.modelId}
+              onInput={(event) =>
+                patchDraft({
+                  modelId: (event.target as HTMLInputElement).value,
+                })
+              }
+            />
+          </label>
+          <label class="retrieval-field retrieval-field-dimensions">
+            <span>{t("synthesis-column-dimension")}</span>
+            <input
+              type="text"
+              inputMode="numeric"
+              value={draft.dimensions}
+              onInput={(event) =>
+                patchDraft({
+                  dimensions: (event.target as HTMLInputElement).value,
+                })
+              }
+            />
+          </label>
+          <label class="retrieval-field">
+            <span>{t("synthesis-retrieval-field-query-prefix")}</span>
+            <input
+              type="text"
+              value={draft.queryPrefix}
+              onInput={(event) =>
+                patchDraft({
+                  queryPrefix: (event.target as HTMLInputElement).value,
+                })
+              }
+            />
+          </label>
+          <label class="retrieval-field">
+            <span>{t("synthesis-retrieval-field-document-prefix")}</span>
+            <input
+              type="text"
+              value={draft.documentPrefix}
+              onInput={(event) =>
+                patchDraft({
+                  documentPrefix: (event.target as HTMLInputElement).value,
+                })
+              }
+            />
+          </label>
+          <label class="retrieval-field">
+            <span>{t("synthesis-retrieval-field-secret")}</span>
+            <input
+              type="password"
+              autocomplete="off"
+              value={draft.secret}
+              onInput={(event) =>
+                patchDraft({ secret: (event.target as HTMLInputElement).value })
+              }
+            />
+            <span class="retrieval-field-note">
+              {t("synthesis-retrieval-secret-note")}
+            </span>
+          </label>
+        </fieldset>
+        <fieldset class="retrieval-form-group">
+          <legend>{t("synthesis-retrieval-group-scope")}</legend>
+          <label class="retrieval-field">
+            <span>{t("synthesis-retrieval-field-libraries")}</span>
+            <input
+              type="text"
+              value={libraries}
+              onInput={(event) =>
+                setLibraries((event.target as HTMLInputElement).value)
+              }
+            />
+          </label>
+          <label class="retrieval-field">
+            <span>{t("synthesis-retrieval-field-sources")}</span>
+            <input
+              type="text"
+              value={sources}
+              onInput={(event) =>
+                setSources((event.target as HTMLInputElement).value)
+              }
+            />
+          </label>
+          <label class="retrieval-field retrieval-field-checkbox">
+            <input
+              type="checkbox"
+              checked={includeTopics}
+              onChange={(event) =>
+                setIncludeTopics((event.target as HTMLInputElement).checked)
+              }
+            />
+            <span>{t("synthesis-retrieval-field-include-topics")}</span>
+          </label>
+          <label class="retrieval-field retrieval-primary">
+            <span>{t("synthesis-retrieval-primary")}</span>
+            <select
+              value={primary}
+              onChange={(event) =>
+                setPrimary((event.target as HTMLSelectElement).value)
+              }
+            >
+              <option value="">{t("synthesis-retrieval-none")}</option>
+              {retrieval.connections.map((connection) => (
+                <option value={connection.id} key={connection.id}>
+                  {connection.name || connection.id}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div class="retrieval-field retrieval-fallbacks">
+            <span>{t("synthesis-retrieval-fallback")}</span>
             {retrieval.connections.map((connection) => (
-              <option value={connection.id} key={connection.id}>
-                {connection.name || connection.id}
-              </option>
+              <label class="retrieval-fallback-option" key={connection.id}>
+                <input
+                  type="checkbox"
+                  checked={fallbacks.includes(connection.id)}
+                  onChange={(event) =>
+                    toggleFallback(
+                      connection.id,
+                      (event.target as HTMLInputElement).checked,
+                    )
+                  }
+                />
+                <span>{connection.name || connection.id}</span>
+              </label>
             ))}
-          </select>
-        </label>
-        <div class="retrieval-field retrieval-fallbacks">
-          <span>{t("synthesis-retrieval-fallback")}</span>
-          {retrieval.connections.map((connection) => (
-            <label class="retrieval-fallback-option" key={connection.id}>
-              <input
-                type="checkbox"
-                checked={fallbacks.includes(connection.id)}
-                onChange={(event) =>
-                  toggleFallback(
-                    connection.id,
-                    (event.target as HTMLInputElement).checked,
-                  )
+          </div>
+        </fieldset>
+        <div class="retrieval-maintenance">
+          {maintenance ? (
+            <div
+              class={`retrieval-maintenance-status is-${maintenanceStatus}`}
+              role="status"
+            >
+              <span class="retrieval-maintenance-state">
+                {t(
+                  `synthesis-retrieval-maintenance-${maintenanceStatus}` as
+                    | "synthesis-retrieval-maintenance-pending"
+                    | "synthesis-retrieval-maintenance-running"
+                    | "synthesis-retrieval-maintenance-completed"
+                    | "synthesis-retrieval-maintenance-failed"
+                    | "synthesis-retrieval-maintenance-canceled",
+                )}
+              </span>
+              {maintenance.phase ? (
+                <span class="retrieval-maintenance-phase muted">
+                  {maintenance.phase}
+                </span>
+              ) : null}
+              {maintenance.message ? (
+                <span class="retrieval-maintenance-message muted">
+                  {maintenance.message}
+                </span>
+              ) : null}
+            </div>
+          ) : null}
+          {maintenanceRunning ? (
+            <div class="toolbar retrieval-toolbar">
+              <RetrievalActionButton
+                label={t("synthesis-action-retrieval-cancel")}
+                command="retrievalCancelIndex"
+                args={
+                  maintenance
+                    ? { operationId: maintenance.operationId }
+                    : undefined
                 }
+                pending={props.pendingOperationKeys}
+                onAction={onAction}
               />
-              <span>{connection.name || connection.id}</span>
-            </label>
-          ))}
-        </div>
-        <div class="toolbar retrieval-toolbar">
-          <button
-            type="submit"
-            class={
-              props.pendingOperationKeys.includes("retrievalSaveSettings")
-                ? "is-busy"
-                : ""
-            }
-            disabled={props.pendingOperationKeys.includes(
-              "retrievalSaveSettings",
-            )}
-            aria-busy={
-              props.pendingOperationKeys.includes("retrievalSaveSettings")
-                ? "true"
-                : undefined
-            }
-          >
-            {props.pendingOperationKeys.includes("retrievalSaveSettings") ? (
-              <span class="button-spinner" aria-hidden="true" />
-            ) : null}
-            {t("synthesis-action-retrieval-save")}
-          </button>
-          <RetrievalActionButton
-            label={t("synthesis-action-retrieval-build")}
-            command="retrievalBuildIndex"
-            args={maintenanceArgs}
-            disabled={!canBuild || maintenanceRunning}
-            pending={props.pendingOperationKeys}
-            onAction={onAction}
-          />
-          <RetrievalActionButton
-            label={t("synthesis-action-retrieval-rebuild")}
-            command="retrievalRebuildIndex"
-            args={maintenanceArgs}
-            disabled={!canBuild || maintenanceRunning}
-            pending={props.pendingOperationKeys}
-            onAction={onAction}
-          />
-          <RetrievalActionButton
-            label={t("synthesis-action-retrieval-update")}
-            command="retrievalUpdateIndex"
-            args={maintenanceArgs}
-            disabled={!canBuild || maintenanceRunning}
-            pending={props.pendingOperationKeys}
-            onAction={onAction}
-          />
-          <RetrievalActionButton
-            label={t("synthesis-action-retrieval-cancel")}
-            command="retrievalCancelIndex"
-            args={
-              maintenance ? { operationId: maintenance.operationId } : undefined
-            }
-            disabled={!canCancel}
-            pending={props.pendingOperationKeys}
-            onAction={onAction}
-          />
-          <RetrievalActionButton
-            label={t("synthesis-action-retrieval-retry")}
-            command="retrievalRetryIndex"
-            args={
-              maintenance ? { operationId: maintenance.operationId } : undefined
-            }
-            disabled={!canRetry}
-            pending={props.pendingOperationKeys}
-            onAction={onAction}
-          />
-          <RetrievalActionButton
-            label={t("synthesis-action-retrieval-continue")}
-            command="retrievalContinueIndex"
-            args={
-              maintenance ? { operationId: maintenance.operationId } : undefined
-            }
-            disabled={!canContinue}
-            pending={props.pendingOperationKeys}
-            onAction={onAction}
-          />
-          <RetrievalActionButton
-            label={t("synthesis-action-retrieval-cleanup")}
-            command="retrievalCleanupIndex"
-            disabled={!canCleanup}
-            pending={props.pendingOperationKeys}
-            onAction={onAction}
-          />
+            </div>
+          ) : canRetry || canContinue ? (
+            <div class="toolbar retrieval-toolbar">
+              {canContinue ? (
+                <RetrievalActionButton
+                  label={t("synthesis-action-retrieval-continue")}
+                  command="retrievalContinueIndex"
+                  args={
+                    maintenance
+                      ? { operationId: maintenance.operationId }
+                      : undefined
+                  }
+                  pending={props.pendingOperationKeys}
+                  onAction={onAction}
+                />
+              ) : null}
+              {canRetry ? (
+                <RetrievalActionButton
+                  label={t("synthesis-action-retrieval-retry")}
+                  command="retrievalRetryIndex"
+                  args={
+                    maintenance
+                      ? { operationId: maintenance.operationId }
+                      : undefined
+                  }
+                  pending={props.pendingOperationKeys}
+                  onAction={onAction}
+                />
+              ) : null}
+              {canCleanup ? (
+                <RetrievalActionButton
+                  label={t("synthesis-action-retrieval-cleanup")}
+                  command="retrievalCleanupIndex"
+                  pending={props.pendingOperationKeys}
+                  onAction={onAction}
+                />
+              ) : null}
+            </div>
+          ) : (
+            <div class="toolbar retrieval-toolbar">
+              <button
+                type="submit"
+                class={
+                  props.pendingOperationKeys.includes("retrievalSaveSettings")
+                    ? "is-busy"
+                    : ""
+                }
+                disabled={props.pendingOperationKeys.includes(
+                  "retrievalSaveSettings",
+                )}
+                aria-busy={
+                  props.pendingOperationKeys.includes("retrievalSaveSettings")
+                    ? "true"
+                    : undefined
+                }
+              >
+                {props.pendingOperationKeys.includes(
+                  "retrievalSaveSettings",
+                ) ? (
+                  <span class="button-spinner" aria-hidden="true" />
+                ) : null}
+                {t("synthesis-action-retrieval-save")}
+              </button>
+              <RetrievalActionButton
+                label={t("synthesis-action-retrieval-build")}
+                command="retrievalBuildIndex"
+                args={maintenanceArgs}
+                disabled={!canBuild}
+                pending={props.pendingOperationKeys}
+                onAction={onAction}
+              />
+              <RetrievalActionButton
+                label={t("synthesis-action-retrieval-update")}
+                command="retrievalUpdateIndex"
+                args={maintenanceArgs}
+                disabled={!canBuild}
+                pending={props.pendingOperationKeys}
+                onAction={onAction}
+              />
+              <RetrievalActionButton
+                label={t("synthesis-action-retrieval-rebuild")}
+                command="retrievalRebuildIndex"
+                args={maintenanceArgs}
+                disabled={!canBuild}
+                pending={props.pendingOperationKeys}
+                onAction={onAction}
+              />
+              {canCleanup ? (
+                <RetrievalActionButton
+                  label={t("synthesis-action-retrieval-cleanup")}
+                  command="retrievalCleanupIndex"
+                  pending={props.pendingOperationKeys}
+                  onAction={onAction}
+                />
+              ) : null}
+            </div>
+          )}
         </div>
       </form>
     </section>

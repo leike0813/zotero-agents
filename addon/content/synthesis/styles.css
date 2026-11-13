@@ -6390,3 +6390,68 @@ th {
     grid-template-columns: 1fr;
   }
 }
+
+/* ---- Retrieval panel ---------------------------------------------------- */
+
+.retrieval-form-group {
+  border: 1px solid var(--zs-border);
+  border-radius: 6px;
+  padding: 10px 12px 12px;
+  margin: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.retrieval-form-group legend {
+  padding: 0 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--zs-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.retrieval-maintenance {
+  display: grid;
+  gap: 8px;
+}
+
+.retrieval-maintenance-status {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 4px;
+  border: 1px solid var(--zs-border);
+  font-size: 13px;
+}
+
+.retrieval-maintenance-status.is-running,
+.retrieval-maintenance-status.is-pending {
+  border-color: var(--zs-info, #3b82f6);
+  background: color-mix(in srgb, var(--zs-info, #3b82f6) 8%, transparent);
+}
+
+.retrieval-maintenance-status.is-failed {
+  border-color: var(--zs-danger, #ef4444);
+  background: color-mix(in srgb, var(--zs-danger, #ef4444) 8%, transparent);
+}
+
+.retrieval-maintenance-status.is-completed {
+  border-color: var(--zs-ok, #22c55e);
+  background: color-mix(in srgb, var(--zs-ok, #22c55e) 8%, transparent);
+}
+
+.retrieval-maintenance-state {
+  font-weight: 600;
+}
+
+.retrieval-maintenance-phase::before {
+  content: "·";
+  margin-right: 6px;
+}
+
+.retrieval-maintenance-message::before {
+  content: "—";
+  margin-right: 6px;
+}
