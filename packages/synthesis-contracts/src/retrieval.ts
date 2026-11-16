@@ -1,4 +1,4 @@
-import { SynthesisClientError } from "./common.js";
+import { SynthesisClientError, type SynthesisJsonValue } from "./common.js";
 import { rebuildSynthesisProtocolDto } from "./protocolSchema.js";
 import type {
   SynthesisSearchIssue,
@@ -12,15 +12,30 @@ export const SYNTHESIS_RETRIEVAL_SCHEMA_ID =
 export const SYNTHESIS_RETRIEVAL_DEFAULT_LIMIT = 25;
 export const SYNTHESIS_RETRIEVAL_MAX_RESULTS = 100;
 
-/** Encoding identity binds vectors to a model, actual dimension and pair of prefixes. */
+/** Encoding identity binds vectors to a model, actual dimension, prefixes and Host options. */
 export type SynthesisEncodingIdentity = {
   modelId: string;
   dimensions: number;
   queryPrefix: string;
   documentPrefix: string;
+  encodingOptionsKey?: string;
 };
 
-export type SynthesisRetrievalProtocol = "openai" | "ollama";
+export type SynthesisRetrievalProtocol =
+  | "openai"
+  | "ollama"
+  | "tei"
+  | "cohere"
+  | "voyage"
+  | "gemini";
+
+export type SynthesisEmbeddingDiscoveryProtocol =
+  | "openai"
+  | "ollama"
+  | "tei"
+  | "cohere"
+  | "gemini"
+  | "none";
 
 /** Nonsecret connection configuration. Credentials are keyed separately. */
 export type SynthesisRetrievalConnection = {
@@ -32,6 +47,20 @@ export type SynthesisRetrievalConnection = {
   queryPrefix: string;
   documentPrefix: string;
   dimensions?: number;
+  embeddingUrl?: string;
+  discovery?: {
+    protocol: SynthesisEmbeddingDiscoveryProtocol;
+    url?: string;
+  };
+  auth?: {
+    type: "none" | "bearer" | "header";
+    headerName?: string;
+  };
+  parameters?: {
+    common?: Record<string, SynthesisJsonValue>;
+    query?: Record<string, SynthesisJsonValue>;
+    document?: Record<string, SynthesisJsonValue>;
+  };
 };
 
 export type SynthesisRetrievalScope = {

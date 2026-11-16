@@ -20,7 +20,9 @@ export interface SidebarDomEnvironment {
 export type SidebarAnimationFrameRequest = (callback: () => void) => number;
 
 export function createSidebarDomEnvironment(): SidebarDomEnvironment {
-  const dom = new JSDOM("<!doctype html><html><body></body></html>");
+  const dom = new JSDOM("<!doctype html><html><body></body></html>", {
+    url: "http://localhost",
+  });
   return { dom, window: dom.window, document: dom.window.document };
 }
 

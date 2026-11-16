@@ -22,7 +22,69 @@
         "documentPrefix": {
           "type": "string",
           "maxLength": 256
+        },
+        "encodingOptionsKey": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
         }
+      }
+    },
+    "ParameterValue": {
+      "oneOf": [
+        {
+          "type": ["string", "number", "boolean", "null"]
+        },
+        {
+          "type": "array",
+          "items": { "$ref": "#/$defs/ParameterValue" }
+        },
+        {
+          "type": "object",
+          "maxProperties": 64,
+          "patternProperties": {
+            "^[\\s\\S]*$": { "$ref": "#/$defs/ParameterValue" }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "ParameterMap": {
+      "type": "object",
+      "maxProperties": 64,
+      "patternProperties": {
+        "^[\\s\\S]*$": { "$ref": "#/$defs/ParameterValue" }
+      },
+      "additionalProperties": false
+    },
+    "EmbeddingDiscoveryProtocol": {
+      "enum": ["openai", "ollama", "tei", "cohere", "gemini", "none"]
+    },
+    "EmbeddingDiscovery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol"],
+      "properties": {
+        "protocol": { "$ref": "#/$defs/EmbeddingDiscoveryProtocol" },
+        "url": { "type": "string", "maxLength": 2048 }
+      }
+    },
+    "EmbeddingAuth": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": { "enum": ["none", "bearer", "header"] },
+        "headerName": { "type": "string", "maxLength": 128 }
+      }
+    },
+    "EmbeddingParameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "common": { "$ref": "#/$defs/ParameterMap" },
+        "query": { "$ref": "#/$defs/ParameterMap" },
+        "document": { "$ref": "#/$defs/ParameterMap" }
       }
     },
     "RetrievalConnection": {
@@ -47,12 +109,16 @@
           "maxLength": 128
         },
         "protocol": {
-          "enum": ["openai", "ollama"]
+          "enum": ["openai", "ollama", "tei", "cohere", "voyage", "gemini"]
         },
         "baseUrl": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 512
+          "maxLength": 2048
+        },
+        "embeddingUrl": {
+          "type": "string",
+          "maxLength": 2048
         },
         "modelId": {
           "$ref": "common.schema.json#/$defs/identifier"
@@ -69,6 +135,15 @@
           "type": "integer",
           "minimum": 1,
           "maximum": 16384
+        },
+        "discovery": {
+          "$ref": "#/$defs/EmbeddingDiscovery"
+        },
+        "auth": {
+          "$ref": "#/$defs/EmbeddingAuth"
+        },
+        "parameters": {
+          "$ref": "#/$defs/EmbeddingParameters"
         }
       }
     },

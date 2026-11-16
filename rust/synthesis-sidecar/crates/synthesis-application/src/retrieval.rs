@@ -44,6 +44,7 @@ const RETRIEVAL_ENCODE_BATCH: usize = 32;
 const RETRIEVAL_FRAGMENT_QUERY_BATCH: usize = 256;
 const RETRIEVAL_MAX_MODEL_ID_CHARS: usize = 512;
 const RETRIEVAL_MAX_PREFIX_CHARS: usize = 256;
+const RETRIEVAL_MAX_OPTIONS_KEY_CHARS: usize = 128;
 const RETRIEVAL_MAX_MODEL_BYTES: usize = 262_144;
 const RETRIEVAL_QUERY_LIFETIME_MS: u64 = 30_000;
 const RETRIEVAL_BUILD_LIFETIME_MS: u64 = 60_000;
@@ -76,6 +77,9 @@ pub struct EncodingIdentity {
     pub dimensions: usize,
     pub query_prefix: String,
     pub document_prefix: String,
+    /// Host-produced opaque discriminator; the sidecar compares but never derives it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub encoding_options_key: Option<String>,
 }
 
 impl EncodingIdentity {
@@ -87,11 +91,17 @@ impl EncodingIdentity {
                 && value.chars().count() <= RETRIEVAL_MAX_MODEL_ID_CHARS
         };
         let prefix = |value: &str| value.chars().count() <= RETRIEVAL_MAX_PREFIX_CHARS;
+        let options_key = |value: &Option<String>| {
+            value.as_ref().is_none_or(|value| {
+                !value.is_empty() && value.chars().count() <= RETRIEVAL_MAX_OPTIONS_KEY_CHARS
+            })
+        };
         if !identifier(&self.model_id)
             || self.dimensions == 0
             || self.dimensions > RETRIEVAL_MAX_VECTOR_DIMENSIONS
             || !prefix(&self.query_prefix)
             || !prefix(&self.document_prefix)
+            || !options_key(&self.encoding_options_key)
         {
             return Err("invalid_request".into());
         }
@@ -1973,6 +1983,49 @@ mod tests {
             dimensions,
             query_prefix: "q:".into(),
             document_prefix: "d:".into(),
+            encoding_options_key: None,
+        }
+    }
+
+    #[test]
+    fn legacy_encoding_identity_serialization_stays_stable() {
+        let legacy = json!({
+            "modelId": "test-model",
+            "dimensions": 4,
+            "queryPrefix": "q:",
+            "documentPrefix": "d:"
+        });
+        let identity: EncodingIdentity = serde_json::from_value(legacy.clone()).unwrap();
+        assert_eq!(identity.encoding_options_key, None);
+        assert_eq!(serde_json::to_value(identity).unwrap(), legacy);
+    }
+
+    #[test]
+    fn encoding_options_key_is_opaque_bounded_and_part_of_identity() {
+        let legacy = identity(4);
+        let mut first = identity(4);
+        first.encoding_options_key = Some("host:options:v1".into());
+        assert_eq!(first.validate(), Ok(()));
+        assert_eq!(
+            serde_json::to_value(&first).unwrap()["encodingOptionsKey"],
+            "host:options:v1"
+        );
+        assert_ne!(first, legacy);
+
+        let mut same = identity(4);
+        same.encoding_options_key = Some("host:options:v1".into());
+        assert_eq!(first, same);
+        same.encoding_options_key = Some("host:options:v2".into());
+        assert_ne!(first, same);
+
+        let mut maximum = identity(4);
+        maximum.encoding_options_key = Some("x".repeat(128));
+        assert_eq!(maximum.validate(), Ok(()));
+
+        for invalid in [String::new(), "x".repeat(129)] {
+            let mut value = identity(4);
+            value.encoding_options_key = Some(invalid);
+            assert_eq!(value.validate(), Err("invalid_request".into()));
         }
     }
 

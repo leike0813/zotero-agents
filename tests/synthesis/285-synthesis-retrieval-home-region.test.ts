@@ -96,7 +96,9 @@ function makeInput(
   return {
     snapshot: {
       actions: { inFlight: [] },
-      artifacts: { rows: [] },
+      artifacts: {
+        rows: [{ id: "stable-topic", title: "Stable topic", paper_count: 1 }],
+      },
       registry: { rows: [], cleanupProposals: [], matchProposals: [] },
       reviews: { summary: {} },
       concepts: { reviewItems: [] },
@@ -150,37 +152,59 @@ describe("synthesis workbench Home retrieval panel", function () {
     return projectSynthesisWorkbenchHomeSelection(makeInput(retrieval));
   }
 
-  it("renders tested/untested connections, pending identity and coverage counters", function () {
+  it("shows availability and coverage without configuration or diagnostic details", function () {
     const selection = selectionFor(makeRetrieval());
     const { root } = renderHome(selection);
-    const connections = root.querySelectorAll(".retrieval-connection");
-    assert.equal(connections.length, 2);
-    assert.match(connections[0].textContent || "", /1024 dimensions/);
-    assert.match(connections[0].textContent || "", /Untested|1024 dimensions/);
-    assert.match(
-      connections[1].textContent || "",
-      /Untested - run a connection test/,
-    );
-    assert.match(connections[0].textContent || "", /Primary/);
-    assert.match(connections[1].textContent || "", /Fallback/);
 
-    const pendingValue = root.querySelectorAll(".retrieval-summary-value")[1]
-      .textContent;
-    assert.match(pendingValue || "", /bge-m3/);
-    assert.match(pendingValue || "", /1024/);
+    // Connection configuration form is no longer in the panel.
+    assert.isNull(root.querySelector(".retrieval-form"));
+    assert.isNull(root.querySelector(".retrieval-connections"));
+
+    assert.include(
+      root.querySelector(".retrieval-panel [role=status]")!.textContent,
+      "Paused",
+    );
+    assert.notInclude(root.textContent, "bge-m3");
+    assert.notInclude(root.textContent, "source_unavailable");
+    assert.notInclude(root.textContent, "2026-10-07");
 
     const counters =
-      root.querySelector(".retrieval-counters")!.textContent || "";
+      root.querySelector(".home-service-notices")!.textContent || "";
     assert.match(counters, /Coverage gaps 2/);
     assert.match(counters, /Failures 1/);
-    assert.match(root.textContent || "", /source_unavailable/);
+  });
+
+  it("shows open-preferences button when no connection is configured", async function () {
+    const noConn = renderHome(selectionFor(makeRetrieval({ connections: [] })));
+    const panel = noConn.root.querySelector(".retrieval-panel")!;
+    assert.equal(panel.querySelectorAll("button").length, 0);
+    const btn = noConn.root.querySelector<HTMLButtonElement>(
+      ".home-services > .section-heading button",
+    )!;
+    assert.ok(btn, "one shared preferences button present when unconfigured");
+    btn.click();
+    await flush();
+    assert.deepEqual(noConn.dispatched, [
+      {
+        action: "hostCommand",
+        payload: { command: "openPreferences" },
+      },
+    ]);
+
+    // Configured: open-preferences button must be absent from retrieval panel
+    const withConn = renderHome(selectionFor(makeRetrieval()));
+    const withPanel = withConn.root.querySelector(".retrieval-panel")!;
+    assert.isUndefined(
+      buttonByText(withPanel, "Open preferences"),
+      "open preferences button absent from retrieval panel when configured",
+    );
   });
 
   it("keeps build disabled until a tested pending identity exists", async function () {
     const untested = renderHome(
       selectionFor(makeRetrieval({ pendingIdentity: null })),
     );
-    for (const label of ["Build index", "Rebuild index", "Update index"]) {
+    for (const label of ["Build index", "Rebuild index"]) {
       const button = buttonByText(untested.root, label)!;
       assert.isTrue(button.disabled, label + " disabled without identity");
       button.click();
@@ -209,7 +233,7 @@ describe("synthesis workbench Home retrieval panel", function () {
     });
   });
 
-  it("dispatches the connection test and cancels a running run", async function () {
+  it("dispatches cancel/retry/continue with correct gate logic; connection test moved to prefs", async function () {
     const running = renderHome(
       selectionFor(
         makeRetrieval({
@@ -221,60 +245,9 @@ describe("synthesis workbench Home retrieval panel", function () {
         }),
       ),
     );
-    const testButton = buttonByText(
-      running.root.querySelector(".retrieval-connection")!,
-      "Test",
-    )!;
-    testButton.click();
     buttonByText(running.root, "Cancel")!.click();
     await flush();
     assert.deepEqual(running.dispatched, [
-      {
-        action: "hostCommand",
-        payload: {
-          command: "retrievalTestConnection",
-          args: { connectionId: "c1" },
-        },
-      },
-      {
-        action: "hostCommand",
-        payload: {
-          command: "retrievalCancelIndex",
-          args: { operationId: "op-1" },
-        },
-      },
-    ]);
-    assert.isTrue(
-      buttonByText(running.root, "Retry")!.disabled,
-      "retry gated while running",
-    );
-  });
-  it("dispatches the connection test and gates cancel, retry and continue separately", async function () {
-    const running = renderHome(
-      selectionFor(
-        makeRetrieval({
-          maintenance: {
-            operation_id: "op-1",
-            status: "running",
-            message: "Encoding",
-          },
-        }),
-      ),
-    );
-    buttonByText(
-      running.root.querySelector(".retrieval-connection")!,
-      "Test",
-    )!.click();
-    buttonByText(running.root, "Cancel")!.click();
-    await flush();
-    assert.deepEqual(running.dispatched, [
-      {
-        action: "hostCommand",
-        payload: {
-          command: "retrievalTestConnection",
-          args: { connectionId: "c1" },
-        },
-      },
       {
         action: "hostCommand",
         payload: {
@@ -284,8 +257,8 @@ describe("synthesis workbench Home retrieval panel", function () {
       },
     ]);
     // A running run can only be canceled.
-    assert.isTrue(buttonByText(running.root, "Retry")!.disabled);
-    assert.isTrue(buttonByText(running.root, "Continue")!.disabled);
+    assert.isUndefined(buttonByText(running.root, "Retry"));
+    assert.isUndefined(buttonByText(running.root, "Continue"));
 
     const failed = renderHome(
       selectionFor(
@@ -295,8 +268,8 @@ describe("synthesis workbench Home retrieval panel", function () {
       ),
     );
     assert.isTrue(buttonByText(failed.root, "Retry")!.disabled === false);
-    assert.isTrue(buttonByText(failed.root, "Continue")!.disabled);
-    assert.isTrue(buttonByText(failed.root, "Cancel")!.disabled);
+    assert.isUndefined(buttonByText(failed.root, "Continue"));
+    assert.isUndefined(buttonByText(failed.root, "Cancel"));
     buttonByText(failed.root, "Retry")!.click();
     await flush();
     assert.deepEqual(failed.dispatched, [
@@ -317,7 +290,7 @@ describe("synthesis workbench Home retrieval panel", function () {
       ),
     );
     assert.isTrue(buttonByText(canceled.root, "Retry")!.disabled === false);
-    assert.isTrue(buttonByText(canceled.root, "Continue")!.disabled);
+    assert.isUndefined(buttonByText(canceled.root, "Continue"));
 
     const pending = renderHome(
       selectionFor(
@@ -331,7 +304,7 @@ describe("synthesis workbench Home retrieval panel", function () {
       ),
     );
     // Continue requires an explicit continuation-required phase.
-    assert.isTrue(buttonByText(pending.root, "Retry")!.disabled);
+    assert.isUndefined(buttonByText(pending.root, "Retry"));
     assert.isTrue(buttonByText(pending.root, "Continue")!.disabled === false);
     buttonByText(pending.root, "Continue")!.click();
     await flush();
@@ -358,80 +331,17 @@ describe("synthesis workbench Home retrieval panel", function () {
         }),
       ),
     );
-    assert.isTrue(buttonByText(queued.root, "Continue")!.disabled);
-    assert.isTrue(buttonByText(queued.root, "Retry")!.disabled);
+    assert.isUndefined(buttonByText(queued.root, "Continue"));
+    assert.isUndefined(buttonByText(queued.root, "Retry"));
   });
-  it("saves nonsecret configuration with a one-shot secret absent from the selection", async function () {
-    const selection = selectionFor(makeRetrieval());
-    const { root, dispatched } = renderHome(selection);
-    const nameInput = root.querySelector<HTMLInputElement>(
-      '.retrieval-form input[type="text"]',
-    )!;
-    nameInput.value = "Studio GPU";
-    nameInput.dispatchEvent(new window.Event("input", { bubbles: true }));
-    const secretInput = root.querySelector<HTMLInputElement>(
-      '.retrieval-form input[type="password"]',
-    )!;
-    secretInput.value = "sk-super-secret";
-    secretInput.dispatchEvent(new window.Event("input", { bubbles: true }));
-    // Let Preact commit the local form state before submitting.
-    await flush();
-
-    root
-      .querySelector<HTMLFormElement>(".retrieval-form")!
-      .dispatchEvent(
-        new window.Event("submit", { bubbles: true, cancelable: true }),
-      );
-    await flush();
-
-    assert.equal(dispatched.length, 1);
-    const args = dispatched[0].payload!.args as Record<string, unknown>;
-    assert.equal(
-      (args.connection as Record<string, unknown>).name,
-      "Studio GPU",
-    );
-    assert.equal(args.secret, "sk-super-secret");
-    // The secret is a write-only payload field; the region selection never
-    // carries it.
-    assert.notInclude(JSON.stringify(selection), "sk-super-secret");
-  });
-
-  it("preserves unsaved form input across progress-only region updates", function () {
-    const first = selectionFor(makeRetrieval());
-    const { root, renderHomeRegion } = renderHome(first);
-    const nameInput = root.querySelector<HTMLInputElement>(
-      '.retrieval-form input[type="text"]',
-    )!;
-    nameInput.value = "Draft connection";
-    nameInput.dispatchEvent(new window.Event("input", { bubbles: true }));
-    assert.equal(
-      root.querySelector<HTMLInputElement>(
-        '.retrieval-form input[type="text"]',
-      )!.value,
-      "Draft connection",
-    );
-
-    renderHomeRegion(
-      selectionFor(
-        makeRetrieval({
-          progress: {
-            completedGroups: 3,
-            totalGroups: 3,
-            completedFragments: 40,
-            failedGroups: 0,
-            missingGroups: 0,
-          },
-          status: "ready",
-        }),
-      ),
-    );
-    assert.equal(
-      root.querySelector<HTMLInputElement>(
-        '.retrieval-form input[type="text"]',
-      )!.value,
-      "Draft connection",
-      "progress update must not reseed the draft",
-    );
+  it("configuration form is now in prefs; region has no form or connection list", function () {
+    // Form, connection list, and dimension/primary inputs have all moved to
+    // the preferences panel. Verify they are absent from the Home panel.
+    const { root } = renderHome(selectionFor(makeRetrieval()));
+    assert.isNull(root.querySelector(".retrieval-form"));
+    assert.isNull(root.querySelector(".retrieval-connections"));
+    assert.isNull(root.querySelector(".retrieval-field-dimensions"));
+    assert.isNull(root.querySelector(".retrieval-primary"));
   });
 
   it("keeps unrelated chrome regions out of the retrieval signature", function () {
@@ -470,18 +380,35 @@ describe("synthesis workbench Home retrieval panel", function () {
     assert.deepEqual(before, after);
   });
 
-  it("keeps the Home subtree identity when only retrieval progress changes", function () {
-    const selection = selectionFor(makeRetrieval());
+  it("updates task progress without replacing focused controls or unrelated cards", function () {
+    const running = makeRetrieval({
+      maintenance: { operation_id: "op-progress", status: "running" },
+    });
+    const selection = selectionFor(running);
     const { mount, renderHomeRegion } = renderHome(selection);
     const captured = captureRegionSubtrees({ home: mount });
     // Identical visible content: an equal selection must not rebuild the tree.
-    renderHomeRegion(selectionFor(makeRetrieval()));
+    renderHomeRegion(selectionFor(running));
     assertRegionSubtreesPreserved({ home: mount }, captured);
+    const cancel = buttonByText(mount, "Cancel")!;
+    cancel.focus();
+    const insights = mount.querySelector(".insight-grid");
+    const sync = mount.querySelector(".sync-panel");
+    const topics = mount.querySelector(".topic-grid");
+    const topicCard = mount.querySelector(".topic-card");
+    const scroll = mount.querySelector<HTMLElement>(".home-scroll")!;
+    scroll.scrollTop = 37;
+    assert.equal(
+      mount.querySelector<HTMLProgressElement>("progress")!.value,
+      1,
+    );
 
     // Progress is a real content change and updates the Home region.
     renderHomeRegion(
       selectionFor(
         makeRetrieval({
+          maintenance: { operation_id: "op-progress", status: "running" },
+          issues: [],
           progress: {
             completedGroups: 3,
             totalGroups: 3,
@@ -492,10 +419,51 @@ describe("synthesis workbench Home retrieval panel", function () {
         }),
       ),
     );
-    assert.match(
-      mount.querySelector(".retrieval-counters")!.textContent || "",
-      /Coverage gaps 0/,
+    assert.equal(
+      mount.querySelector<HTMLProgressElement>("progress")!.value,
+      3,
     );
+    assert.strictEqual(document.activeElement, cancel);
+    assert.strictEqual(mount.querySelector(".insight-grid"), insights);
+    assert.strictEqual(mount.querySelector(".sync-panel"), sync);
+    assert.strictEqual(mount.querySelector(".topic-grid"), topics);
+    assert.strictEqual(mount.querySelector(".topic-card"), topicCard);
+    assert.equal(scroll.scrollTop, 37);
+  });
+
+  it("keeps a published index available after an update fails and handles unknown task totals", function () {
+    const { root, renderHomeRegion } = renderHome(
+      selectionFor(
+        makeRetrieval({
+          status: "ready",
+          publication: "pub-existing",
+          maintenance: {
+            operation_id: "failed-update",
+            status: "failed",
+            message: "raw diagnostic",
+          },
+        }),
+      ),
+    );
+    assert.include(
+      root.querySelector(".retrieval-panel .home-service-state")?.textContent,
+      "Ready",
+    );
+    assert.include(
+      root.querySelector(".home-service-task")?.textContent,
+      "Failed",
+    );
+    assert.notInclude(root.textContent, "raw diagnostic");
+    assert.isFalse(buttonByText(root, "Update index")!.disabled);
+    renderHomeRegion(
+      selectionFor(
+        makeRetrieval({
+          maintenance: { operation_id: "unknown-total", status: "running" },
+          progress: { completedGroups: 0, totalGroups: 0 },
+        }),
+      ),
+    );
+    assert.isFalse(root.querySelector("progress")!.hasAttribute("value"));
   });
 
   it("dispatches cleanup and candidate recovery only after publication or recovery", async function () {
@@ -513,79 +481,6 @@ describe("synthesis workbench Home retrieval panel", function () {
     assert.deepEqual(published.dispatched, [
       { action: "hostCommand", payload: { command: "retrievalCleanupIndex" } },
     ]);
-  });
-
-  it("saves the enabled flag, explicit dimensions and a cleared primary selection", async function () {
-    const selection = selectionFor(makeRetrieval());
-    const { root, dispatched } = renderHome(selection);
-    const enabledInput = root.querySelector<HTMLInputElement>(
-      '.retrieval-field-enabled input[type="checkbox"]',
-    )!;
-    assert.isTrue(enabledInput.checked);
-    enabledInput.checked = false;
-    enabledInput.dispatchEvent(new window.Event("change", { bubbles: true }));
-
-    const dimensionsInput = root.querySelector<HTMLInputElement>(
-      ".retrieval-field-dimensions input",
-    )!;
-    assert.equal(dimensionsInput.value, "1024");
-    dimensionsInput.value = "768";
-    dimensionsInput.dispatchEvent(new window.Event("input", { bubbles: true }));
-
-    const primarySelect = root.querySelector<HTMLSelectElement>(
-      ".retrieval-primary select",
-    )!;
-    primarySelect.value = "";
-    primarySelect.dispatchEvent(new window.Event("change", { bubbles: true }));
-    await flush();
-
-    root
-      .querySelector<HTMLFormElement>(".retrieval-form")!
-      .dispatchEvent(
-        new window.Event("submit", { bubbles: true, cancelable: true }),
-      );
-    await flush();
-
-    assert.equal(dispatched.length, 1);
-    const args = dispatched[0].payload!.args as Record<string, unknown>;
-    assert.isFalse(args.enabled as boolean);
-    assert.isNull(args.primaryConnectionId);
-    assert.equal((args.connection as Record<string, unknown>).dimensions, 768);
-  });
-
-  it("edits an existing connection in place and deletes one through the save command", async function () {
-    const selection = selectionFor(makeRetrieval());
-    const { root, dispatched } = renderHome(selection);
-    const rows = root.querySelectorAll(".retrieval-connection");
-    buttonByText(rows[1], "Edit")!.click();
-    await flush();
-    const modelInput = root.querySelector<HTMLInputElement>(
-      ".retrieval-field-model input",
-    )!;
-    assert.equal(modelInput.value, "text-embedding-3-small");
-
-    root
-      .querySelector<HTMLFormElement>(".retrieval-form")!
-      .dispatchEvent(
-        new window.Event("submit", { bubbles: true, cancelable: true }),
-      );
-    await flush();
-    const savedArgs = dispatched.at(-1)!.payload!.args as Record<
-      string,
-      unknown
-    >;
-    assert.equal((savedArgs.connection as Record<string, unknown>).id, "c2");
-
-    buttonByText(
-      root.querySelectorAll(".retrieval-connection")[0],
-      "Delete",
-    )!.click();
-    await flush();
-    const removedArgs = dispatched.at(-1)!.payload!.args as Record<
-      string,
-      unknown
-    >;
-    assert.equal(removedArgs.removeConnectionId, "c1");
   });
 });
 

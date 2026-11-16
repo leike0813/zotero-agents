@@ -100,7 +100,16 @@ function makeInput(
 
 describe("synthesis workbench HomeRegion (src/synthesis/components)", function () {
   beforeEach(function () {
-    installSidebarDomGlobals(createSidebarDomEnvironment());
+    const environment = createSidebarDomEnvironment();
+    const prototype = environment.window.HTMLDialogElement.prototype;
+    prototype.showModal = function () {
+      this.open = true;
+    };
+    prototype.close = function () {
+      this.open = false;
+      this.dispatchEvent(new environment.window.Event("close"));
+    };
+    installSidebarDomGlobals(environment);
   });
 
   afterEach(function () {
@@ -159,7 +168,7 @@ describe("synthesis workbench HomeRegion (src/synthesis/components)", function (
       "2",
       "registered papers count",
     );
-    assert.ok(cards[0].classList.contains("teal"));
+
     assert.equal(
       cards[1].querySelector(".insight-value")?.textContent,
       "1",
@@ -176,7 +185,7 @@ describe("synthesis workbench HomeRegion (src/synthesis/components)", function (
       "3",
       "review open count uses the fallback rows",
     );
-    assert.ok(cards[3].classList.contains("orange"));
+
     assert.ok(root.querySelector(".sync-panel"), "sync panel rendered");
   });
 
@@ -282,16 +291,15 @@ describe("synthesis workbench HomeRegion (src/synthesis/components)", function (
     );
     const toolbar = allowed.root.querySelector(".toolbar")!;
     const buttons = toolbar.querySelectorAll("button");
-    assert.equal(buttons.length, 3, "sync now + pause/resume + retry");
+    assert.equal(buttons.length, 2, "sync now + pause/resume");
     assert.equal(buttons[1].textContent, "Pause WebDAV");
     (buttons[0] as HTMLButtonElement).click();
     (buttons[1] as HTMLButtonElement).click();
-    (buttons[2] as HTMLButtonElement).click();
+
     await flush();
     assert.deepEqual(allowed.dispatched, [
       { action: "hostCommand", payload: { command: "syncWebDavNow" } },
       { action: "hostCommand", payload: { command: "pauseWebDavSync" } },
-      { action: "hostCommand", payload: { command: "retryWebDavSync" } },
     ]);
 
     const paused = renderHome(
@@ -333,7 +341,7 @@ describe("synthesis workbench HomeRegion (src/synthesis/components)", function (
     assert.deepEqual(gated.dispatched, [], "disabled buttons do not dispatch");
   });
 
-  it("offers only the preferences action when the adapter is unconfigured", async function () {
+  it("offers one shared preferences action when both services are unconfigured", async function () {
     const { root, dispatched } = renderHome(
       projectSynthesisWorkbenchHomeSelection(
         makeInput({
@@ -344,8 +352,15 @@ describe("synthesis workbench HomeRegion (src/synthesis/components)", function (
         }),
       ),
     );
-    const buttons = root.querySelectorAll(".sync-panel .toolbar button");
+    const buttons = root.querySelectorAll(
+      ".home-services > .section-heading button",
+    );
     assert.equal(buttons.length, 1);
+    assert.equal(
+      root.querySelectorAll(".sync-panel button, .retrieval-panel button")
+        .length,
+      0,
+    );
     (buttons[0] as HTMLButtonElement).click();
     await flush();
     assert.deepEqual(dispatched, [
@@ -353,7 +368,7 @@ describe("synthesis workbench HomeRegion (src/synthesis/components)", function (
     ]);
   });
 
-  it("marks pending operations busy and logs the local pending line", function () {
+  it("marks pending operations busy and shows the current sync status", function () {
     const { root } = renderHome(
       projectSynthesisWorkbenchHomeSelection(
         makeInput({ localPendingOperationKeys: ["syncWebDavNow"] }),
@@ -366,13 +381,11 @@ describe("synthesis workbench HomeRegion (src/synthesis/components)", function (
     assert.ok(syncNow.classList.contains("is-busy"));
     assert.equal(syncNow.getAttribute("aria-busy"), "true");
     assert.ok(syncNow.querySelector(".button-spinner"), "spinner rendered");
-    const lines = root.querySelectorAll(".sync-log-line");
-    assert.equal(lines.length, 1);
-    assert.ok(lines[0].classList.contains("sync-log-level-info"));
-    assert.equal(
-      lines[0].querySelector(".sync-log-message")?.textContent,
-      "WebDAV Sync is running.",
+    assert.include(
+      root.querySelector(".sync-panel [role=status]")?.textContent,
+      "Syncing",
     );
+    assert.isNull(root.querySelector(".sync-feedback-terminal"));
   });
 
   it("renders the conflict review panel and dispatches resolve actions", async function () {
@@ -401,7 +414,19 @@ describe("synthesis workbench HomeRegion (src/synthesis/components)", function (
         }),
       ),
     );
-    const panel = root.querySelector(".sync-review-panel");
+    assert.isNull(
+      root.querySelector(".sync-review-panel"),
+      "details remain absent before opening",
+    );
+    const trigger = Array.from(
+      root.querySelectorAll<HTMLButtonElement>(".sync-panel button"),
+    ).find((button) => button.textContent === "Resolve conflicts")!;
+    trigger.focus();
+    trigger.click();
+    await flush();
+    const dialog = root.querySelector<HTMLDialogElement>("dialog")!;
+    assert.isTrue(dialog.open);
+    const panel = dialog.querySelector(".sync-review-panel");
     assert.ok(panel, "conflict panel rendered");
     assert.equal(
       panel!.querySelector(".review-card-title strong")?.textContent,
@@ -440,6 +465,50 @@ describe("synthesis workbench HomeRegion (src/synthesis/components)", function (
     ]);
   });
 
+  it("restores focus on Escape and closes conflict review when conflicts clear", async function () {
+    const selection = projectSynthesisWorkbenchHomeSelection(
+      makeInput({
+        snapshot: {
+          ...makeInput().snapshot,
+          sync: {
+            webdav: makeWebdav({
+              queue_state: "blocked_conflict",
+              conflict_assets: [
+                { asset_path: "bundle", reason: "both_changed" },
+              ],
+            }),
+          },
+        },
+      }),
+    );
+    const { root, renderHomeRegion } = renderHome(selection);
+    const trigger = Array.from(
+      root.querySelectorAll<HTMLButtonElement>(".sync-panel button"),
+    ).find((button) => button.textContent === "Resolve conflicts")!;
+    trigger.focus();
+    trigger.click();
+    await flush();
+    const dialog = root.querySelector<HTMLDialogElement>("dialog")!;
+    dialog.dispatchEvent(new window.Event("cancel", { cancelable: true }));
+    await flush();
+    assert.isFalse(dialog.open);
+    assert.strictEqual(document.activeElement, trigger);
+    trigger.click();
+    await flush();
+    root
+      .querySelector<HTMLButtonElement>(".home-conflict-header button")!
+      .click();
+    await flush();
+    assert.isFalse(dialog.open);
+    assert.strictEqual(document.activeElement, trigger);
+    trigger.click();
+    await flush();
+    renderHomeRegion(projectSynthesisWorkbenchHomeSelection(makeInput()));
+    await flush();
+    assert.isFalse(dialog.open);
+    assert.isNull(root.querySelector(".sync-review-panel"));
+  });
+
   it("hides the conflict panel unless the queue is blocked by conflicts", function () {
     const idle = renderHome(
       projectSynthesisWorkbenchHomeSelection(makeInput()),
@@ -462,151 +531,78 @@ describe("synthesis workbench HomeRegion (src/synthesis/components)", function (
     );
   });
 
-  it("renders feedback log lines for host operations, diagnostics, connection and last run", function () {
-    const { root } = renderHome(
+  for (const [queueState, paused, expected] of [
+    ["idle", false, "Ready"],
+    ["queued", false, "Queued"],
+    ["syncing", false, "Syncing"],
+    ["idle", true, "Paused"],
+    ["failed_retryable", false, "Failed"],
+    ["failed_permanent", false, "Failed"],
+    ["disabled", false, "Disabled"],
+    ["blocked_conflict", false, "Conflicts need attention"],
+  ] as const) {
+    it(`shows the localized ${queueState} sync state without technical details`, function () {
+      const { root } = renderHome(
+        projectSynthesisWorkbenchHomeSelection(
+          makeInput({
+            snapshot: {
+              ...makeInput().snapshot,
+              sync: {
+                webdav: makeWebdav({
+                  queue_state: queueState,
+                  paused,
+                  diagnostics: [
+                    {
+                      code: "raw_error",
+                      message: "raw diagnostic",
+                      severity: "error",
+                    },
+                  ],
+                  last_run_at: "2026-09-05",
+                }),
+              },
+            },
+          }),
+        ),
+      );
+      assert.include(
+        root.querySelector(".sync-panel [role=status]")?.textContent,
+        expected,
+      );
+      for (const hidden of [
+        "https://dav.example.test",
+        "/bundles/main",
+        "raw_error",
+        "raw diagnostic",
+        "2026-09-05",
+      ]) {
+        assert.notInclude(
+          root.querySelector(".sync-panel")?.textContent,
+          hidden,
+        );
+      }
+    });
+  }
+
+  it("dispatches retry only from a failed sync state", async function () {
+    const { root, dispatched } = renderHome(
       projectSynthesisWorkbenchHomeSelection(
         makeInput({
           snapshot: {
             ...makeInput().snapshot,
-            actions: {
-              inFlight: [
-                {
-                  key: "syncWebDavNow",
-                  command: "syncWebDavNow",
-                  status: "running",
-                  label: "WebDAV Sync",
-                },
-                {
-                  key: "runSynthesizeTopic",
-                  command: "runSynthesizeTopic",
-                  status: "running",
-                  label: "Create Topic",
-                },
-              ],
-              lastFailed: {
-                key: "retryWebDavSync",
-                command: "retryWebDavSync",
-                status: "failed",
-                label: "Retry WebDAV",
-                message: "boom",
-              },
-              lastCompleted: {
-                key: "pauseWebDavSync",
-                command: "pauseWebDavSync",
-                status: "completed",
-                label: "Pause WebDAV",
-              },
-            },
-            sync: {
-              diagnostics: [
-                { code: "root_diag", severity: "warning", message: "root" },
-              ],
-              webdav: makeWebdav({
-                diagnostics: [
-                  { code: "io_error", severity: "error", message: "disk" },
-                ],
-                connection_test: {
-                  ok: false,
-                  tested_at: "2026-09-05T01:00:00.000Z",
-                  diagnostics: [
-                    { code: "http_401", severity: "error", message: "denied" },
-                  ],
-                },
-                last_run_status: "failed_retryable",
-                last_run_at: "2026-09-05T00:00:00.000Z",
-              }),
-            },
+            sync: { webdav: makeWebdav({ queue_state: "failed_retryable" }) },
           },
         }),
       ),
     );
-    const lines = Array.from(root.querySelectorAll(".sync-log-line")).map(
-      (line) => ({
-        cls: line.className,
-        source: line.querySelector(".sync-log-source")?.textContent,
-        message: line.querySelector(".sync-log-message")?.textContent,
-      }),
-    );
-    // Non-sync in-flight operations must not appear in the log.
-    assert.isFalse(
-      lines.some((line) => line.message?.includes("Create Topic")),
-    );
-    assert.ok(
-      lines.some(
-        (line) =>
-          line.cls.includes("sync-log-level-info") &&
-          line.message === "WebDAV Sync running",
-      ),
-      "in-flight sync line",
-    );
-    assert.ok(
-      lines.some(
-        (line) =>
-          line.cls.includes("sync-log-level-error") &&
-          line.message === "Retry WebDAV: boom",
-      ),
-      "failed line",
-    );
-    assert.ok(
-      lines.some(
-        (line) =>
-          line.cls.includes("sync-log-level-ok") &&
-          line.message === "Pause WebDAV completed",
-      ),
-      "completed line",
-    );
-    assert.ok(
-      lines.some(
-        (line) =>
-          line.cls.includes("sync-log-level-warn") &&
-          line.message === "root_diag: root",
-      ),
-      "root diagnostic line",
-    );
-    assert.ok(
-      lines.some(
-        (line) =>
-          line.cls.includes("sync-log-level-error") &&
-          line.message === "io_error: disk",
-      ),
-      "webdav diagnostic line",
-    );
-    assert.ok(
-      lines.some(
-        (line) =>
-          line.cls.includes("sync-log-level-warn") &&
-          line.message === "not ready 2026-09-05T01:00:00.000Z",
-      ),
-      "connection test line",
-    );
-    assert.ok(
-      lines.some(
-        (line) =>
-          line.cls.includes("sync-log-level-error") &&
-          line.message === "http_401: denied",
-      ),
-      "connection diagnostic line",
-    );
-    assert.ok(
-      lines.some(
-        (line) =>
-          line.cls.includes("sync-log-level-error") &&
-          line.message === "failed_retryable 2026-09-05T00:00:00.000Z",
-      ),
-      "last run line",
-    );
-  });
-
-  it("falls back to the no-activity line when nothing happened", function () {
-    const { root } = renderHome(
-      projectSynthesisWorkbenchHomeSelection(makeInput()),
-    );
-    const lines = root.querySelectorAll(".sync-log-line");
-    assert.equal(lines.length, 1);
-    assert.equal(
-      lines[0].querySelector(".sync-log-message")?.textContent,
-      "No WebDAV Sync activity recorded.",
-    );
+    const retry = Array.from(
+      root.querySelectorAll<HTMLButtonElement>(".sync-panel button"),
+    ).find((button) => button.textContent === "Retry WebDAV")!;
+    retry.click();
+    await flush();
+    assert.deepEqual(dispatched, [
+      { action: "hostCommand", payload: { command: "retryWebDavSync" } },
+    ]);
   });
 
   it("keeps the subtree identity when an equal selection re-renders", function () {
@@ -622,6 +618,22 @@ describe("synthesis workbench HomeRegion (src/synthesis/components)", function (
 
     // Same visible content, freshly projected object graph.
     renderHomeRegion(projectSynthesisWorkbenchHomeSelection(input));
+    assertRegionSubtreesPreserved({ home: mount }, captured);
+
+    const hidden = makeInput({
+      snapshot: {
+        ...input.snapshot,
+        sync: {
+          webdav: makeWebdav({
+            last_run_at: "later",
+            diagnostics: [
+              { code: "detail", severity: "info", message: "hidden" },
+            ],
+          }),
+        },
+      },
+    });
+    renderHomeRegion(projectSynthesisWorkbenchHomeSelection(hidden));
     assertRegionSubtreesPreserved({ home: mount }, captured);
 
     // A real change updates the grid instead of reusing stale nodes.
@@ -679,12 +691,9 @@ describe("synthesis workbench HomeRegion (src/synthesis/components)", function (
       topicCard!.querySelector(".topic-card-summary")?.textContent,
       "No topic definition is available yet.",
     );
-    // Sync section narrows to defaults: unconfigured adapter path.
-    assert.equal(
-      root.querySelector(".sync-summary-value")?.textContent,
-      "disabled",
+    assert.include(
+      root.querySelector(".sync-panel [role=status]")?.textContent,
+      "Not configured",
     );
-    const lines = root.querySelectorAll(".sync-log-line");
-    assert.equal(lines.length, 1, "in-flight entry without key still logs");
   });
 });

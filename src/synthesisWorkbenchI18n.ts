@@ -297,6 +297,13 @@ export const SYNTHESIS_WORKBENCH_DEFAULT_MESSAGES = {
   "synthesis-home-empty-message":
     "Create a topic synthesis to populate the topic workspace and graph views.",
   "synthesis-home-sync": "Sync",
+  "synthesis-home-services": "Sync and retrieval",
+  "synthesis-home-settings": "Preferences",
+  "synthesis-sync-state-queued": "Queued",
+  "synthesis-sync-state-syncing": "Syncing",
+  "synthesis-sync-state-conflict": "Conflicts need attention",
+  "synthesis-sync-state-disabled": "Disabled",
+  "synthesis-action-resolve-sync-conflict": "Resolve conflicts",
   "synthesis-home-retrieval": "Semantic Retrieval",
   "synthesis-retrieval-enabled": "Enabled",
   "synthesis-retrieval-disabled": "Disabled",
@@ -315,6 +322,7 @@ export const SYNTHESIS_WORKBENCH_DEFAULT_MESSAGES = {
     "%fragments% fragments · %missing% missing · %failed% failed",
   "synthesis-retrieval-coverage": "Coverage gaps %count%",
   "synthesis-retrieval-failures": "Failures %count%",
+  "synthesis-retrieval-issues-count": "Issues %count%",
   "synthesis-retrieval-connections": "Embedding connections",
   "synthesis-retrieval-no-connections":
     "No embedding connection is configured.",

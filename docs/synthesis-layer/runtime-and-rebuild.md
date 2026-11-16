@@ -476,6 +476,125 @@ application and routes are still under implementation.
   continuation-required and external-effect-unknown classification and
   dispatches nothing.
 
-The Host embedding provider, preferences, credentials, and the two
-sidecar-to-Host embedding capabilities are implemented; the index application
-and its routes are not, so acceptance for this section stays open.
+### Host Embedding Configuration
+
+The Host owns connection configuration, endpoint resolution, discovery,
+credentials, file reads and embedding HTTP. The sidecar receives only bounded
+text, vectors and an encoding identity. Existing OpenAI-compatible and Ollama
+connections keep their `baseUrl`, raw model ID, prefix and dimension behavior;
+the new flat optional fields on a connection are `embeddingUrl`, `discovery`,
+`auth` and common/query/document `parameters`. The new optional fields do not
+replace the stored compatibility fields. Parameter JSON is nonsecret request
+configuration; authentication credentials remain in the separate encrypted
+credential value.
+
+The endpoint resolver accepts a service root, API root or complete endpoint and
+preserves proxy path prefixes and query parameters. A complete endpoint is not
+suffixed a second time, known API roots receive only the protocol tail, and all
+other roots receive the protocol's canonical API path. URL userinfo, fragments
+and credential-looking query keys are rejected. An explicit discovery override
+can select another supported catalog URL or disable discovery with `none`.
+Ollama embedding requests use `/api/embed`; a failed request is not retried by
+an automatic legacy `/api/embeddings` route.
+
+| Protocol | Embedding request | Discovery |
+| --- | --- | --- |
+| OpenAI-compatible | `model` + `input`, float output | `GET /models` |
+| Ollama | `model` + `input`, no truncation | `GET /api/tags`, then selected `POST /api/show` |
+| TEI | `inputs`, no truncation | `GET /info` |
+| Cohere | `model` + `texts`, float output, no truncation | `GET /v1/models` filtered for embedding |
+| Voyage | `model` + `input`, float output, no truncation | manual model entry |
+| Gemini | per-input content and task type | `GET /models` with page/capability filtering |
+
+Authentication is `none`, bearer, or one validated custom header. Credentials
+remain encrypted and separate from the connection snapshot. Protocol adapters
+own native envelope, body and response parsing; common parameters are merged
+before purpose parameters, and user parameters cannot override model, input,
+dimension, output-format or truncation ownership. Ollama `truncate: false`,
+Cohere `truncate: "NONE"`, Voyage `truncation: false`, and equivalent protocol
+fields prevent silent query shortening.
+
+Requests are split serially at protocol capacity under one operation deadline.
+The current adapter capacities are 256 inputs for OpenAI-compatible, Ollama and
+TEI, 96 for Cohere, 128 for Voyage, and 100 for Gemini. Queries try each selected
+compatible service once. Each protocol-sized document segment has at most three
+total attempts including fallback, and retry delays consume the same deadline.
+Authentication, model and configuration failures are not retried on the same
+service. Every native response must produce one associated vector per input;
+every coordinate must round-trip as a finite float32 value at the expected
+dimension and the vector norm must be nonzero. Vectors are held until every
+split segment succeeds, so a failed segment returns no successful prefix.
+
+`EncodingIdentity` keeps its model, actual dimension, query prefix and document
+prefix and may add `encodingOptionsKey`. The key is a canonical JSON hash of the
+effective query/document parameter pair, including protocol purpose defaults and
+common parameters, after adapter-owned fields are excluded. Endpoint,
+credential, connection name and discovery do not enter the identity. When the
+effective option pair is empty, OpenAI-compatible and Ollama identities keep the
+legacy four-field form and omit the key. Rust accepts an optional key and omits
+it when absent; no SQL migration is required, but the Host and sidecar contract
+must ship together.
+
+Connection-test invalidation uses a separate request-configuration key rather
+than `encodingOptionsKey`. It hashes request-affecting saved configuration,
+including endpoint and authentication, with the encrypted credential revision.
+Display identity and discovery-only fields are excluded. A changed endpoint or
+credential therefore invalidates a prior test without changing a compatible
+index identity. An older probe for the same request configuration cannot
+overwrite a newer successful result.
+
+Model discovery is explicit and draft-scoped. It can use an unsaved connection
+draft and a credential entered for that draft. OpenAI, Ollama, TEI, Cohere and
+Gemini expose only catalog-returned identifiers and do not guess unreturned
+models. One shared 15-second budget allows at most 20 pages and 1,000 unique
+entries; completed rows remain as an explicit partial result when a later page,
+deadline, cancellation or bound is reached. Canceled, dropped or late responses
+cannot update the current or another draft. Failures retain the draft and
+expose fixed diagnostics without raw response bodies or credentials. Voyage,
+Jina and Azure deployment names remain manual. An Ollama `show` dimensional
+hint is information only; it does not populate the requested output dimension.
+The actual dimension is established by an explicit synthetic probe.
+
+Save-and-test is one explicit operation. The current path validates the draft,
+saves the supplied encrypted credential, then saves the nonsecret configuration
+before launching fixed synthetic query and document probes. A failed probe
+leaves no new or updated index and marks the saved identity untested. Success
+records the request-configuration key and credential revision, and a change to
+either invalidates old success. Late responses are discarded by owner/version.
+Fallback services are filtered by the full effective encoding identity before
+primary/fallback order is applied. The complete draft and selection are
+validated before either mutation; a persistence failure restores the previous
+configuration and encrypted credential and does not start the probe. The
+focused regression covers that rollback. Writes for different connections are
+serialized so one save cannot lose another connection's credential-list entry;
+their probes remain outside that write queue and may overlap.
+
+The preset catalog contains six protocol service templates, the LM Studio,
+vLLM, Xinference, Azure OpenAI and Jina provider presets, and local templates
+for `qwen3-embedding:0.6b` and `qwen3-embedding:4b`. Presets fill a new unsaved
+draft only and start no request, save, primary/fallback selection, enable, test,
+activation or index work.
+
+Combined verification passed 104 tests (UI 49, provider/preferences 43, Home
+12) with two pre-existing pending tests: runtime default and context
+`openDashboard`. The new model-filter test is covered by an existing UI case.
+The Node `synthesis-workbench` shard passed 272 items
+in 31.6 seconds and `synthesis-application` passed 181 items in 41.5 seconds.
+Rust evidence covers 31 retrieval and four identity tests and one native
+embedding test. A native production run passed 43 tests in eight minutes,
+covering 121 retrieval and 92 embedding cases. The standalone full checker
+returned `ok: false` with no errors but missing current execution evidence and
+broad coverage because its identity includes actively changed tests. The full
+aggregate therefore remains incomplete and is not claimed green. Root and
+Synthesis TypeScript checks pass, and contracts including canonical validators
+pass. These checks use
+controlled HTTP, preference state and fake DOM; live provider endpoints and the
+real interactive Preferences GUI remain unexercised. All 11 locale catalogs and
+localization governance pass. The two main specs have
+been synced from the active change while implementation and deployment
+acceptance remain separate.
+
+The seven-platform artifacts are stale against the current source fingerprint.
+XPI and real-Zotero acceptance are therefore blocked until authorized source
+publication and a remote prebuild produce current artifacts. Code completion
+and controlled tests do not establish packaging or real-host acceptance.

@@ -9,11 +9,54 @@ import {
 } from "../../../packages/synthesis-contracts/src";
 import {
   resolveNativeAbortControllerConstructor,
+  waitForBoundedPromise,
   type CancellationSignal,
 } from "../../utils/wait";
+import {
+  synthesisEmbeddingRequestUrl,
+  synthesisEmbeddingHeaders,
+  synthesisEmbeddingBody,
+  getSynthesisEmbeddingEncodingOptionsKey,
+  validateSynthesisEmbeddingConnection,
+} from "./synthesisEmbeddingProtocol";
+export {
+  resolveSynthesisEmbeddingEndpoints,
+  getSynthesisEmbeddingEncodingOptionsKey,
+} from "./synthesisEmbeddingProtocol";
+import {
+  discoverSynthesisEmbeddingModelsWithClient,
+  inspectSynthesisEmbeddingModelWithClient,
+} from "./synthesisEmbeddingDiscovery";
+export type {
+  SynthesisEmbeddingDiscoveryResult,
+  SynthesisEmbeddingModel,
+} from "./synthesisEmbeddingDiscovery";
+export async function discoverSynthesisEmbeddingModels(
+  args: Omit<
+    Parameters<typeof discoverSynthesisEmbeddingModelsWithClient>[0],
+    "client"
+  > & { client?: SynthesisEmbeddingHttpClient },
+) {
+  return discoverSynthesisEmbeddingModelsWithClient({
+    ...args,
+    client: args.client ?? createSynthesisEmbeddingHttpClient(),
+  });
+}
+export async function inspectSynthesisEmbeddingModel(
+  args: Omit<
+    Parameters<typeof inspectSynthesisEmbeddingModelWithClient>[0],
+    "client"
+  > & { client?: SynthesisEmbeddingHttpClient },
+) {
+  return inspectSynthesisEmbeddingModelWithClient({
+    ...args,
+    client: args.client ?? createSynthesisEmbeddingHttpClient(),
+  });
+}
 
 export type SynthesisEmbeddingHttpRequest = {
   url: string;
+  method?: "GET" | "POST";
   headers: Record<string, string>;
   body: string;
   timeoutMs: number;
@@ -90,17 +133,82 @@ export const SYNTHESIS_EMBEDDING_VERIFIED_PRESETS: SynthesisEmbeddingPreset[] =
       modelId: "qwen3-embedding:4b",
       baseUrl: "http://127.0.0.1:11434",
     }),
-    qwen3Preset({
-      id: "ollama-qwen3-embedding-0.6b-remote",
-      modelId: "qwen3-embedding:0.6b",
-      baseUrl: "http://192.168.13.11:11434",
-    }),
-    qwen3Preset({
-      id: "ollama-qwen3-embedding-4b-remote",
-      modelId: "qwen3-embedding:4b",
-      baseUrl: "http://192.168.13.11:11434",
-    }),
   ];
+
+export const SYNTHESIS_EMBEDDING_PRESETS: SynthesisEmbeddingPreset[] = [
+  ...SYNTHESIS_EMBEDDING_VERIFIED_PRESETS,
+  ...(
+    [
+      [
+        "openai",
+        "OpenAI",
+        "openai",
+        "https://api.openai.com/v1",
+        "text-embedding-3-small",
+      ],
+      ["ollama", "Ollama", "ollama", "http://127.0.0.1:11434", ""],
+      ["lm-studio", "LM Studio", "openai", "http://127.0.0.1:1234/v1", ""],
+      ["vllm", "vLLM", "openai", "http://127.0.0.1:8000/v1", ""],
+      ["xinference", "Xinference", "openai", "http://127.0.0.1:9997/v1", ""],
+      ["tei", "TEI", "tei", "http://127.0.0.1:8080", ""],
+      ["cohere", "Cohere", "cohere", "https://api.cohere.com/v2", "embed-v4.0"],
+      [
+        "voyage",
+        "Voyage",
+        "voyage",
+        "https://api.voyageai.com/v1",
+        "voyage-3.5",
+      ],
+      [
+        "gemini",
+        "Gemini",
+        "gemini",
+        "https://generativelanguage.googleapis.com/v1beta",
+        "gemini-embedding-001",
+      ],
+      ["azure", "Azure OpenAI", "openai", "", ""],
+      [
+        "jina",
+        "Jina",
+        "openai",
+        "https://api.jina.ai/v1",
+        "jina-embeddings-v3",
+      ],
+    ] as const
+  ).map(([id, name, protocol, baseUrl, modelId]) => ({
+    id,
+    name,
+    connection: {
+      protocol,
+      baseUrl,
+      modelId,
+      queryPrefix: "",
+      documentPrefix: "",
+      auth:
+        protocol === "gemini"
+          ? { type: "header" as const, headerName: "x-goog-api-key" }
+          : { type: "bearer" as const },
+      discovery: {
+        protocol: protocol === "voyage" ? ("none" as const) : protocol,
+      },
+      ...(id === "azure"
+        ? {
+            auth: { type: "header" as const, headerName: "api-key" },
+            discovery: { protocol: "none" as const },
+          }
+        : {}),
+      ...(id === "jina"
+        ? {
+            discovery: { protocol: "none" as const },
+            parameters: {
+              query: { task: "retrieval.query" },
+              document: { task: "retrieval.passage" },
+            },
+          }
+        : {}),
+    },
+  })),
+];
 
 const RETRY_BASE_DELAY_MS = 250;
 const DOCUMENT_ATTEMPT_BUDGET = 3;
@@ -126,9 +234,10 @@ export function createSynthesisEmbeddingHttpClient(): SynthesisEmbeddingHttpClie
       const timer = setTimeout(abort, Math.max(1, args.timeoutMs));
       try {
         const response = await fetchImpl(args.url, {
-          method: "POST",
+          method: args.method ?? "POST",
           headers: args.headers,
-          body: args.body,
+          ...(args.method === "GET" ? {} : { body: args.body }),
+          redirect: "error",
           ...(controller ? { signal: controller.signal } : {}),
         });
         const responseHeaders: Record<string, string> = {};
@@ -157,49 +266,28 @@ function compatible(
     (connection.dimensions === undefined ||
       connection.dimensions === identity.dimensions) &&
     connection.queryPrefix === identity.queryPrefix &&
-    connection.documentPrefix === identity.documentPrefix
+    connection.documentPrefix === identity.documentPrefix &&
+    getSynthesisEmbeddingEncodingOptionsKey(connection) ===
+      identity.encodingOptionsKey
   );
 }
 
 function embeddingEndpoint(connection: SynthesisRetrievalConnection) {
-  const base = connection.baseUrl.replace(/\/+$/, "");
-  return connection.protocol === "openai"
-    ? `${base}/embeddings`
-    : `${base}/api/embed`;
+  return synthesisEmbeddingRequestUrl(connection);
 }
 
 function embeddingBody(args: {
   connection: SynthesisRetrievalConnection;
   inputs: string[];
+  purpose: SynthesisEmbeddingEncodePurpose;
 }): string {
-  if (args.connection.protocol === "openai") {
-    return JSON.stringify({
-      model: args.connection.modelId,
-      input: args.inputs,
-      ...(args.connection.dimensions === undefined
-        ? {}
-        : { dimensions: args.connection.dimensions }),
-    });
-  }
-  return JSON.stringify({
-    model: args.connection.modelId,
-    input: args.inputs,
-    truncate: false,
-    ...(args.connection.dimensions === undefined
-      ? {}
-      : { dimensions: args.connection.dimensions }),
-  });
+  return JSON.stringify(
+    synthesisEmbeddingBody(args.connection, args.inputs, args.purpose),
+  );
 }
 
 function embeddingHeaders(service: SynthesisEmbeddingService) {
-  const headers: Record<string, string> = {
-    "content-type": "application/json",
-  };
-  const credential = String(service.credential || "").trim();
-  if (credential && service.connection.protocol === "openai") {
-    headers.authorization = `Bearer ${credential}`;
-  }
-  return headers;
+  return synthesisEmbeddingHeaders(service.connection, service.credential);
 }
 
 type AssociationFailure = {
@@ -270,6 +358,7 @@ function openAiVectors(
 function ollamaVectors(
   text: string,
   count: number,
+  protocol: SynthesisRetrievalConnection["protocol"] = "ollama",
 ): number[][] | AssociationFailure {
   let parsed: unknown;
   try {
@@ -277,7 +366,16 @@ function ollamaVectors(
   } catch {
     return { retryable: true, message: "Embedding response is not JSON" };
   }
-  const embeddings = (parsed as { embeddings?: unknown })?.embeddings;
+  let embeddings =
+    protocol === "tei"
+      ? parsed
+      : (parsed as { embeddings?: unknown })?.embeddings;
+  if (protocol === "cohere")
+    embeddings = (embeddings as { float?: unknown })?.float;
+  if (protocol === "gemini" && Array.isArray(embeddings))
+    embeddings = embeddings.map(
+      (entry) => (entry as { values?: unknown })?.values,
+    );
   if (!Array.isArray(embeddings) || embeddings.length !== count) {
     return {
       retryable: true,
@@ -377,19 +475,28 @@ export function createSynthesisEmbeddingProvider(options?: {
     prefixedInputs: string[];
     timeoutMs: number;
     signal?: CancellationSignal;
+    purpose: SynthesisEmbeddingEncodePurpose;
   }): Promise<number[][] | AssociationFailure> {
     let response: SynthesisEmbeddingHttpResponse;
     try {
-      response = await client.request({
-        url: embeddingEndpoint(args.service.connection),
-        headers: embeddingHeaders(args.service),
-        body: embeddingBody({
-          connection: args.service.connection,
-          inputs: args.prefixedInputs,
+      response = await waitForBoundedPromise(
+        client.request({
+          url: embeddingEndpoint(args.service.connection),
+          headers: embeddingHeaders(args.service),
+          body: embeddingBody({
+            connection: args.service.connection,
+            inputs: args.prefixedInputs,
+            purpose: args.purpose,
+          }),
+          timeoutMs: args.timeoutMs,
+          signal: args.signal,
         }),
-        timeoutMs: args.timeoutMs,
-        signal: args.signal,
-      });
+        {
+          timeoutMs: args.timeoutMs,
+          signal: args.signal,
+          phase: "embedding_request",
+        },
+      );
     } catch (error) {
       if (args.signal?.aborted) {
         throw new SynthesisClientError(
@@ -399,8 +506,7 @@ export function createSynthesisEmbeddingProvider(options?: {
       }
       return {
         retryable: true,
-        message:
-          error instanceof Error ? error.message : "embedding_request_failed",
+        message: "embedding_request_failed",
       };
     }
     if (response.status < 200 || response.status >= 300) {
@@ -410,12 +516,16 @@ export function createSynthesisEmbeddingProvider(options?: {
         retryAfterMs: parseRetryAfterMs(response.headers),
       };
     }
-    return args.service.connection.protocol === "openai"
+    return ["openai", "voyage"].includes(args.service.connection.protocol)
       ? openAiVectors(response.text, args.prefixedInputs.length)
-      : ollamaVectors(response.text, args.prefixedInputs.length);
+      : ollamaVectors(
+          response.text,
+          args.prefixedInputs.length,
+          args.service.connection.protocol,
+        );
   }
 
-  async function encode(
+  async function encodeBatch(
     args: Parameters<SynthesisEmbeddingProvider["encode"]>[0],
   ): Promise<SynthesisEmbeddingEncodeResult> {
     const request = rebuildSynthesisEmbeddingEncodeRequest({
@@ -427,6 +537,8 @@ export function createSynthesisEmbeddingProvider(options?: {
     const services = args.services.filter((service) =>
       compatible(service.connection, request.identity),
     );
+    for (const service of services)
+      validateSynthesisEmbeddingConnection(service.connection);
     if (services.length === 0) {
       throw new SynthesisClientError(
         "unavailable",
@@ -468,6 +580,7 @@ export function createSynthesisEmbeddingProvider(options?: {
           prefixedInputs,
           timeoutMs: remaining,
           signal: args.signal,
+          purpose: request.purpose,
         });
         if (args.signal?.aborted || now() >= request.deadlineAtMs) {
           throw new SynthesisClientError(
@@ -534,9 +647,45 @@ export function createSynthesisEmbeddingProvider(options?: {
     );
   }
 
+  async function encode(
+    args: Parameters<SynthesisEmbeddingProvider["encode"]>[0],
+  ): Promise<SynthesisEmbeddingEncodeResult> {
+    const request = rebuildSynthesisEmbeddingEncodeRequest({
+      identity: args.identity,
+      purpose: args.purpose,
+      inputs: args.inputs,
+      deadlineAtMs: args.deadlineAtMs,
+    });
+    const matching = args.services.filter((service) =>
+      compatible(service.connection, request.identity),
+    );
+    const batchSize = Math.min(
+      256,
+      ...matching.map((service) =>
+        service.connection.protocol === "cohere"
+          ? 96
+          : service.connection.protocol === "gemini"
+            ? 100
+            : service.connection.protocol === "voyage"
+              ? 128
+              : 256,
+      ),
+    );
+    const vectors: number[][] = [];
+    for (let start = 0; start < args.inputs.length; start += batchSize) {
+      const result = await encodeBatch({
+        ...args,
+        inputs: args.inputs.slice(start, start + batchSize),
+      });
+      vectors.push(...result.vectors);
+    }
+    return { identity: request.identity, vectors };
+  }
+
   async function probe(
     args: Parameters<SynthesisEmbeddingProvider["probe"]>[0],
   ): Promise<SynthesisEmbeddingProbeResult> {
+    validateSynthesisEmbeddingConnection(args.connection);
     const startedAt = now();
     const deadlineAtMs = args.deadlineAtMs ?? now() + DEFAULT_PROBE_TIMEOUT_MS;
     const service: SynthesisEmbeddingService = {
@@ -566,7 +715,13 @@ export function createSynthesisEmbeddingProvider(options?: {
         ],
         timeoutMs: remaining,
         signal: args.signal,
+        purpose,
       });
+      if (args.signal?.aborted || now() >= deadlineAtMs)
+        throw new SynthesisClientError(
+          "timeout",
+          "Embedding test exceeded its budget",
+        );
       if (isFailure(vectors)) {
         throw new SynthesisClientError(
           "unavailable",
@@ -579,6 +734,14 @@ export function createSynthesisEmbeddingProvider(options?: {
     const queryVectors = await vectorsFor("query");
     const documentVectors = await vectorsFor("document");
     const dimensions = queryVectors[0].length;
+    if (
+      args.connection.dimensions !== undefined &&
+      dimensions !== args.connection.dimensions
+    )
+      throw new SynthesisClientError(
+        "unavailable",
+        "Embedding dimensions do not match configuration",
+      );
     for (const vector of [...queryVectors, ...documentVectors]) {
       if (vector.length !== dimensions) {
         throw new SynthesisClientError(

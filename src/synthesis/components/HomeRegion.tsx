@@ -1,6 +1,7 @@
 /** @jsxRuntime automatic */
 /** @jsxImportSource preact */
 import { memo } from "preact/compat";
+import { useLayoutEffect, useRef, useState } from "preact/hooks";
 
 import { equalBySignature } from "../../shared/regionEquality";
 import { SYNTHESIS_WORKBENCH_MESSAGE_KEYS } from "../../shared/synthesisWorkbenchI18nContract";
@@ -12,12 +13,10 @@ import type {
   SynthesisRetrievalStatus,
   SynthesisWorkbenchActionName,
   SynthesisWorkbenchMessageKey,
-  SynthesisWorkbenchRetrievalConnectionSnapshot,
-  SynthesisWorkbenchSyncDiagnostic,
 } from "../../shared/synthesisWorkbenchWireContract";
 
 // Home / overview surface of the synthesis workbench: library insight cards,
-// the WebDAV sync panel (summary, actions, feedback log, conflict review) and
+// compact sync/retrieval controls, conflict review dialog and
 // the top-topics grid. This file owns the surface's selection types, the
 // defensive narrowing from the wire snapshot (host-owned row slots arrive as
 // unknown) and the region component; the panel model calls
@@ -41,8 +40,6 @@ export type SynthesisWorkbenchHomeTopicRow = {
   id: string;
   title: string;
   definition: string;
-  summary: string;
-  markdownPreview: string;
   paperCount: number;
   sourceMaterialsPercent: number;
   sourceMaterialsStatus: "complete" | "partial" | "missing";
@@ -59,12 +56,6 @@ export type SynthesisWorkbenchHomeConflictAsset = {
   remoteHash: string;
 };
 
-export type SynthesisWorkbenchHomeConnectionTest = {
-  ok: boolean;
-  testedAt: string;
-  diagnostics: SynthesisWorkbenchSyncDiagnostic[];
-};
-
 export type SynthesisWorkbenchHomeSyncSelection = {
   queueState: string;
   paused: boolean;
@@ -74,40 +65,7 @@ export type SynthesisWorkbenchHomeSyncSelection = {
   remotePath: string;
   allowedActions: string[];
   conflictActions: string[];
-  rootDiagnostics: SynthesisWorkbenchSyncDiagnostic[];
-  diagnostics: SynthesisWorkbenchSyncDiagnostic[];
-  connectionTest?: SynthesisWorkbenchHomeConnectionTest;
-  lastRunStatus: string;
-  lastRunAt: string;
   conflictAssets: SynthesisWorkbenchHomeConflictAsset[];
-};
-
-export type SynthesisWorkbenchHomeSyncLogEntry = {
-  command: string;
-  label: string;
-  message?: string;
-};
-
-export type SynthesisWorkbenchHomeSyncLogSelection = {
-  // Whether the host reports any in-flight operation at all (sync or not);
-  // gates the local-pending fallback line exactly like the legacy page.
-  anyInFlight: boolean;
-  inFlight: SynthesisWorkbenchHomeSyncLogEntry[];
-  lastFailed?: SynthesisWorkbenchHomeSyncLogEntry;
-  lastCompleted?: SynthesisWorkbenchHomeSyncLogEntry;
-};
-
-/** Nonsecret connection row plus the selection flags the Home surface shows. */
-export type SynthesisWorkbenchHomeRetrievalConnection =
-  SynthesisWorkbenchRetrievalConnectionSnapshot & {
-    primary: boolean;
-    fallback: boolean;
-  };
-
-export type SynthesisWorkbenchHomeRetrievalIssue = {
-  code: string;
-  sourceKind: string;
-  affectedCount: number;
 };
 
 /** UI projection of the latest public maintenance operation for retrieval. */
@@ -115,29 +73,19 @@ export type SynthesisWorkbenchHomeRetrievalMaintenance = {
   operationId: string;
   status: "pending" | "running" | "completed" | "failed" | "canceled";
   phase?: string;
-  message?: string;
 };
 
 export type SynthesisWorkbenchHomeRetrievalSelection = {
-  // Whether the host reported a retrieval section at all; an absent section
-  // keeps the previous Home state instead of rendering an empty form.
-  present: boolean;
   enabled: boolean;
   status: SynthesisRetrievalStatus;
-  activeIdentity?: SynthesisEncodingIdentity;
   pendingIdentity?: SynthesisEncodingIdentity;
   activeScope?: SynthesisRetrievalScope;
   pendingScope?: SynthesisRetrievalScope;
   publication: string;
-  progress: SynthesisRetrievalProgress;
-  updatedAt: string;
-  issues: SynthesisWorkbenchHomeRetrievalIssue[];
-  connections: SynthesisWorkbenchHomeRetrievalConnection[];
-  primaryConnectionId: string;
-  fallbackConnectionIds: string[];
+  progress: Omit<SynthesisRetrievalProgress, "completedFragments">;
+  issueCount: number;
+  configured: boolean;
   maintenance?: SynthesisWorkbenchHomeRetrievalMaintenance;
-  // Changes when the nonsecret configuration changes; reseeds the local form.
-  formKey: string;
 };
 
 export type SynthesisWorkbenchHomeSelection = {
@@ -152,12 +100,11 @@ export type SynthesisWorkbenchHomeSelection = {
     reviewTopicGraphCount: number;
   };
   sync: SynthesisWorkbenchHomeSyncSelection;
-  syncLog: SynthesisWorkbenchHomeSyncLogSelection;
   retrieval: SynthesisWorkbenchHomeRetrievalSelection;
   // Operation keys (legacy operationKey vocabulary) currently pending, scoped
   // to the commands this surface renders buttons for; drives busy/disabled.
   pendingOperationKeys: string[];
-  topics: SynthesisWorkbenchHomeTopicRow[];
+  topics: Omit<SynthesisWorkbenchHomeTopicRow, "updatedAt">[];
 };
 
 // ---------------------------------------------------------------------------
@@ -202,8 +149,6 @@ const SYNC_OPERATION_COMMANDS = [
 // Retrieval commands the Home surface renders pending-aware buttons for. The
 // per-paper recommend command belongs to the reader surface and is excluded.
 const RETRIEVAL_COMMANDS = [
-  "retrievalSaveSettings",
-  "retrievalTestConnection",
   "retrievalBuildIndex",
   "retrievalRebuildIndex",
   "retrievalUpdateIndex",
@@ -216,10 +161,7 @@ const RETRIEVAL_COMMANDS = [
 // Commands this surface renders pending-aware buttons for. Topic cards use
 // openTopicArtifact:<topicId> keys; every other relevant command keys on the
 // bare command name (legacy operationKey default branch).
-const PENDING_COMMAND_PREFIXES = [
-  "openTopicArtifact:",
-  "retrievalTestConnection:",
-];
+const PENDING_COMMAND_PREFIXES = ["openTopicArtifact:"];
 const PENDING_COMMANDS = [
   ...SYNC_OPERATION_COMMANDS,
   ...RETRIEVAL_COMMANDS,
@@ -262,17 +204,6 @@ function stringList(value: unknown): string[] {
     : [];
 }
 
-function narrowDiagnostics(value: unknown): SynthesisWorkbenchSyncDiagnostic[] {
-  return recordArray(value).map((entry) => ({
-    code: textOf(entry.code),
-    severity:
-      entry.severity === "error" || entry.severity === "warning"
-        ? entry.severity
-        : "info",
-    message: textOf(entry.message),
-  }));
-}
-
 export function narrowSynthesisWorkbenchHomeTopicRow(
   value: unknown,
 ): SynthesisWorkbenchHomeTopicRow | null {
@@ -282,8 +213,6 @@ export function narrowSynthesisWorkbenchHomeTopicRow(
     id: textOf(value.id),
     title: textOf(value.title),
     definition: textOf(value.definition),
-    summary: textOf(value.summary),
-    markdownPreview: textOf(value.markdown_preview),
     paperCount: countOf(value.paper_count),
     sourceMaterialsPercent: percentOf(value.source_materials_percent),
     sourceMaterialsStatus:
@@ -299,19 +228,6 @@ function openReviewRowCount(value: unknown): number {
     .length;
 }
 
-function narrowSyncOperationEntry(
-  value: unknown,
-): SynthesisWorkbenchHomeSyncLogEntry | undefined {
-  if (!isRecord(value)) return undefined;
-  const command = textOf(value.command);
-  if (!SYNC_OPERATION_COMMANDS.includes(command)) return undefined;
-  return {
-    command,
-    label: textOf(value.label),
-    message: textOf(value.message) || undefined,
-  };
-}
-
 function isPendingKeyRelevant(key: string): boolean {
   return (
     PENDING_COMMANDS.includes(key) ||
@@ -324,27 +240,19 @@ function narrowSyncSelection(
 ): SynthesisWorkbenchHomeSyncSelection {
   const root = isRecord(sync) ? sync : {};
   const webdav = isRecord(root.webdav) ? root.webdav : {};
-  const connectionTest = isRecord(webdav.connection_test)
-    ? {
-        ok: webdav.connection_test.ok === true,
-        testedAt: textOf(webdav.connection_test.tested_at),
-        diagnostics: narrowDiagnostics(webdav.connection_test.diagnostics),
-      }
-    : undefined;
   return {
     queueState: textOf(webdav.queue_state),
     paused: webdav.paused === true,
     adapterConfigured: webdav.adapter_configured === true,
     configStatus: textOf(webdav.config_status),
-    baseUrl: textOf(webdav.base_url),
-    remotePath: textOf(webdav.remote_path),
+    baseUrl:
+      webdav.queue_state === "blocked_conflict" ? textOf(webdav.base_url) : "",
+    remotePath:
+      webdav.queue_state === "blocked_conflict"
+        ? textOf(webdav.remote_path)
+        : "",
     allowedActions: stringList(webdav.allowedActions),
     conflictActions: stringList(webdav.conflictActions),
-    rootDiagnostics: narrowDiagnostics(root.diagnostics),
-    diagnostics: narrowDiagnostics(webdav.diagnostics),
-    connectionTest,
-    lastRunStatus: textOf(webdav.last_run_status),
-    lastRunAt: textOf(webdav.last_run_at),
     conflictAssets: recordArray(webdav.conflict_assets).map((asset) => ({
       assetPath: textOf(asset.asset_path),
       reason: textOf(asset.reason),
@@ -371,6 +279,9 @@ function narrowRetrievalIdentity(
     dimensions,
     queryPrefix: rawTextOf(value.queryPrefix),
     documentPrefix: rawTextOf(value.documentPrefix),
+    ...(typeof value.encodingOptionsKey === "string"
+      ? { encodingOptionsKey: value.encodingOptionsKey }
+      : {}),
   };
 }
 
@@ -393,25 +304,16 @@ function narrowRetrievalScope(
   };
 }
 
-function narrowRetrievalProgress(value: unknown): SynthesisRetrievalProgress {
+function narrowRetrievalProgress(
+  value: unknown,
+): SynthesisWorkbenchHomeRetrievalSelection["progress"] {
   const row = isRecord(value) ? value : {};
   return {
     completedGroups: countOf(row.completedGroups),
     totalGroups: countOf(row.totalGroups),
-    completedFragments: countOf(row.completedFragments),
     failedGroups: countOf(row.failedGroups),
     missingGroups: countOf(row.missingGroups),
   };
-}
-
-function narrowRetrievalIssues(
-  value: unknown,
-): SynthesisWorkbenchHomeRetrievalIssue[] {
-  return recordArray(value).map((entry) => ({
-    code: textOf(entry.code),
-    sourceKind: textOf(entry.sourceKind),
-    affectedCount: countOf(entry.affectedCount),
-  }));
 }
 
 function narrowRetrievalMaintenance(
@@ -435,8 +337,10 @@ function narrowRetrievalMaintenance(
                 status === "not_found"
               ? "failed"
               : "pending",
-    phase: textOf(value.phase) || undefined,
-    message: textOf(value.message) || undefined,
+    phase:
+      value.phase === "continuation_required"
+        ? "continuation_required"
+        : undefined,
   };
 }
 
@@ -448,62 +352,19 @@ export function narrowSynthesisWorkbenchHomeRetrieval(
     ? (value as Record<string, unknown>)
     : {};
   const status = textOf(row.status);
-  const primaryConnectionId = textOf(row.primaryConnectionId);
-  const fallbackConnectionIds = stringList(row.fallbackConnectionIds);
-  const connections = recordArray(row.connections).map(
-    (entry): SynthesisWorkbenchHomeRetrievalConnection => {
-      const id = textOf(entry.id);
-      const dimensions = Number(entry.dimensions);
-      return {
-        id,
-        name: textOf(entry.name) || id,
-        protocol: entry.protocol === "ollama" ? "ollama" : "openai",
-        baseUrl: textOf(entry.baseUrl),
-        modelId: textOf(entry.modelId),
-        queryPrefix: rawTextOf(entry.queryPrefix),
-        documentPrefix: rawTextOf(entry.documentPrefix),
-        dimensions:
-          Number.isFinite(dimensions) && dimensions > 0
-            ? Math.floor(dimensions)
-            : undefined,
-        tested: entry.tested === true,
-        primary: id !== "" && id === primaryConnectionId,
-        fallback: fallbackConnectionIds.includes(id),
-      };
-    },
-  );
   const activeScope = narrowRetrievalScope(row.activeScope);
   const pendingScope = narrowRetrievalScope(row.pendingScope);
   return {
-    present,
     enabled: row.enabled === true,
     status: status === "ready" || status === "paused" ? status : "missing",
-    activeIdentity: narrowRetrievalIdentity(row.activeIdentity),
     pendingIdentity: narrowRetrievalIdentity(row.pendingIdentity),
     activeScope,
     pendingScope,
     publication: textOf(row.publication),
     progress: narrowRetrievalProgress(row.progress),
-    updatedAt: textOf(row.updatedAt),
-    issues: narrowRetrievalIssues(row.issues),
-    connections,
-    primaryConnectionId,
-    fallbackConnectionIds,
+    issueCount: recordArray(row.issues).length,
+    configured: recordArray(row.connections).length > 0,
     maintenance: narrowRetrievalMaintenance(row.maintenance),
-    formKey: JSON.stringify({
-      connections: connections.map((connection) => [
-        connection.id,
-        connection.name,
-        connection.protocol,
-        connection.baseUrl,
-        connection.modelId,
-        connection.queryPrefix,
-        connection.documentPrefix,
-      ]),
-      primaryConnectionId,
-      fallbackConnectionIds,
-      pendingScope,
-    }),
   };
 }
 
@@ -572,19 +433,13 @@ export function projectSynthesisWorkbenchHomeSelection(
       reviewTopicGraphCount: topicGraphCount,
     },
     sync: narrowSyncSelection(snapshot.sync),
-    syncLog: {
-      anyInFlight: inFlightRows.length > 0,
-      inFlight: inFlightRows
-        .map(narrowSyncOperationEntry)
-        .filter(
-          (entry): entry is SynthesisWorkbenchHomeSyncLogEntry => !!entry,
-        ),
-      lastFailed: narrowSyncOperationEntry(snapshot.actions?.lastFailed),
-      lastCompleted: narrowSyncOperationEntry(snapshot.actions?.lastCompleted),
-    },
     retrieval: narrowSynthesisWorkbenchHomeRetrieval(snapshot.retrieval),
     pendingOperationKeys: Array.from(pendingKeys).sort(),
-    topics,
+    topics: topics.map((topic) => {
+      const { updatedAt, ...visible } = topic;
+      void updatedAt;
+      return visible;
+    }),
   };
 }
 
@@ -629,7 +484,7 @@ function freshnessTone(value: string) {
 
 function sourceMaterialsLabel(
   t: SynthesisWorkbenchHomeText,
-  row: SynthesisWorkbenchHomeTopicRow,
+  row: Omit<SynthesisWorkbenchHomeTopicRow, "updatedAt">,
 ) {
   if (row.sourceMaterialsStatus === "complete") {
     return t("synthesis-source-materials-ready");
@@ -652,14 +507,9 @@ type RegionProps = {
   onAction: SynthesisWorkbenchHomeAction;
 };
 
-function InsightCard(props: {
-  label: string;
-  value: number;
-  detail: string;
-  tone?: string;
-}) {
+function InsightCard(props: { label: string; value: number; detail: string }) {
   return (
-    <div class={`insight-card ${props.tone || ""}`.trim()}>
+    <div class="insight-card">
       <span class="insight-label">{props.label}</span>
       <strong class="insight-value">{String(props.value)}</strong>
       <span class="insight-detail">{props.detail}</span>
@@ -673,6 +523,8 @@ function CommandButton(props: {
   args?: Record<string, unknown>;
   disabled?: boolean;
   pending: boolean;
+  primary?: boolean;
+  icon?: string;
   t: SynthesisWorkbenchHomeText;
   onAction: SynthesisWorkbenchHomeAction;
 }) {
@@ -680,7 +532,7 @@ function CommandButton(props: {
   return (
     <button
       type="button"
-      class={busy ? "is-busy" : ""}
+      class={[props.primary ? "primary" : "", busy ? "is-busy" : ""].join(" ")}
       disabled={props.disabled || busy}
       aria-busy={busy ? "true" : undefined}
       title={
@@ -699,130 +551,13 @@ function CommandButton(props: {
         )
       }
     >
-      {busy ? <span class="button-spinner" aria-hidden="true" /> : null}
+      {busy ? (
+        <span class="button-spinner" aria-hidden="true" />
+      ) : props.icon ? (
+        <span class={`zs-icon zs-icon-sm ${props.icon}`} aria-hidden="true" />
+      ) : null}
       {props.label}
     </button>
-  );
-}
-
-type SyncLogLine = {
-  level: "info" | "ok" | "warn" | "error";
-  source: string;
-  message: string;
-};
-
-function diagnosticLevel(
-  severity: SynthesisWorkbenchSyncDiagnostic["severity"],
-): SyncLogLine["level"] {
-  if (severity === "error") return "error";
-  if (severity === "warning") return "warn";
-  return "info";
-}
-
-function buildSyncLogLines(
-  selection: SynthesisWorkbenchHomeSelection,
-  t: SynthesisWorkbenchHomeText,
-): SyncLogLine[] {
-  const lines: SyncLogLine[] = [];
-  const { sync, syncLog } = selection;
-  for (const entry of syncLog.inFlight) {
-    lines.push({
-      level: "info",
-      source: t("synthesis-sync-log-pending"),
-      message: `${entry.label || entry.command} ${t(
-        "synthesis-sync-log-running",
-      )}`,
-    });
-  }
-  const syncPending =
-    selection.pendingOperationKeys.includes("syncWebDavNow") ||
-    selection.pendingOperationKeys.includes("retryWebDavSync");
-  if (syncPending && !syncLog.anyInFlight) {
-    lines.push({
-      level: "info",
-      source: t("synthesis-sync-log-pending"),
-      message: t("synthesis-sync-log-webdav-running"),
-    });
-  }
-  if (syncLog.lastFailed) {
-    lines.push({
-      level: "error",
-      source: t("synthesis-sync-log-failed"),
-      message: `${syncLog.lastFailed.label || syncLog.lastFailed.command}: ${
-        syncLog.lastFailed.message || t("synthesis-sync-log-failed")
-      }`,
-    });
-  }
-  if (syncLog.lastCompleted) {
-    lines.push({
-      level: "ok",
-      source: t("synthesis-sync-log-completed"),
-      message: `${
-        syncLog.lastCompleted.label || syncLog.lastCompleted.command
-      } ${t("synthesis-sync-log-completed")}`,
-    });
-  }
-  [...sync.rootDiagnostics, ...sync.diagnostics]
-    .slice(0, 6)
-    .forEach((entry) => {
-      lines.push({
-        level: diagnosticLevel(entry.severity),
-        source: t("synthesis-sync-log-diagnostic"),
-        message: `${entry.code}: ${entry.message}`,
-      });
-    });
-  const connectionTest = sync.connectionTest;
-  if (connectionTest) {
-    lines.push({
-      level: connectionTest.ok ? "ok" : "warn",
-      source: t("synthesis-sync-log-connection"),
-      message: `${
-        connectionTest.ok
-          ? t("synthesis-sync-log-ready")
-          : t("synthesis-sync-log-not-ready")
-      } ${connectionTest.testedAt}`.trim(),
-    });
-    connectionTest.diagnostics.slice(0, 3).forEach((entry) => {
-      lines.push({
-        level: entry.severity === "error" ? "error" : "warn",
-        source: t("synthesis-sync-log-connection"),
-        message: `${entry.code}: ${entry.message}`,
-      });
-    });
-  }
-  if (sync.lastRunStatus || sync.lastRunAt) {
-    lines.push({
-      level: sync.lastRunStatus.startsWith("failed") ? "error" : "info",
-      source: t("synthesis-sync-log-last-run"),
-      message: `${
-        sync.lastRunStatus || t("synthesis-sync-log-unknown")
-      } ${sync.lastRunAt}`.trim(),
-    });
-  }
-  if (!lines.length) {
-    lines.push({
-      level: "info",
-      source: t("synthesis-home-sync"),
-      message: t("synthesis-sync-log-no-activity"),
-    });
-  }
-  return lines;
-}
-
-function SyncFeedbackLog(props: {
-  selection: SynthesisWorkbenchHomeSelection;
-  t: SynthesisWorkbenchHomeText;
-}) {
-  const lines = buildSyncLogLines(props.selection, props.t);
-  return (
-    <div class="sync-feedback-terminal">
-      {lines.map((line, index) => (
-        <div class={`sync-log-line sync-log-level-${line.level}`} key={index}>
-          <span class="sync-log-source">{line.source}</span>
-          <span class="sync-log-message">{line.message}</span>
-        </div>
-      ))}
-    </div>
   );
 }
 
@@ -914,79 +649,108 @@ function SyncConflictPanel(props: {
   );
 }
 
+function syncState(
+  sync: SynthesisWorkbenchHomeSyncSelection,
+  pending: string[],
+) {
+  if (sync.configStatus === "disabled")
+    return { key: "synthesis-sync-state-disabled", tone: "warning" } as const;
+  if (!sync.adapterConfigured)
+    return { key: "synthesis-sync-not-configured", tone: "warning" } as const;
+  if (sync.queueState === "blocked_conflict")
+    return { key: "synthesis-sync-state-conflict", tone: "danger" } as const;
+  if (
+    sync.queueState === "syncing" ||
+    pending.includes("syncWebDavNow") ||
+    pending.includes("retryWebDavSync")
+  )
+    return { key: "synthesis-sync-state-syncing", tone: "accent" } as const;
+  if (sync.paused)
+    return { key: "synthesis-sync-paused", tone: "warning" } as const;
+  if (sync.queueState === "disabled")
+    return { key: "synthesis-sync-state-disabled", tone: "warning" } as const;
+  if (sync.queueState.startsWith("failed"))
+    return { key: "synthesis-status-failed", tone: "danger" } as const;
+  if (sync.queueState === "queued")
+    return { key: "synthesis-sync-state-queued", tone: "accent" } as const;
+  return { key: "synthesis-status-ready", tone: "success" } as const;
+}
+
 function SyncPanel(props: RegionProps) {
   const { selection, t, onAction } = props;
   const sync = selection.sync;
   const allowed = sync.allowedActions;
   const pending = selection.pendingOperationKeys;
+  const state = syncState(sync, pending);
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const conflicted =
+    sync.queueState === "blocked_conflict" && sync.conflictAssets.length > 0;
+
+  useLayoutEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    if (reviewOpen && conflicted) {
+      if (!dialog.open) dialog.showModal();
+    } else {
+      if (dialog.open) dialog.close();
+      if (reviewOpen) setReviewOpen(false);
+    }
+  }, [reviewOpen, conflicted]);
+
+  const closeReview = () => {
+    dialogRef.current?.close();
+    setReviewOpen(false);
+    triggerRef.current?.focus();
+  };
+
   return (
-    <section class="workspace-section sync-panel">
-      <div class="section-heading">
-        <h2>{t("synthesis-home-sync")}</h2>
-      </div>
-      <div class="sync-summary">
-        <div class="sync-summary-item">
-          <span class="sync-summary-label">
-            {t("synthesis-sync-webdav-exchange")}
-          </span>
-          <strong class="sync-summary-value">
-            {sync.queueState || "disabled"}
-          </strong>
-          <span class="sync-summary-detail">
-            {sync.configStatus
-              ? t("synthesis-sync-config", { status: sync.configStatus })
-              : sync.paused
-                ? t("synthesis-sync-paused")
-                : t("synthesis-sync-webdav-exchange-detail")}
-          </span>
+    <section
+      class="home-service-card sync-panel"
+      aria-labelledby="home-sync-title"
+    >
+      <div class="home-service-heading">
+        <div class="home-service-title">
+          <span class="zs-icon zs-icon-inventory-2" aria-hidden="true" />
+          <h3 id="home-sync-title">{t("synthesis-home-sync")}</h3>
         </div>
-        <div class="sync-summary-item">
-          <span class="sync-summary-label">{t("synthesis-sync-remote")}</span>
-          <strong class="sync-summary-value">
-            {sync.remotePath || t("synthesis-sync-not-configured")}
+        <div class="home-service-state" role="status">
+          <strong class={`zs-badge zs-badge--${state.tone}`}>
+            {t(state.key)}
           </strong>
-          <span class="sync-summary-detail">
-            {sync.baseUrl || t("synthesis-sync-remote-detail")}
-          </span>
         </div>
       </div>
-      <div class="toolbar">
-        {!sync.adapterConfigured ? (
+      {sync.adapterConfigured ? (
+        <div class="toolbar home-service-actions">
           <CommandButton
-            label={t("synthesis-action-open-preferences")}
-            command="openPreferences"
-            pending={pending.includes("openPreferences")}
+            label={t("synthesis-action-webdav-sync-now")}
+            command="syncWebDavNow"
+            primary
+            disabled={!allowed.includes("syncWebDavNow")}
+            pending={pending.includes("syncWebDavNow")}
             t={t}
             onAction={onAction}
           />
-        ) : (
-          <>
-            <CommandButton
-              label={t("synthesis-action-webdav-sync-now")}
-              command="syncWebDavNow"
-              disabled={!allowed.includes("syncWebDavNow")}
-              pending={pending.includes("syncWebDavNow")}
-              t={t}
-              onAction={onAction}
-            />
-            <CommandButton
-              label={
-                sync.paused
-                  ? t("synthesis-action-resume-webdav-sync")
-                  : t("synthesis-action-pause-webdav-sync")
-              }
-              command={sync.paused ? "resumeWebDavSync" : "pauseWebDavSync"}
-              disabled={
-                sync.paused
-                  ? !allowed.includes("resumeWebDavSync")
-                  : !allowed.includes("pauseWebDavSync")
-              }
-              pending={pending.includes(
+          <CommandButton
+            label={t(
+              sync.paused
+                ? "synthesis-action-resume-webdav-sync"
+                : "synthesis-action-pause-webdav-sync",
+            )}
+            command={sync.paused ? "resumeWebDavSync" : "pauseWebDavSync"}
+            disabled={
+              !allowed.includes(
                 sync.paused ? "resumeWebDavSync" : "pauseWebDavSync",
-              )}
-              t={t}
-              onAction={onAction}
-            />
+              )
+            }
+            pending={pending.includes(
+              sync.paused ? "resumeWebDavSync" : "pauseWebDavSync",
+            )}
+            t={t}
+            onAction={onAction}
+          />
+          {sync.queueState.startsWith("failed") ? (
             <CommandButton
               label={t("synthesis-action-retry-webdav-sync")}
               command="retryWebDavSync"
@@ -995,22 +759,58 @@ function SyncPanel(props: RegionProps) {
               t={t}
               onAction={onAction}
             />
+          ) : null}
+          {conflicted ? (
+            <button
+              type="button"
+              ref={triggerRef}
+              onClick={() => setReviewOpen(true)}
+            >
+              {t("synthesis-action-resolve-sync-conflict")}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+      <dialog
+        ref={dialogRef}
+        class="home-conflict-dialog"
+        aria-labelledby="home-conflict-title"
+        onCancel={(event) => {
+          event.preventDefault();
+          closeReview();
+        }}
+        onClose={() => {
+          setReviewOpen(false);
+          triggerRef.current?.focus();
+        }}
+      >
+        {reviewOpen && conflicted ? (
+          <>
+            <div class="home-conflict-header">
+              <h2 id="home-conflict-title">
+                {t("synthesis-sync-conflict-title")}
+              </h2>
+              <button type="button" onClick={closeReview} autoFocus>
+                {t("synthesis-action-close")}
+              </button>
+            </div>
+            <div class="home-conflict-content">
+              <SyncConflictPanel
+                sync={sync}
+                pendingOperationKeys={pending}
+                t={t}
+                onAction={onAction}
+              />
+            </div>
           </>
-        )}
-      </div>
-      <SyncFeedbackLog selection={selection} t={t} />
-      <SyncConflictPanel
-        sync={sync}
-        pendingOperationKeys={pending}
-        t={t}
-        onAction={onAction}
-      />
+        ) : null}
+      </dialog>
     </section>
   );
 }
 
 function TopicCard(props: {
-  row: SynthesisWorkbenchHomeTopicRow;
+  row: Omit<SynthesisWorkbenchHomeTopicRow, "updatedAt">;
   t: SynthesisWorkbenchHomeText;
   onAction: SynthesisWorkbenchHomeAction;
 }) {
@@ -1060,7 +860,6 @@ function TopicCard(props: {
         <span class={`badge ${discoveryBadge.tone} topic-discovery-badge`}>
           {discoveryBadge.text}
         </span>
-        <span>{row.updatedAt || t("synthesis-topic-not-updated")}</span>
       </div>
     </button>
   );
@@ -1082,13 +881,11 @@ export const HomeRegion = memo(
                 label={t("synthesis-home-registered-papers")}
                 value={insights.registeredPapers}
                 detail={t("synthesis-home-registered-papers-detail")}
-                tone="teal"
               />
               <InsightCard
                 label={t("synthesis-tab-topics")}
                 value={insights.topicCount}
                 detail={t("synthesis-home-generated-artifacts")}
-                tone="blue"
               />
               <InsightCard
                 label={t("synthesis-tab-graph")}
@@ -1106,17 +903,33 @@ export const HomeRegion = memo(
                   concepts: insights.reviewConceptCount,
                   topicGraph: insights.reviewTopicGraphCount,
                 })}
-                tone={insights.reviewOpenCount ? "orange" : ""}
               />
             </div>
           </section>
-          <SyncPanel selection={selection} t={t} onAction={onAction} />
-          <RetrievalPanel
-            selection={selection.retrieval}
-            pendingOperationKeys={selection.pendingOperationKeys}
-            t={t}
-            onAction={onAction}
-          />
+          <section class="workspace-section home-services">
+            <div class="section-heading">
+              <h2>{t("synthesis-home-services")}</h2>
+              <CommandButton
+                label={t("synthesis-home-settings")}
+                command="openPreferences"
+                icon="zs-icon-settings-applications"
+                pending={selection.pendingOperationKeys.includes(
+                  "openPreferences",
+                )}
+                t={t}
+                onAction={onAction}
+              />
+            </div>
+            <div class="home-service-grid">
+              <SyncPanel selection={selection} t={t} onAction={onAction} />
+              <RetrievalPanel
+                selection={selection.retrieval}
+                pendingOperationKeys={selection.pendingOperationKeys}
+                t={t}
+                onAction={onAction}
+              />
+            </div>
+          </section>
           <section class="workspace-section">
             <div class="section-heading">
               <h2>{t("synthesis-home-top-topics")}</h2>

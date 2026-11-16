@@ -205,6 +205,10 @@ class FakeDocument {
     return this.createXULElement(tagName);
   }
 
+  createElementNS(_namespace: string, tagName: string) {
+    return this.createXULElement(tagName);
+  }
+
   register(element: FakeXULElement) {
     if (element.id) {
       this.elements.set(element.id, element);
@@ -502,6 +506,7 @@ function createPrefsWindow(args?: {
   includeContentPackageControls?: boolean;
   includeAssistantStreamingRenderControl?: boolean;
   includeAssistantTranscriptRenderingControl?: boolean;
+  includeEmbeddingPreferencesControls?: boolean;
 }) {
   const document = new FakeDocument();
   const confirmResults = Array.isArray(args?.confirmResults)
@@ -914,6 +919,61 @@ function createPrefsWindow(args?: {
   localRuntimeProgressText.id = `zotero-prefpane-${config.addonRef}-skillrunner-local-progress-text`;
   localRuntimeProgressRow.appendChild(localRuntimeProgressText);
 
+  const embeddingControl = (
+    suffix: string,
+    tagName = "input",
+  ): FakeXULElement | null => {
+    if (!args?.includeEmbeddingPreferencesControls) return null;
+    const element = document.createXULElement(tagName);
+    element.id = `zotero-prefpane-${config.addonRef}-retrieval-${suffix}`;
+    return element;
+  };
+  const embeddingPreferences = args?.includeEmbeddingPreferencesControls
+    ? {
+        root: embeddingControl("root", "vbox")!,
+        enabled: embeddingControl("enabled")!,
+        connections: embeddingControl("connections", "html:select")!,
+        add: embeddingControl("add", "button")!,
+        delete: embeddingControl("delete", "button")!,
+        primary: embeddingControl("primary", "html:select")!,
+        fallbacks: embeddingControl("fallbacks", "html:select")!,
+        fallbackAdd: embeddingControl("fallback-add", "button")!,
+        fallbackRemove: embeddingControl("fallback-remove", "button")!,
+        fallbackUp: embeddingControl("fallback-up", "button")!,
+        fallbackDown: embeddingControl("fallback-down", "button")!,
+        preset: embeddingControl("preset", "html:select")!,
+        name: embeddingControl("name")!,
+        protocol: embeddingControl("protocol", "html:select")!,
+        baseUrl: embeddingControl("base-url")!,
+        model: embeddingControl("model")!,
+        discover: embeddingControl("discover", "button")!,
+        models: embeddingControl("models", "html:select")!,
+        modelFilter: embeddingControl("model-filter")!,
+        credential: embeddingControl("credential")!,
+        clearCredential: embeddingControl("clear-credential", "button")!,
+        embeddingUrl: embeddingControl("embedding-url")!,
+        discoveryProtocol: embeddingControl(
+          "discovery-protocol",
+          "html:select",
+        )!,
+        discoveryUrl: embeddingControl("discovery-url")!,
+        authType: embeddingControl("auth-type", "html:select")!,
+        headerName: embeddingControl("header-name")!,
+        dimensions: embeddingControl("dimensions")!,
+        queryPrefix: embeddingControl("query-prefix")!,
+        documentPrefix: embeddingControl("document-prefix")!,
+        parameters: embeddingControl("parameters", "html:textarea")!,
+        preview: embeddingControl("preview", "description")!,
+        sourceMetadata: embeddingControl("source-metadata")!,
+        sourceFulltext: embeddingControl("source-fulltext")!,
+        sourceAnalysis: embeddingControl("source-analysis")!,
+        includeTopics: embeddingControl("include-topics")!,
+        save: embeddingControl("save", "button")!,
+        saveTest: embeddingControl("save-test", "button")!,
+        status: embeddingControl("status", "description")!,
+      }
+    : null;
+
   const windowObject = {
     document,
     confirm: (message: string) => {
@@ -1032,6 +1092,7 @@ function createPrefsWindow(args?: {
     localRuntimeProgressRow,
     localRuntimeProgressmeter,
     localRuntimeProgressText,
+    embeddingPreferences,
     confirmMessages,
     promptMessages,
   };
@@ -4757,5 +4818,529 @@ describe("gui: workflow context menu", function () {
     assert.isOk(workflowItem);
     assert.equal(workflowItem!.getAttribute("label"), "Workflow A");
     assert.equal(workflowItem!.getAttribute("disabled"), null);
+  });
+
+  it("preserves explicit endpoint and disabled authentication while discarding an old owner's save result", async function () {
+    const connection = {
+      id: "c1",
+      name: "First",
+      protocol: "openai",
+      baseUrl: "https://svc/v1",
+      modelId: "raw:model@tag",
+      queryPrefix: "",
+      documentPrefix: "",
+    };
+    const status = {
+      enabled: false,
+      connections: [connection, { ...connection, id: "c2", name: "Second" }],
+      primaryConnectionId: null,
+      fallbackConnectionIds: [],
+      pendingScope: null,
+      presets: [],
+      connectionTests: {},
+    };
+    let release!: (value: unknown) => void;
+    let saved: any;
+    const runtime = globalThis as any;
+    runtime.addon.hooks.onPrefsEvent = async (type: string, data: any) => {
+      if (type === "getEmbeddingPrefsStatus") return status;
+      if (type === "saveEmbeddingPrefs") {
+        saved = data;
+        return new Promise((resolve) => {
+          release = resolve;
+        });
+      }
+      return { ok: true };
+    };
+    const fixture = createPrefsWindow({
+      includeEmbeddingPreferencesControls: true,
+    });
+    await registerPrefsScripts(fixture.window as unknown as Window);
+    await flushTasks();
+    const controls = fixture.embeddingPreferences!;
+    assert.equal(controls.authType.value, "bearer");
+    assert.equal(controls.discoveryProtocol.value, "openai");
+    controls.embeddingUrl.value =
+      "https://proxy/custom/embeddings?api-version=1";
+    controls.embeddingUrl.dispatch("input");
+    controls.authType.value = "none";
+    controls.authType.dispatch("change");
+    controls.discoveryProtocol.value = "none";
+    controls.discoveryProtocol.dispatch("change");
+    controls.saveTest.dispatch("command");
+    await flushTasks();
+    assert.equal(
+      saved.connection.embeddingUrl,
+      "https://proxy/custom/embeddings?api-version=1",
+    );
+    assert.equal(saved.connection.auth.type, "none");
+    assert.equal(saved.connection.discovery.protocol, "none");
+    assert.equal(saved.connection.modelId, "raw:model@tag");
+    controls.connections.value = "c2";
+    controls.connections.dispatch("change");
+    controls.name.value = "Second draft";
+    controls.name.dispatch("input");
+    release({
+      ok: true,
+      status,
+      test: { ok: true, dimensions: 3, latency_ms: 10 },
+    });
+    await flushTasks();
+    assert.equal(controls.name.value, "Second draft");
+    assert.notInclude(controls.status.textContent, "Connection OK");
+  });
+
+  it("keeps the edited embedding connection independent from primary and fallback routing", async function () {
+    const calls: Array<{ type: string; data: any }> = [];
+    let status: any = {
+      enabled: true,
+      connections: [
+        {
+          id: "c1",
+          name: "First",
+          protocol: "openai",
+          baseUrl: "https://embed.example/v1",
+          modelId: "model-1",
+          queryPrefix: "query:",
+          documentPrefix: "document:",
+        },
+        {
+          id: "c2",
+          name: "Second",
+          protocol: "ollama",
+          baseUrl: "https://fallback.example",
+          modelId: "model-2",
+          queryPrefix: "",
+          documentPrefix: "",
+        },
+        {
+          id: "c3",
+          name: "Third",
+          protocol: "voyage",
+          baseUrl: "https://third.example/v1",
+          modelId: "model-3",
+          queryPrefix: "",
+          documentPrefix: "",
+        },
+      ],
+      primaryConnectionId: "c1",
+      fallbackConnectionIds: ["c2"],
+      pendingScope: {
+        libraryIds: [42],
+        sourceKinds: ["metadata", "fulltext"],
+        includeTopics: false,
+      },
+      connectionTests: { c2: { ok: true } },
+      presets: [
+        {
+          id: "preset-tei",
+          name: "TEI preset",
+          connection: {
+            protocol: "tei",
+            baseUrl: "https://tei.example",
+            modelId: "preset-model",
+            queryPrefix: "q:",
+          },
+        },
+      ],
+    };
+    (
+      globalThis as {
+        addon: {
+          hooks: {
+            onPrefsEvent: (type: string, data: any) => Promise<any>;
+          };
+        };
+      }
+    ).addon.hooks.onPrefsEvent = async (type, data) => {
+      calls.push({ type, data });
+      if (type === "getEmbeddingPrefsStatus") return status;
+      if (type === "discoverEmbeddingModels") {
+        return {
+          status: "failed",
+          models: [],
+          partial: false,
+          diagnostics: [],
+        };
+      }
+      if (type === "saveEmbeddingPrefs") {
+        if (data.connection) {
+          status = {
+            ...status,
+            connections: [
+              ...status.connections.filter(
+                (entry: any) => entry.id !== data.connection.id,
+              ),
+              data.connection,
+            ],
+          };
+        }
+        if (data.removeConnectionId) {
+          status = {
+            ...status,
+            connections: status.connections.filter(
+              (entry: any) => entry.id !== data.removeConnectionId,
+            ),
+            primaryConnectionId:
+              status.primaryConnectionId === data.removeConnectionId
+                ? null
+                : status.primaryConnectionId,
+            fallbackConnectionIds: status.fallbackConnectionIds.filter(
+              (id: string) => id !== data.removeConnectionId,
+            ),
+          };
+        }
+        if (data.primaryConnectionId !== undefined) {
+          status = {
+            ...status,
+            primaryConnectionId: data.primaryConnectionId,
+          };
+        }
+        if (data.fallbackConnectionIds !== undefined) {
+          status = {
+            ...status,
+            fallbackConnectionIds: [...data.fallbackConnectionIds],
+          };
+        }
+        return { ok: true, status, diagnostics: [] };
+      }
+      return { ok: true, status, diagnostics: [] };
+    };
+
+    const fixture = createPrefsWindow({
+      includeEmbeddingPreferencesControls: true,
+    });
+    await registerPrefsScripts(fixture.window);
+    await flushTasks();
+    const controls = fixture.embeddingPreferences!;
+
+    assert.equal(controls.connections.value, "c1");
+    assert.equal(controls.primary.value, "c1");
+    assert.deepEqual(
+      controls.fallbacks.children
+        .filter((entry) => entry.getAttribute("data-fallback") === "active")
+        .map((entry) => entry.value),
+      ["c2"],
+    );
+
+    controls.connections.value = "c2";
+    controls.connections.dispatch("change");
+    assert.equal(controls.name.value, "Second");
+    assert.equal(controls.primary.value, "c1");
+
+    controls.name.value = "Second edited";
+    controls.name.dispatch("input");
+    controls.save.dispatch("command");
+    await flushTasks();
+    const existingSave = calls.findLast(
+      (entry) => entry.type === "saveEmbeddingPrefs",
+    )!;
+    assert.notProperty(existingSave.data.connection, "embeddingUrl");
+
+    controls.baseUrl.value = "https://fallback.example/api";
+    controls.baseUrl.dispatch("input");
+    controls.save.dispatch("command");
+    await flushTasks();
+    const endpointSave = calls.findLast(
+      (entry) => entry.type === "saveEmbeddingPrefs",
+    )!;
+    assert.equal(
+      endpointSave.data.connection.embeddingUrl,
+      "https://fallback.example/api/embed",
+    );
+
+    controls.primary.value = "c3";
+    controls.primary.dispatch("change");
+    await flushTasks();
+    const primarySave = calls.findLast(
+      (entry) => entry.type === "saveEmbeddingPrefs",
+    )!;
+    assert.deepInclude(primarySave.data, {
+      primaryConnectionId: "c3",
+      fallbackConnectionIds: ["c2"],
+    });
+    assert.notProperty(primarySave.data, "connection");
+
+    controls.fallbacks.value = "c1";
+    controls.fallbackAdd.dispatch("command");
+    await flushTasks();
+    controls.fallbacks.value = "c2";
+    controls.fallbackDown.dispatch("command");
+    await flushTasks();
+    const fallbackSave = calls.findLast(
+      (entry) => entry.type === "saveEmbeddingPrefs",
+    )!;
+    assert.deepEqual(fallbackSave.data.fallbackConnectionIds, ["c1", "c2"]);
+    assert.notProperty(fallbackSave.data, "connection");
+
+    controls.connections.value = "c2";
+    controls.connections.dispatch("change");
+    controls.delete.dispatch("command");
+    await flushTasks();
+    const deleteCall = calls.findLast(
+      (entry) => entry.type === "saveEmbeddingPrefs",
+    )!;
+    assert.equal(deleteCall.data.removeConnectionId, "c2");
+    for (const key of [
+      "connection",
+      "primaryConnectionId",
+      "fallbackConnectionIds",
+      "credential",
+    ]) {
+      assert.notProperty(deleteCall.data, key);
+    }
+
+    controls.preset.value = "preset-tei";
+    controls.preset.dispatch("change");
+    assert.equal(controls.name.value, "TEI preset");
+    assert.equal(controls.protocol.value, "tei");
+    assert.equal(controls.queryPrefix.value, "q:");
+    assert.equal(controls.primary.value, "c3");
+    assert.equal(
+      calls.filter((entry) => entry.type === "discoverEmbeddingModels").length,
+      0,
+    );
+
+    controls.credential.value = "new-secret";
+    controls.save.dispatch("command");
+    await flushTasks();
+    const connectionSave = calls.findLast(
+      (entry) => entry.type === "saveEmbeddingPrefs",
+    )!;
+    assert.equal(connectionSave.data.connection.name, "TEI preset");
+    assert.equal(
+      connectionSave.data.connection.embeddingUrl,
+      "https://tei.example/embed",
+    );
+    assert.equal(connectionSave.data.credential, "new-secret");
+    assert.equal(connectionSave.data.enabled, true);
+    assert.deepEqual(connectionSave.data.pendingScope.libraryIds, [42]);
+    assert.equal(connectionSave.data.test, undefined);
+    for (const key of ["primaryConnectionId", "fallbackConnectionIds"]) {
+      assert.notProperty(connectionSave.data, key);
+    }
+    assert.equal(controls.primary.value, "c3");
+    assert.equal(controls.credential.value, "");
+
+    controls.saveTest.dispatch("command");
+    await flushTasks();
+    const saveTestCall = calls.findLast(
+      (entry) => entry.type === "saveEmbeddingPrefs",
+    )!;
+    assert.equal(saveTestCall.data.test, true);
+    assert.equal(saveTestCall.data.connection.name, "TEI preset");
+  });
+
+  it("discovers embedding models only on demand and never backfills credentials", async function () {
+    const calls: Array<{ type: string; data: any }> = [];
+    let resolveStaleDiscovery: ((value: any) => void) | undefined;
+    let resolveClosedDiscovery: ((value: any) => void) | undefined;
+    let discoveryCount = 0;
+    let status: any = {
+      enabled: true,
+      connections: [
+        {
+          id: "c1",
+          name: "Primary",
+          protocol: "ollama",
+          baseUrl: "https://primary.example",
+          modelId: "manual-primary",
+          queryPrefix: "",
+          documentPrefix: "",
+          credentialConfigured: true,
+        },
+        {
+          id: "c2",
+          name: "Other",
+          protocol: "cohere",
+          baseUrl: "https://other.example/v2",
+          modelId: "manual-other",
+          queryPrefix: "",
+          documentPrefix: "",
+        },
+      ],
+      primaryConnectionId: "c1",
+      fallbackConnectionIds: [],
+      pendingScope: {
+        libraryIds: [7],
+        sourceKinds: ["metadata"],
+        includeTopics: true,
+      },
+      connectionTests: {},
+      presets: [],
+    };
+    (
+      globalThis as {
+        addon: {
+          hooks: {
+            onPrefsEvent: (type: string, data: any) => Promise<any>;
+          };
+        };
+      }
+    ).addon.hooks.onPrefsEvent = async (type, data) => {
+      calls.push({ type, data });
+      if (type === "getEmbeddingPrefsStatus") return status;
+      if (type === "clearEmbeddingCredential") {
+        status = {
+          ...status,
+          connections: status.connections.map((entry: any) =>
+            entry.id === data.connectionId
+              ? { ...entry, credentialConfigured: false }
+              : entry,
+          ),
+        };
+        return { ok: true, status, diagnostics: [] };
+      }
+      if (type === "cancelEmbeddingDiscovery") {
+        return { ok: true };
+      }
+      if (type === "inspectEmbeddingModel") {
+        return {
+          id: data.connection.modelId,
+          embedding: "supported",
+          dimensions: 1024,
+        };
+      }
+      if (type === "discoverEmbeddingModels") {
+        discoveryCount += 1;
+        if (discoveryCount === 1) {
+          return new Promise((resolve) => {
+            resolveStaleDiscovery = resolve;
+          });
+        }
+        if (discoveryCount === 2) {
+          return {
+            status: "failed",
+            models: [],
+            partial: false,
+            diagnostics: [{ code: "network_failed" }],
+          };
+        }
+        if (discoveryCount === 3) {
+          return {
+            status: "ok",
+            models: [
+              {
+                id: "supported-model",
+                name: "Supported",
+                embedding: "supported",
+                dimensions: 1024,
+              },
+              {
+                id: "unknown-model",
+                embedding: "unknown",
+              },
+              {
+                id: "unsupported-model",
+                embedding: "unsupported",
+              },
+            ],
+            partial: false,
+            diagnostics: [],
+          };
+        }
+        return new Promise((resolve) => {
+          resolveClosedDiscovery = resolve;
+        });
+      }
+      return { ok: true, status, diagnostics: [] };
+    };
+
+    const fixture = createPrefsWindow({
+      includeEmbeddingPreferencesControls: true,
+    });
+    await registerPrefsScripts(fixture.window);
+    await flushTasks();
+    const controls = fixture.embeddingPreferences!;
+    assert.equal(controls.credential.value, "");
+    assert.notEqual(controls.credential.placeholder, "new-secret");
+
+    controls.discover.dispatch("command");
+    controls.connections.value = "c2";
+    controls.connections.dispatch("change");
+    resolveStaleDiscovery?.({
+      status: "ok",
+      models: [{ id: "stale-model", name: "Stale", embedding: "supported" }],
+      partial: false,
+      diagnostics: [],
+    });
+    await flushTasks();
+    assert.equal(controls.model.value, "manual-other");
+    assert.equal(
+      controls.models.children.some((entry) => entry.value === "stale-model"),
+      false,
+    );
+
+    controls.model.value = "manual-other";
+    controls.discover.dispatch("command");
+    await flushTasks();
+    assert.equal(controls.model.value, "manual-other");
+    assert.notEqual(controls.status.textContent, "");
+
+    controls.connections.value = "c1";
+    controls.connections.dispatch("change");
+    controls.credential.value = "unsaved-key";
+    controls.discover.dispatch("command");
+    await flushTasks();
+    const discoveryCall = calls.findLast(
+      (entry) => entry.type === "discoverEmbeddingModels",
+    )!;
+    assert.equal(discoveryCall.data.window, fixture.window);
+    assert.equal(discoveryCall.data.connectionId, "c1");
+    assert.equal(discoveryCall.data.credential, "unsaved-key");
+    assert.notProperty(discoveryCall.data.connection, "id");
+    assert.notProperty(discoveryCall.data.connection, "name");
+    assert.notProperty(discoveryCall.data.connection, "modelId");
+    const modelOptions = controls.models.children.filter(
+      (entry) => entry.value,
+    );
+    assert.deepEqual(
+      modelOptions.map((entry) => entry.value),
+      ["supported-model", "unknown-model"],
+    );
+    const unknown = modelOptions.find(
+      (entry) => entry.value === "unknown-model",
+    )!;
+    assert.equal(unknown.getAttribute("data-state"), "unknown");
+    assert.notEqual(unknown.textContent, "unknown-model");
+    controls.modelFilter.value = "Unknown";
+    controls.modelFilter.dispatch("input");
+    assert.isTrue(
+      (modelOptions.find((entry) => entry.value === "supported-model") as any)
+        .hidden,
+    );
+    assert.isFalse((unknown as any).hidden);
+    controls.modelFilter.value = "";
+    controls.modelFilter.dispatch("input");
+
+    controls.models.value = "supported-model";
+    controls.models.dispatch("change");
+    await flushTasks();
+    assert.equal(controls.model.value, "supported-model");
+    assert.equal(controls.dimensions.value, "");
+    const inspectCall = calls.findLast(
+      (entry) => entry.type === "inspectEmbeddingModel",
+    )!;
+    assert.equal(inspectCall.data.window, fixture.window);
+    assert.equal(inspectCall.data.connection.modelId, "supported-model");
+
+    controls.clearCredential.dispatch("command");
+    await flushTasks();
+    const clearCall = calls.findLast(
+      (entry) => entry.type === "clearEmbeddingCredential",
+    )!;
+    assert.equal(clearCall.data.connectionId, "c1");
+    assert.equal(clearCall.data.window, fixture.window);
+    assert.equal(controls.credential.value, "");
+
+    controls.discover.dispatch("command");
+    fixture.dispatchWindowEvent("unload");
+    await flushTasks();
+    const cancelCall = calls.findLast(
+      (entry) => entry.type === "cancelEmbeddingDiscovery",
+    );
+    assert.isOk(cancelCall);
+    assert.equal(cancelCall!.data.window, fixture.window);
+    resolveClosedDiscovery?.({ status: "failed", models: [] });
   });
 });

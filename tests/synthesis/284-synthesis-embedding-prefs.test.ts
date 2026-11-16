@@ -13,6 +13,7 @@ import {
   getSynthesisEmbeddingConnectionIdentity,
   getSynthesisEmbeddingPrefsStatus,
   saveSynthesisEmbeddingPrefs,
+  submitSynthesisEmbeddingSettings,
   testSynthesisEmbeddingConnection,
 } from "../../src/modules/synthesis/synthesisEmbeddingPrefs";
 import {
@@ -60,6 +61,202 @@ describe("Synthesis embedding preferences", function () {
   this.timeout(20_000);
 
   beforeEach(resetEmbeddingPrefs);
+
+  it("saves and tests a selected draft without making it primary or resetting its library scope", async function () {
+    const scope = {
+      libraryIds: [3],
+      sourceKinds: ["metadata" as const],
+      includeTopics: false,
+    };
+    saveSynthesisEmbeddingPrefs({ pendingScope: scope });
+    const fake = fakeClient();
+    const result = await submitSynthesisEmbeddingSettings(
+      {
+        connection: EMBEDDING_CONNECTION,
+        credential: "new-secret",
+        test: true,
+      },
+      { client: fake.client },
+    );
+    assert.isTrue(result.ok);
+    assert.isTrue(result.test?.ok);
+    assert.isNull(result.status.primaryConnectionId);
+    assert.deepEqual(result.status.pendingScope, scope);
+    const read = await readSynthesisEmbeddingCredential(
+      EMBEDDING_CONNECTION.id,
+    );
+    assert.equal(read.ok && read.credential, "new-secret");
+    assert.notInclude(JSON.stringify(result.status), "new-secret");
+  });
+
+  it("invalidates connection verification on endpoint or credential changes and ignores a late probe", async function () {
+    saveSynthesisEmbeddingPrefs({
+      connections: [EMBEDDING_CONNECTION],
+      primaryConnectionId: EMBEDDING_CONNECTION.id,
+    });
+    const fake = fakeClient();
+    await testSynthesisEmbeddingConnection({ client: fake.client });
+    assert.isNotNull(
+      getSynthesisEmbeddingConnectionIdentity(EMBEDDING_CONNECTION.id),
+    );
+    saveSynthesisEmbeddingPrefs({
+      connections: [{ ...EMBEDDING_CONNECTION, baseUrl: "http://other:11434" }],
+    });
+    assert.isNull(
+      getSynthesisEmbeddingConnectionIdentity(EMBEDDING_CONNECTION.id),
+    );
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const late = testSynthesisEmbeddingConnection({
+      client: {
+        async request() {
+          await gate;
+          return {
+            status: 200,
+            text: JSON.stringify({ embeddings: [[1, 0]] }),
+          };
+        },
+      },
+    });
+    await storeSynthesisEmbeddingCredential(
+      EMBEDDING_CONNECTION.id,
+      "replacement",
+    );
+    release();
+    await late;
+    assert.isNull(
+      getSynthesisEmbeddingConnectionIdentity(EMBEDDING_CONNECTION.id),
+    );
+  });
+
+  it("deletes only the requested connection and keeps ordered selection and credentials isolated", async function () {
+    const other = { ...EMBEDDING_CONNECTION, id: "other", name: "Other" };
+    const third = { ...EMBEDDING_CONNECTION, id: "third", name: "Third" };
+    saveSynthesisEmbeddingPrefs({
+      connections: [EMBEDDING_CONNECTION, other, third],
+      primaryConnectionId: EMBEDDING_CONNECTION.id,
+      fallbackConnectionIds: [third.id, other.id],
+    });
+    await storeSynthesisEmbeddingCredential(
+      EMBEDDING_CONNECTION.id,
+      "first-secret",
+    );
+    await storeSynthesisEmbeddingCredential(other.id, "other-secret");
+    const removed = await submitSynthesisEmbeddingSettings({
+      removeConnectionId: EMBEDDING_CONNECTION.id,
+    });
+    assert.isTrue(removed.ok);
+    assert.isNull(removed.status.primaryConnectionId);
+    assert.deepEqual(removed.status.fallbackConnectionIds, [
+      third.id,
+      other.id,
+    ]);
+    assert.deepEqual(
+      removed.status.connections.map((entry) => entry.id),
+      [other.id, third.id],
+    );
+    assert.isFalse(
+      (await readSynthesisEmbeddingCredential(EMBEDDING_CONNECTION.id)).ok,
+    );
+    const retained = await readSynthesisEmbeddingCredential(other.id);
+    assert.equal(retained.ok && retained.credential, "other-secret");
+  });
+
+  it("rejects invalid request overrides before storing a credential or changing configuration", async function () {
+    for (const common of [{ truncate: true }, { api_key: "secret" }]) {
+      const saved = await submitSynthesisEmbeddingSettings({
+        connection: { ...EMBEDDING_CONNECTION, parameters: { common } },
+        credential: "must-not-save",
+      });
+      assert.isFalse(saved.ok);
+      assert.isEmpty(saved.status.connections);
+      assert.isFalse(
+        (await readSynthesisEmbeddingCredential(EMBEDDING_CONNECTION.id)).ok,
+      );
+    }
+  });
+
+  it("restores configuration and the old credential when a preference write fails during save", async function () {
+    saveSynthesisEmbeddingPrefs({ connections: [EMBEDDING_CONNECTION] });
+    await storeSynthesisEmbeddingCredential(EMBEDDING_CONNECTION.id, "old-key");
+    const original = Zotero.Prefs.set;
+    let fail = true;
+    Zotero.Prefs.set = ((key: string, ...args: unknown[]) => {
+      if (fail && key.endsWith(".synthesisEmbeddingConnectionsJson")) {
+        fail = false;
+        throw new Error("synthetic write failure");
+      }
+      return (original as any).call(Zotero.Prefs, key, ...args);
+    }) as typeof original;
+    try {
+      const result = await submitSynthesisEmbeddingSettings({
+        connection: { ...EMBEDDING_CONNECTION, modelId: "other" },
+        credential: "new-key",
+      });
+      assert.isFalse(result.ok);
+      assert.equal(
+        result.status.connections[0].modelId,
+        EMBEDDING_CONNECTION.modelId,
+      );
+      const restored = await readSynthesisEmbeddingCredential(
+        EMBEDDING_CONNECTION.id,
+      );
+      assert.equal(restored.ok && restored.credential, "old-key");
+    } finally {
+      Zotero.Prefs.set = original;
+    }
+  });
+
+  it("does not let an older same-configuration probe overwrite a newer successful test", async function () {
+    saveSynthesisEmbeddingPrefs({
+      connections: [EMBEDDING_CONNECTION],
+      primaryConnectionId: EMBEDDING_CONNECTION.id,
+    });
+    let finish!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const old = testSynthesisEmbeddingConnection({
+      client: {
+        async request() {
+          await gate;
+          return { status: 401, text: "" };
+        },
+      },
+    });
+    await testSynthesisEmbeddingConnection({ client: fakeClient().client });
+    finish();
+    await old;
+    assert.isNotNull(
+      getSynthesisEmbeddingConnectionIdentity(EMBEDDING_CONNECTION.id),
+    );
+  });
+
+  it("preserves independent connections when two credential saves overlap", async function () {
+    await Promise.all([
+      submitSynthesisEmbeddingSettings({
+        connection: EMBEDDING_CONNECTION,
+        credential: "first",
+      }),
+      submitSynthesisEmbeddingSettings({
+        connection: { ...EMBEDDING_CONNECTION, id: "other", name: "Other" },
+        credential: "second",
+      }),
+    ]);
+    assert.sameMembers(
+      getSynthesisEmbeddingPrefsStatus().connections.map((entry) => entry.id),
+      [EMBEDDING_CONNECTION.id, "other"],
+    );
+    for (const [id, key] of [
+      [EMBEDDING_CONNECTION.id, "first"],
+      ["other", "second"],
+    ]) {
+      const read = await readSynthesisEmbeddingCredential(id);
+      assert.equal(read.ok && read.credential, key);
+    }
+  });
 
   it("round-trips an embedding credential without disturbing WebDAV", async function () {
     await storeSynthesisWebDavSyncCredential("dav-pass");

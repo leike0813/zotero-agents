@@ -1,6 +1,7 @@
 import { getPref, setPref } from "../../utils/prefs";
 import {
   SynthesisClientError,
+  hashSynthesisContractCanonicalJson,
   rebuildSynthesisRetrievalConnection,
   rebuildSynthesisRetrievalScope,
   type SynthesisEmbeddingDescribeResult,
@@ -12,7 +13,10 @@ import {
 } from "../../../packages/synthesis-contracts/src";
 import {
   createSynthesisEmbeddingProvider,
-  SYNTHESIS_EMBEDDING_VERIFIED_PRESETS,
+  SYNTHESIS_EMBEDDING_PRESETS,
+  discoverSynthesisEmbeddingModels,
+  inspectSynthesisEmbeddingModel,
+  getSynthesisEmbeddingEncodingOptionsKey,
   type SynthesisEmbeddingHttpClient,
   type SynthesisEmbeddingPreset,
   type SynthesisEmbeddingProvider,
@@ -20,10 +24,19 @@ import {
 } from "./synthesisEmbeddingProvider";
 import {
   getSynthesisEmbeddingCredentialUpdatedAt,
+  getSynthesisEmbeddingCredentialRevision,
   hasSynthesisEmbeddingCredential,
   readSynthesisEmbeddingCredential,
   storeSynthesisEmbeddingCredential,
 } from "./synthesisEmbeddingCredentialPrefs";
+import {
+  validateSynthesisEmbeddingConnection,
+  type EmbeddingConnectionDraft,
+} from "./synthesisEmbeddingProtocol";
+import {
+  createCancellationController,
+  type CancellationController,
+} from "../../utils/wait";
 
 export type SynthesisEmbeddingDiagnostic = {
   code: string;
@@ -36,6 +49,7 @@ export type SynthesisEmbeddingConnectionTestResult = {
   tested_at: string;
   connection_id: string | null;
   identity_key?: string;
+  configuration_key?: string;
   model_id?: string;
   dimensions?: number;
   latency_ms?: number;
@@ -78,6 +92,7 @@ const CONNECTIONS_PREF = "synthesisEmbeddingConnectionsJson";
 const SELECTION_PREF = "synthesisEmbeddingSelectionJson";
 const PENDING_SCOPE_PREF = "synthesisEmbeddingPendingScopeJson";
 const CONNECTION_TESTS_PREF = "synthesisEmbeddingConnectionTestJson";
+const connectionTestOwners = new Map<string, object>();
 
 function nowIso() {
   return new Date().toISOString();
@@ -89,7 +104,246 @@ function encodingKey(connection: SynthesisRetrievalConnection) {
     modelId: connection.modelId,
     queryPrefix: connection.queryPrefix,
     documentPrefix: connection.documentPrefix,
+    ...(getSynthesisEmbeddingEncodingOptionsKey(connection)
+      ? {
+          encodingOptionsKey:
+            getSynthesisEmbeddingEncodingOptionsKey(connection),
+        }
+      : {}),
   });
+}
+
+function configurationKey(connection: SynthesisRetrievalConnection) {
+  const {
+    id: _id,
+    name: _name,
+    discovery: _discovery,
+    ...requestConfig
+  } = connection;
+  return hashSynthesisContractCanonicalJson({
+    connection: requestConfig,
+    credentialRevision:
+      getSynthesisEmbeddingCredentialRevision(connection.id) ?? null,
+  });
+}
+
+export type SynthesisEmbeddingSettingsSubmission = Omit<
+  SynthesisEmbeddingPrefsSaveInput,
+  "connections"
+> & {
+  connection?: SynthesisRetrievalConnection;
+  removeConnectionId?: string;
+  credential?: string;
+  test?: boolean;
+};
+
+/** Both preference and workbench callers submit through the same validated owner. */
+let embeddingSubmissionTail: Promise<unknown> = Promise.resolve();
+export function submitSynthesisEmbeddingSettings(
+  input: SynthesisEmbeddingSettingsSubmission,
+  options?: { client?: SynthesisEmbeddingHttpClient },
+) {
+  const result = embeddingSubmissionTail.then(() =>
+    persistSynthesisEmbeddingSettings(input),
+  );
+  embeddingSubmissionTail = result.catch(() => undefined);
+  return result.then(async (saved) => {
+    const test =
+      saved.ok && input.test && input.connection
+        ? await testSynthesisEmbeddingConnection({
+            connectionId: input.connection.id,
+            client: options?.client,
+          })
+        : undefined;
+    return { ...saved, status: getSynthesisEmbeddingPrefsStatus(), test };
+  });
+}
+
+async function persistSynthesisEmbeddingSettings(
+  input: SynthesisEmbeddingSettingsSubmission,
+) {
+  const current = getSynthesisEmbeddingPrefsConfig();
+  const connections = current.connections
+    .filter((entry) => entry.id !== input.removeConnectionId)
+    .map((entry) =>
+      entry.id === input.connection?.id ? input.connection : entry,
+    );
+  if (
+    input.connection &&
+    !connections.some((entry) => entry.id === input.connection!.id)
+  )
+    connections.push(input.connection);
+  const primaryConnectionId =
+    input.primaryConnectionId !== undefined
+      ? input.primaryConnectionId
+      : current.primaryConnectionId === input.removeConnectionId
+        ? null
+        : current.primaryConnectionId;
+  const fallbackConnectionIds = (
+    input.fallbackConnectionIds ?? current.fallbackConnectionIds
+  ).filter((id) => id !== input.removeConnectionId);
+  // Validate before storing a replacement secret or mutating any preference.
+  try {
+    for (const connection of connections) {
+      rebuildSynthesisRetrievalConnection(connection);
+      validateSynthesisEmbeddingConnection(connection);
+    }
+  } catch {
+    return {
+      ...selectionFailure([
+        diagnostic(
+          "embedding_connection_invalid",
+          "error",
+          "Embedding connection configuration is invalid.",
+        ),
+      ]),
+      test: undefined,
+    };
+  }
+  if (
+    (primaryConnectionId !== null &&
+      !connections.some((entry) => entry.id === primaryConnectionId)) ||
+    new Set(fallbackConnectionIds).size !== fallbackConnectionIds.length ||
+    fallbackConnectionIds.some(
+      (id) =>
+        id === primaryConnectionId ||
+        !connections.some((entry) => entry.id === id),
+    )
+  ) {
+    return {
+      ...selectionFailure([
+        diagnostic(
+          "embedding_selection_invalid",
+          "error",
+          "Embedding selection is invalid.",
+        ),
+      ]),
+      test: undefined,
+    };
+  }
+  if (input.pendingScope) {
+    try {
+      rebuildSynthesisRetrievalScope(input.pendingScope);
+    } catch {
+      return {
+        ...selectionFailure([
+          diagnostic(
+            "embedding_scope_invalid",
+            "error",
+            "Embedding scope is invalid.",
+          ),
+        ]),
+        test: undefined,
+      };
+    }
+  }
+  const keys = [
+    CONNECTIONS_PREF,
+    SELECTION_PREF,
+    PENDING_SCOPE_PREF,
+    CONNECTION_TESTS_PREF,
+    "synthesisEmbeddingEnabled",
+    "synthesisEmbeddingCredentialsJson",
+  ] as const;
+  const previous = keys.map((key) => [key, getPref(key)] as const);
+  let saved: ReturnType<typeof saveSynthesisEmbeddingPrefs>;
+  try {
+    if (input.connection && input.credential)
+      await saveSynthesisEmbeddingConnectionCredential(
+        input.connection.id,
+        input.credential,
+      );
+    saved = saveSynthesisEmbeddingPrefs({
+      connections,
+      primaryConnectionId,
+      fallbackConnectionIds,
+      ...(input.enabled === undefined ? {} : { enabled: input.enabled }),
+      ...(input.pendingScope === undefined
+        ? {}
+        : { pendingScope: input.pendingScope }),
+    });
+    if (!saved.ok) throw new Error("embedding_save_failed");
+    if (input.removeConnectionId)
+      await clearSynthesisEmbeddingConnectionCredential(
+        input.removeConnectionId,
+      );
+  } catch {
+    for (const [key, value] of previous) setPref(key, value as never);
+    return {
+      ...selectionFailure([
+        diagnostic(
+          "embedding_save_failed",
+          "error",
+          "Embedding configuration could not be saved.",
+        ),
+      ]),
+      test: undefined,
+    };
+  }
+  return {
+    ...saved,
+    status: getSynthesisEmbeddingPrefsStatus(),
+    test: undefined,
+  };
+}
+
+const discoveryRequests = new Map<object, CancellationController>();
+export function cancelSynthesisEmbeddingDiscovery(owner: object) {
+  discoveryRequests.get(owner)?.abort();
+  discoveryRequests.delete(owner);
+}
+export async function discoverSynthesisEmbeddingSettingsModels(
+  input: {
+    connection: EmbeddingConnectionDraft;
+    connectionId?: string;
+    credential?: string;
+  },
+  owner: object,
+) {
+  cancelSynthesisEmbeddingDiscovery(owner);
+  const controller = createCancellationController();
+  discoveryRequests.set(owner, controller);
+  try {
+    const stored = input.connectionId
+      ? await readSynthesisEmbeddingCredential(input.connectionId)
+      : undefined;
+    return await discoverSynthesisEmbeddingModels({
+      connection: input.connection,
+      credential:
+        input.credential || (stored?.ok ? stored.credential : undefined),
+      signal: controller.signal,
+    });
+  } finally {
+    if (discoveryRequests.get(owner) === controller)
+      discoveryRequests.delete(owner);
+  }
+}
+
+export async function inspectSynthesisEmbeddingSettingsModel(
+  input: {
+    connection: EmbeddingConnectionDraft;
+    connectionId?: string;
+    credential?: string;
+  },
+  owner: object,
+) {
+  cancelSynthesisEmbeddingDiscovery(owner);
+  const controller = createCancellationController();
+  discoveryRequests.set(owner, controller);
+  try {
+    const stored = input.connectionId
+      ? await readSynthesisEmbeddingCredential(input.connectionId)
+      : undefined;
+    return await inspectSynthesisEmbeddingModel({
+      connection: input.connection,
+      credential:
+        input.credential || (stored?.ok ? stored.credential : undefined),
+      signal: controller.signal,
+    });
+  } finally {
+    if (discoveryRequests.get(owner) === controller)
+      discoveryRequests.delete(owner);
+  }
 }
 
 function parseJson(value: unknown): unknown {
@@ -175,7 +429,14 @@ export function getSynthesisEmbeddingPrefsConfig() {
 
 export function getSynthesisEmbeddingPrefsStatus(): SynthesisEmbeddingPrefsStatus {
   const config = getSynthesisEmbeddingPrefsConfig();
-  const connectionTests = readConnectionTests();
+  const connectionTests = Object.fromEntries(
+    Object.entries(readConnectionTests()).filter(([id, test]) => {
+      const connection = config.connections.find((entry) => entry.id === id);
+      return (
+        connection && test.configuration_key === configurationKey(connection)
+      );
+    }),
+  );
   const latest = Object.values(connectionTests).sort((left, right) =>
     left.tested_at < right.tested_at ? 1 : -1,
   )[0];
@@ -193,7 +454,7 @@ export function getSynthesisEmbeddingPrefsStatus(): SynthesisEmbeddingPrefsStatu
     pendingScope: config.pendingScope,
     ...(latest ? { connectionTest: latest } : {}),
     connectionTests,
-    presets: SYNTHESIS_EMBEDDING_VERIFIED_PRESETS,
+    presets: SYNTHESIS_EMBEDDING_PRESETS,
   };
 }
 
@@ -216,9 +477,11 @@ export function saveSynthesisEmbeddingPrefs(
   let connections: SynthesisRetrievalConnection[] | undefined;
   if (input.connections !== undefined) {
     try {
-      connections = input.connections.map((connection) =>
-        rebuildSynthesisRetrievalConnection(connection),
-      );
+      connections = input.connections.map((connection) => {
+        const rebuilt = rebuildSynthesisRetrievalConnection(connection);
+        validateSynthesisEmbeddingConnection(rebuilt);
+        return rebuilt;
+      });
     } catch {
       return selectionFailure([
         diagnostic(
@@ -302,7 +565,12 @@ export function saveSynthesisEmbeddingPrefs(
     );
     const previousTests = readConnectionTests();
     const retained = Object.fromEntries(
-      Object.entries(previousTests).filter(([id]) => ids.has(id)),
+      Object.entries(previousTests).filter(([id, test]) => {
+        const connection = nextConnections.find((entry) => entry.id === id);
+        return (
+          connection && test.configuration_key === configurationKey(connection)
+        );
+      }),
     );
     setPref(
       CONNECTION_TESTS_PREF,
@@ -348,6 +616,9 @@ export async function saveSynthesisEmbeddingConnectionCredential(
     connectionId,
     credential,
   );
+  const tests = readConnectionTests();
+  delete tests[connectionId];
+  setPref(CONNECTION_TESTS_PREF, JSON.stringify(tests));
   return {
     ok: true as const,
     stored: result.stored,
@@ -358,7 +629,10 @@ export async function saveSynthesisEmbeddingConnectionCredential(
 export async function clearSynthesisEmbeddingConnectionCredential(
   connectionId: string,
 ) {
-  const result = await storeSynthesisEmbeddingCredential(connectionId, "");
+  const result = await saveSynthesisEmbeddingConnectionCredential(
+    connectionId,
+    "",
+  );
   return {
     ok: true as const,
     stored: result.stored,
@@ -396,6 +670,9 @@ export async function testSynthesisEmbeddingConnection(
       ],
     };
   }
+  const owner = {};
+  connectionTestOwners.set(connection.id, owner);
+  const testedConfigurationKey = configurationKey(connection);
   const credentialRead = await readSynthesisEmbeddingCredential(connection.id);
   const credential = credentialRead.ok ? credentialRead.credential : undefined;
   const provider =
@@ -417,6 +694,7 @@ export async function testSynthesisEmbeddingConnection(
       tested_at: nowIso(),
       connection_id: connection.id,
       identity_key: encodingKey(connection),
+      configuration_key: testedConfigurationKey,
       model_id: connection.modelId,
       dimensions: probe.dimensions,
       latency_ms: probe.latencyMs,
@@ -435,10 +713,8 @@ export async function testSynthesisEmbeddingConnection(
   } catch (error) {
     const message =
       error instanceof SynthesisClientError
-        ? error.code
-        : error instanceof Error
-          ? error.message
-          : "embedding_connection_test_failed";
+        ? String(error.details?.reason ?? error.code)
+        : "embedding_connection_test_failed";
     result = {
       ok: false,
       tested_at: nowIso(),
@@ -450,8 +726,28 @@ export async function testSynthesisEmbeddingConnection(
     };
   }
   const tests = readConnectionTests();
-  tests[connection.id] = result;
-  setPref(CONNECTION_TESTS_PREF, JSON.stringify(tests));
+  const current = readConnections().find((entry) => entry.id === connection.id);
+  if (
+    current &&
+    configurationKey(current) === testedConfigurationKey &&
+    connectionTestOwners.get(connection.id) === owner
+  ) {
+    tests[connection.id] = result;
+    setPref(CONNECTION_TESTS_PREF, JSON.stringify(tests));
+  } else
+    result = {
+      ...result,
+      ok: false,
+      diagnostics: [
+        diagnostic(
+          "embedding_connection_changed",
+          "warning",
+          "Connection changed while testing.",
+        ),
+      ],
+    };
+  if (connectionTestOwners.get(connection.id) === owner)
+    connectionTestOwners.delete(connection.id);
   return result;
 }
 
@@ -464,7 +760,11 @@ export function getSynthesisEmbeddingConnectionIdentity(
   );
   if (!connection) return null;
   const tested = readConnectionTests()[connectionId];
-  if (!tested?.ok || tested.identity_key !== encodingKey(connection)) {
+  if (
+    !tested?.ok ||
+    tested.identity_key !== encodingKey(connection) ||
+    tested.configuration_key !== configurationKey(connection)
+  ) {
     return null;
   }
   const dimensions = connection.dimensions ?? tested.dimensions;
@@ -481,6 +781,12 @@ export function getSynthesisEmbeddingConnectionIdentity(
     dimensions,
     queryPrefix: connection.queryPrefix,
     documentPrefix: connection.documentPrefix,
+    ...(getSynthesisEmbeddingEncodingOptionsKey(connection)
+      ? {
+          encodingOptionsKey:
+            getSynthesisEmbeddingEncodingOptionsKey(connection),
+        }
+      : {}),
   };
 }
 

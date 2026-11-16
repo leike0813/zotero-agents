@@ -23,6 +23,7 @@ import {
 } from "./workflow/catalog/contentPackageSubscription";
 import { runtimePathExists } from "./runtimePersistence";
 import { bindSkillRunnerLocalRuntimePreferences } from "./preferences/skillRunnerLocalRuntimePreferences";
+import { bindSynthesisEmbeddingPreferences } from "./preferences/synthesisEmbeddingPreferences";
 import { listNativeAcquisitionProfiles } from "./zoteroHost/zoteroHostAcquisitionNative";
 import { resolveZoteroHostCapabilityBroker } from "./zoteroHostCapabilityBroker";
 
@@ -38,6 +39,7 @@ export async function registerPrefsScripts(window: Window) {
     addon.data.prefs.window = window;
   }
   const unbind = bindSkillRunnerLocalRuntimePreferences(window);
+  const unbindEmbedding = bindSynthesisEmbeddingPreferences(window);
   const onUnload = () => {
     if (unbindSkillRunnerLocalRuntimePreferences !== cleanup) return;
     cleanup();
@@ -46,6 +48,7 @@ export async function registerPrefsScripts(window: Window) {
   const cleanup = () => {
     window.removeEventListener("unload", onUnload);
     unbind();
+    unbindEmbedding();
   };
   unbindSkillRunnerLocalRuntimePreferences = cleanup;
   window.addEventListener("unload", onUnload, { once: true });

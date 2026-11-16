@@ -230,6 +230,8 @@
 
 # Dashboard / Synthesis 页面约束
 
+- 向量嵌入配置的协议、端点、模型发现和凭据由 Host 持有；首选项与 Workbench 保存共用 `submitSynthesisEmbeddingSettings`。索引身份绑定模型、实际维度、前缀及生效的 query/document 参数 `encodingOptionsKey`，连接测试另绑定请求配置和凭据版本；地址或密钥变化需重测，编码变化需显式重建。发现、保存与合成测试均不启动索引维护。
+
 - 页面源码分别由 `src/dashboard/` 与 `src/synthesis/` 持有，HTML 提供固定区域容器；构建产物不得恢复为 `addon/` 下的手写页面实现。
 - 各 Preact 区域仅以自己的可见数据和交互状态比较 signature。日志、trace、graph-page 和 surface 更新不得进入无关 chrome 区域的比较输入。
 - Sigma 实例、camera 与 graph page 累积由 Graph 区域和页面 controller 持有；chrome 更新不得重建 graph 容器。页面卸载必须清理所属监听、observer 和计时器。

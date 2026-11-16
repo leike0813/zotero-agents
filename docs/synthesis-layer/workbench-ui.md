@@ -21,26 +21,142 @@ and facts, and copies the complete sanitized selected trace. It offers no
 retry, restart, repair, or mutation action. Release builds retain neither this
 page nor trace context, process tails, trace stores, subscriptions, or patches.
 
-## Home Retrieval and Paper Similarity
+## Home Runtime and Paper Similarity
 
-Home owns the optional semantic-retrieval surface: multiple Host-owned embedding
-connections with a selected primary and ordered fallbacks, the active versus
-pending encoding identity and scope, coverage gaps versus failures, progress and
-the latest publication. Explicit build, rebuild and update controls sit next to
-cancel, retry and continue; clean up / retry candidates is the post-publication
-tail and the candidate-Discovery recovery route.
+Synthesis Home is a bounded runtime overview. Its content order is the
+four-metric Library Overview, the Sync and Semantic Retrieval panels, then
+Focused Topics. The four metrics are registered papers, generated synthesis
+topics, graph size (nodes and edges), and open review items. The service panels
+sit side by side on wide viewports and stack when space is constrained. Focused
+Topics retains its paper-count, update-time, title ordering and eight-topic
+bound.
 
-- Configuration alone starts no work; `getState` is a query and a failed read
+Home has one always-visible Preferences entry shared by both service panels.
+Connection, endpoint, model, scope, retry-policy, and credential editing belong
+to Zotero Preferences. The service panels show only localized runtime status,
+current index-task progress, missing and failed counts, and permitted actions.
+They do not render service addresses or paths, model ids or dimensions,
+publication ids, timestamps, raw diagnostics, logs, or expandable runtime
+details. Every Home card uses the shared neutral card treatment and page-chrome
+tokens. The sections remain inside the single Home
+`.zs-scroll-region`; the wide layout adds no nested scroll owner.
+
+The Host and repository remain authoritative for multiple Host-owned embedding
+connections, selected primary and ordered fallbacks, active and pending
+identity/scope, credentials, publication, and source-group-atomic index state.
+Those facts may gate visible actions, but hidden configuration and diagnostic
+details must not enter the Home selection or render signature merely because
+they are present in the Host projection. A visible progress change updates only
+the progress region; the overview, service status regions, Preferences entry,
+Focused Topics, and unrelated Workbench regions retain their DOM identities.
+
+- Retrieval configuration saves and `getState` reads start no index work. A failed state read
   keeps the previous Home state.
-- Credentials are a write-only save payload and never appear in a snapshot or a
-  log. A connection reports dimensions only after an explicit synthetic test, so
-  the build controls stay disabled until a tested identity exists.
-- Host settings are authoritative for enabled, the saved pending identity and
-  pending scope, so a save is visible before publication; native state owns the
-  active identity/scope, publication and progress.
-- Retrieval reads are bounded to the Home surface and an in-flight index
-  operation, so a progress update refreshes only the Home region and enters no
-  other region's signature.
+- Credentials remain write-only save payloads and never enter a snapshot or log.
+  A connection reports dimensions only after an explicit synthetic test, so the
+  Host still keeps build actions disabled until a tested compatible identity
+  exists; Home does not display that identity.
+- Host settings remain authoritative for enabled state, pending identity, and
+  pending scope. Native state owns the active identity/scope, published index,
+  and progress.
+- The existing `retrievalBuildIndex`, `retrievalUpdateIndex`,
+  `retrievalRebuildIndex`, `retrievalCancelIndex`,
+  `retrievalRetryIndex`, `retrievalContinueIndex`, and
+  `retrievalCleanupIndex` Host commands keep their routing, single-flight,
+  recovery, and permission gates. Index availability comes from the usable
+  published index state and is independent from the latest maintenance
+  operation. A failed update does not by itself mark a previously usable
+  published index unavailable; availability follows the actual published or
+  suspended index state, and the maintenance failure is reported separately.
+  Missing and failed counts are coverage facts, not availability states.
+  Source-group-atomic publication and the independent post-publication cleanup
+  tail retain their existing semantics.
+
+### Embedding Preferences
+
+Retrieval configuration lives in Zotero Preferences. The current
+preferences/provider control layer stores multiple connections with one
+explicit primary and an ordered fallback list. Saving a connection preserves the
+current retrieval scope and does not by itself enable, test, activate or index
+anything. Deleting a saved connection removes that connection and its encrypted
+credential; if it was primary, the primary becomes unset; if it was a fallback,
+it is removed while the remaining fallback order is retained. An explicit
+selection that references an unknown or deleted connection, repeats a fallback,
+or uses the primary as a fallback is still rejected.
+
+The current connection schema accepts the six protocols OpenAI-compatible,
+Ollama, TEI, Cohere, Voyage and Gemini; explicit `embeddingUrl`, discovery and
+named-header/bearer/none authentication; exact model IDs; dimensions and
+prefixes; and common, query and document JSON parameters. Free-form parameters
+hold nonsecret request options only; credentials stay in the separate encrypted
+authentication value. The shared URL resolver preserves proxy path prefixes and
+query parameters, accepts root, API-root and complete endpoint forms, and
+retains the prior meaning of an existing `baseUrl` connection. Credentials are
+write-only, and a typed credential can be used for an explicit discovery or
+save-and-test without appearing in saved snapshots.
+
+The preset catalog contains the six protocol service templates for OpenAI,
+Ollama, TEI, Cohere, Voyage and Gemini; the LM Studio, vLLM, Xinference, Azure
+OpenAI and Jina provider presets; and local templates for
+`qwen3-embedding:0.6b` and `qwen3-embedding:4b`. A preset fills a new unsaved
+draft only. Names identify the provider, private-network examples are absent,
+and selecting a preset starts no network request, save, primary/fallback
+selection, enable, test, activation or index work.
+
+The current model-discovery implementation runs only from its explicit action
+against the unsaved draft and available credential. OpenAI, Ollama, TEI,
+Cohere and Gemini return only identifiers supplied by their protocol catalogs;
+Ollama follows tags with selected-model `show`, Cohere filters embedding
+models, and Gemini follows pages and explicit embedding capabilities. The
+discovery path does not guess unreturned models. Voyage, Jina and Azure
+deployment names retain manual model entry. One shared 15-second operation may
+read at most 20 pages and 1,000 unique entries; completed entries stay visible
+with a partial marker. Failure retains the draft, and cancellation, an owner
+change or a late result cannot update the current or another draft. A `show`
+dimensional hint does not populate the requested output dimension; only an
+explicit synthetic probe establishes the actual dimension.
+
+The explicit save-and-test path validates the complete draft and selection
+before any preference or credential mutation. It then persists the nonsecret
+configuration and encrypted credential before sending fixed synthetic query
+and document inputs. Writes for different connections are serialized so one
+save cannot lose another connection's credential-list entry; probes remain
+outside that write queue and may overlap. If either write fails, it restores
+both the previous configuration and encrypted credential and does not probe;
+the focused regression covers this rollback. Success binds a separate request-configuration
+key and the encrypted credential revision. That test key includes
+request-affecting configuration, including endpoint and authentication, and
+excludes connection ID, name and discovery. The encoding identity is narrower:
+its optional `encodingOptionsKey` hashes only the effective query/document
+options and excludes endpoint and authentication. A late result cannot mark a
+newer version, including an older probe for the same configuration completing
+after a newer success. Fallback selection uses the full effective encoding
+identity.
+
+Combined verification passed 104 tests (UI 49, provider/preferences 43, Home
+12) with two pre-existing pending tests: runtime default and context
+`openDashboard`. The new model-filter test is covered by an existing UI case.
+The Node `synthesis-workbench` shard passed 272 items
+in 31.6 seconds and `synthesis-application` passed 181 items in 41.5 seconds.
+Rust evidence covers 31 retrieval and four identity tests and one native
+embedding test. A native production run passed 43 tests in eight minutes,
+covering 121 retrieval and 92 embedding cases. The standalone full checker
+returned `ok: false` with no errors but missing current execution evidence and
+broad coverage because its identity includes actively changed tests. The full
+aggregate therefore remains incomplete and is not claimed green. Root and
+Synthesis TypeScript checks pass, and contracts including canonical validators
+pass. These checks use
+controlled HTTP, preference state and fake DOM; they do not establish a live
+provider endpoint or real interactive Preferences GUI. All 11 locale catalogs
+and localization governance pass. Home continues to show
+runtime state only and never renders this configuration surface. Ollama uses
+`/api/embed`; no automatic legacy `/api/embeddings` fallback is part of the
+current provider path.
+
+The seven-platform artifacts are stale against the current source fingerprint,
+so XPI and real-Zotero acceptance are blocked. Source push and the remote
+prebuild were not authorized; code and focused test completion is not packaging
+acceptance.
 
 Paper detail offers a similarity read for the selected evidence paper: title, a
 short excerpt and a metadata/generated/weak material label, excluding the seed
@@ -282,11 +398,30 @@ Canonical merge proposals must show readable source and target reference titles 
 
 ## Sync Status and Conflict Review
 
-The Workbench Sync panel is a runtime surface, not the long-term sync configuration editor. WebDAV base URL, WebDAV remote path, username, retry policy, and encrypted credential state are owned by Zotero Preferences. When WebDAV Sync is disabled or incomplete, Workbench shows the config state and offers `Open preferences` as the primary action.
+The Workbench Sync panel is a runtime surface. WebDAV base URL, remote path,
+username, retry policy, and encrypted credential state are owned by Zotero
+Preferences, reached through the always-visible Home Preferences entry. Home
+does not render addresses, paths, timestamps, sanitized connection-test
+diagnostics, execution logs, or an expandable details area, and it never
+displays or accepts a password.
 
-When WebDAV configuration is complete, Workbench may expose runtime actions such as `WebDAV Sync now`, `Pause`, `Resume`, and `Retry` based on service-provided `allowedActions`. The panel should use a compact summary row for remote path, base URL, and queue state, then place last run, recent sanitized connection-test diagnostics, and execution feedback in the terminal-style log area. It must never display or accept a password in the Workbench.
+When WebDAV configuration is complete, Workbench enables runtime actions only
+when present in service-provided `allowedActions`: `syncWebDavNow`,
+`pauseWebDavSync`, `resumeWebDavSync`, and `retryWebDavSync`.
+Existing Host command routing and permission gates remain unchanged. An idle
+sync state is labeled Ready, never Synced.
 
-When WebDAV Sync enters `blocked_conflict`, the panel switches to conflict review. Each conflict row should show entity kind/id when available, asset path, reason, and short base/local/remote hash summaries. Conflict actions are service-defined semantic commands: `keep_local`, `use_remote`, `save_remote_copy`, `mark_needs_attention`, and `clear_after_manual_edit`. In v1, Workbench should enable only actions present in the service projection. Unsupported actions may be visible for discoverability, but must be disabled with diagnostics rather than locally inventing behavior.
+When WebDAV Sync enters `blocked_conflict`, Home shows only the localized
+conflict status and a `Resolve conflicts` action. The action opens a
+page-local native dialog containing the existing conflict asset, reason, short
+base/local/remote hash summaries, and the service-provided conflict actions.
+Only actions present in the service projection are enabled. Closing the dialog
+or pressing Escape returns focus to `Resolve conflicts`. When refreshed service
+state no longer reports a conflict, the dialog closes automatically.
+
+Conflict actions are service-defined semantic commands: `keep_local`,
+`use_remote`, `save_remote_copy`, `mark_needs_attention`, and
+`clear_after_manual_edit`. Workbench must not locally invent behavior.
 
 `keep_local` closes the current report and queues export without writing remote facts into SQLite. `save_remote_copy` writes a review copy and leaves sync blocked. `clear_after_manual_edit` reruns validation and import preview before unblocking. `use_remote` and `mark_needs_attention` require backend guarantees for safe single-entity apply or durable review marking; otherwise they remain disabled.
 
@@ -348,7 +483,9 @@ Examples of manageable decisions:
 
 Review queues should be bounded and batchable. Reference binding, merge, and dedupe review are explicit workflows. If candidate generation detects a very large duplicate or reference-resolution candidate set, the UI should show an aggregate diagnostic with filters and bulk actions instead of rendering thousands of individual cards.
 
-The Home Library Insights section may show a Review items card, but the count must come from the snapshot's review summary or already-loaded domain arrays. It must not depend on opening the Review tab to initialize review data.
+The Review items metric in the Home Library Overview comes from the snapshot's
+review summary or already-loaded domain arrays. It does not depend on opening
+the Review tab to initialize review data.
 
 ## Dangerous Actions
 

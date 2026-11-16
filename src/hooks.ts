@@ -181,6 +181,16 @@ import {
   testWebDavSyncConfiguration,
 } from "./modules/synthesis/webDavSyncPrefs";
 import {
+  clearSynthesisEmbeddingConnectionCredential,
+  getSynthesisEmbeddingPrefsStatus,
+  submitSynthesisEmbeddingSettings,
+  discoverSynthesisEmbeddingSettingsModels,
+  cancelSynthesisEmbeddingDiscovery,
+  inspectSynthesisEmbeddingSettingsModel,
+  saveSynthesisEmbeddingConnectionCredential,
+  testSynthesisEmbeddingConnection,
+} from "./modules/synthesis/synthesisEmbeddingPrefs";
+import {
   isSynthesisLibraryReadModelInvalidationEvent,
   recordSynthesisZoteroItemNotifications,
 } from "./modules/synthesis/itemObserver";
@@ -1835,6 +1845,46 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
     }
     case "testWebDavSyncConfiguration":
       return testWebDavSyncConfiguration();
+    case "getEmbeddingPrefsStatus":
+      return getSynthesisEmbeddingPrefsStatus();
+    case "saveEmbeddingPrefs": {
+      return submitSynthesisEmbeddingSettings(data);
+    }
+    case "discoverEmbeddingModels":
+      return discoverSynthesisEmbeddingSettingsModels(
+        {
+          connection: data.connection,
+          connectionId: data.connectionId,
+          credential: data.credential,
+        },
+        data.window || addon,
+      );
+    case "inspectEmbeddingModel":
+      return inspectSynthesisEmbeddingSettingsModel(
+        {
+          connection: data.connection,
+          connectionId: data.connectionId,
+          credential: data.credential,
+        },
+        data.window || addon,
+      );
+    case "cancelEmbeddingDiscovery":
+      cancelSynthesisEmbeddingDiscovery(data.window || addon);
+      return { ok: true };
+    case "testEmbeddingConnection":
+      return testSynthesisEmbeddingConnection({
+        connectionId:
+          typeof data.connectionId === "string" ? data.connectionId : undefined,
+      });
+    case "saveEmbeddingCredential":
+      return saveSynthesisEmbeddingConnectionCredential(
+        String(data.connectionId || ""),
+        String(data.credential || ""),
+      );
+    case "clearEmbeddingCredential":
+      return clearSynthesisEmbeddingConnectionCredential(
+        String(data.connectionId || ""),
+      );
     case "openRuntimePersistenceRoot":
       try {
         openFolderInSystemFileManager(getRuntimePersistencePaths().root, {

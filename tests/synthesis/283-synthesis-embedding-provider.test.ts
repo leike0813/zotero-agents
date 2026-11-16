@@ -1,6 +1,10 @@
 import { assert } from "chai";
 import {
   createSynthesisEmbeddingProvider,
+  resolveSynthesisEmbeddingEndpoints,
+  getSynthesisEmbeddingEncodingOptionsKey,
+  discoverSynthesisEmbeddingModels,
+  inspectSynthesisEmbeddingModel,
   type SynthesisEmbeddingHttpClient,
   type SynthesisEmbeddingHttpRequest,
 } from "../../src/modules/synthesis/synthesisEmbeddingProvider";
@@ -74,6 +78,312 @@ async function rejects(promise: Promise<unknown>) {
 
 describe("Synthesis embedding provider", function () {
   this.timeout(20_000);
+
+  it("resolves service roots, API roots and full endpoints without losing proxy or query components", function () {
+    for (const [protocol, baseUrl, expected] of [
+      ["openai", "https://svc", "https://svc/v1/embeddings"],
+      [
+        "openai",
+        "https://svc/proxy/v1?api-version=1",
+        "https://svc/proxy/v1/embeddings?api-version=1",
+      ],
+      ["ollama", "https://svc/proxy/api", "https://svc/proxy/api/embed"],
+      ["tei", "https://svc/proxy", "https://svc/proxy/embed"],
+      ["cohere", "https://svc/v2", "https://svc/v2/embed"],
+      ["voyage", "https://svc/v1", "https://svc/v1/embeddings"],
+      [
+        "gemini",
+        "https://svc/v1beta",
+        "https://svc/v1beta/models/m:batchEmbedContents",
+      ],
+    ] as const) {
+      assert.equal(
+        resolveSynthesisEmbeddingEndpoints(connection({ protocol, baseUrl }))
+          .embeddingUrl,
+        expected,
+      );
+    }
+  });
+
+  it("uses a complete embedding endpoint without appending a second path and authenticates Ollama", async function () {
+    const fake = fakeClient(() => ({
+      status: 200,
+      text: JSON.stringify({ embeddings: [[1, 0, 0]] }),
+    }));
+    await provider(fake.client).encode({
+      identity,
+      purpose: "query",
+      inputs: ["alpha"],
+      deadlineAtMs: deadline(),
+      services: [
+        {
+          connection: connection({
+            protocol: "ollama",
+            baseUrl: "https://svc/proxy/api/embed?version=2",
+          }),
+          credential: "proxy-key",
+        },
+      ],
+    });
+    assert.equal(fake.calls[0].url, "https://svc/proxy/api/embed?version=2");
+    assert.equal(fake.calls[0].headers.authorization, "Bearer proxy-key");
+  });
+
+  for (const [protocol, response, field, task] of [
+    ["tei", [[1, 0, 0]], "inputs", undefined],
+    ["cohere", { embeddings: { float: [[1, 0, 0]] } }, "texts", "search_query"],
+    [
+      "voyage",
+      { data: [{ index: 0, embedding: [1, 0, 0] }] },
+      "input",
+      "query",
+    ],
+    [
+      "gemini",
+      { embeddings: [{ values: [1, 0, 0] }] },
+      "requests",
+      "RETRIEVAL_QUERY",
+    ],
+  ] as const) {
+    it(`encodes ${protocol} native requests and validates their vector association`, async function () {
+      const conn = connection({ protocol, dimensions: 3 });
+      const key = getSynthesisEmbeddingEncodingOptionsKey(conn);
+      const fake = fakeClient(() => ({
+        status: 200,
+        text: JSON.stringify(response),
+      }));
+      const result = await provider(fake.client).encode({
+        identity: { ...identity, ...(key ? { encodingOptionsKey: key } : {}) },
+        purpose: "query",
+        inputs: ["alpha"],
+        deadlineAtMs: deadline(),
+        services: [{ connection: conn, credential: "key" }],
+      });
+      assert.deepEqual(result.vectors, [[1, 0, 0]]);
+      const body = JSON.parse(fake.calls[0].body);
+      if (protocol === "gemini") {
+        assert.equal(body.requests[0].content.parts[0].text, "q: alpha");
+        assert.equal(body.requests[0].taskType, task);
+        assert.equal(fake.calls[0].headers["x-goog-api-key"], "key");
+      } else {
+        assert.deepEqual(body[field], ["q: alpha"]);
+        if (task) assert.equal(body.input_type, task);
+      }
+    });
+  }
+
+  it("binds effective query/document options to compatibility and rejects reserved overrides", async function () {
+    const conn = connection({
+      parameters: {
+        common: { task: "retrieval.query" },
+        document: { task: "retrieval.passage" },
+      },
+    });
+    const fake = fakeClient(() => ({
+      status: 200,
+      text: openAiText([{ index: 0, embedding: [1, 0, 0] }]),
+    }));
+    await rejects(
+      provider(fake.client).encode({
+        identity,
+        purpose: "query",
+        inputs: ["alpha"],
+        deadlineAtMs: deadline(),
+        services: [{ connection: conn }],
+      }),
+    );
+    assert.isEmpty(fake.calls);
+    const key = getSynthesisEmbeddingEncodingOptionsKey(conn);
+    await provider(fake.client).encode({
+      identity: { ...identity, encodingOptionsKey: key },
+      purpose: "document",
+      inputs: ["alpha"],
+      deadlineAtMs: deadline(),
+      services: [{ connection: conn }],
+    });
+    assert.equal(JSON.parse(fake.calls[0].body).task, "retrieval.passage");
+    await rejects(
+      provider(fake.client).probe({
+        connection: connection({
+          parameters: { common: { input: ["replacement"] } },
+        }),
+      }),
+    );
+    assert.lengthOf(fake.calls, 1);
+  });
+
+  it("discovers models from an unsaved Ollama draft without embedding any text", async function () {
+    const fake = fakeClient(() => ({
+      status: 200,
+      text: JSON.stringify({
+        models: [{ name: "embed:latest" }, { name: "chat:latest" }],
+      }),
+    }));
+    const result = await discoverSynthesisEmbeddingModels({
+      connection: { protocol: "ollama", baseUrl: "https://svc/proxy" },
+      credential: "secret",
+      client: fake.client,
+    });
+    assert.equal(result.status, "ok");
+    assert.deepEqual(
+      result.models.map((model) => model.id),
+      ["embed:latest", "chat:latest"],
+    );
+    assert.equal(result.models[0].embedding, "unknown");
+    assert.equal(fake.calls[0].method, "GET");
+    assert.equal(fake.calls[0].url, "https://svc/proxy/api/tags");
+    assert.equal(fake.calls[0].headers.authorization, "Bearer secret");
+  });
+
+  it("follows Gemini model pages, preserves raw ids and filters explicit non-embedding capabilities", async function () {
+    const fake = fakeClient((args) => ({
+      status: 200,
+      text: JSON.stringify(
+        args.url.includes("pageToken=")
+          ? {
+              models: [
+                {
+                  name: "models/e2",
+                  supportedGenerationMethods: ["embedContent"],
+                },
+              ],
+            }
+          : {
+              models: [
+                {
+                  name: "models/chat",
+                  supportedGenerationMethods: ["generateContent"],
+                },
+                {
+                  name: "models/e1",
+                  supportedGenerationMethods: ["embedContent"],
+                },
+              ],
+              nextPageToken: "next",
+            },
+      ),
+    }));
+    const result = await discoverSynthesisEmbeddingModels({
+      connection: { protocol: "gemini", baseUrl: "https://svc/v1beta" },
+      client: fake.client,
+    });
+    assert.equal(result.status, "ok");
+    assert.deepEqual(
+      result.models
+        .filter((model) => model.embedding === "supported")
+        .map((model) => model.id),
+      ["models/e1", "models/e2"],
+    );
+    assert.lengthOf(fake.calls, 2);
+  });
+
+  it("reports unsupported discovery and HTTP failures without exposing the response or credentials", async function () {
+    const fake = fakeClient(() => ({
+      status: 401,
+      text: "private-proxy-secret",
+    }));
+    const unsupported = await discoverSynthesisEmbeddingModels({
+      connection: { protocol: "voyage", baseUrl: "https://svc/v1" },
+      client: fake.client,
+    });
+    assert.equal(unsupported.status, "unsupported");
+    assert.isEmpty(fake.calls);
+    const failed = await discoverSynthesisEmbeddingModels({
+      connection: { protocol: "openai", baseUrl: "https://svc/v1" },
+      client: fake.client,
+    });
+    assert.equal(failed.status, "failed");
+    assert.equal(failed.diagnostics[0].code, "embedding_http_401");
+    assert.notInclude(JSON.stringify(failed), "private-proxy-secret");
+  });
+
+  it("marks discovery partial at the candidate bound and cancels an unfinished request", async function () {
+    const fake = fakeClient(() => ({
+      status: 200,
+      text: JSON.stringify({
+        data: Array.from({ length: 1001 }, (_, i) => ({ id: `m-${i}` })),
+      }),
+    }));
+    const result = await discoverSynthesisEmbeddingModels({
+      connection: { protocol: "openai", baseUrl: "https://svc/v1" },
+      client: fake.client,
+    });
+    assert.lengthOf(result.models, 1000);
+    assert.isTrue(result.partial);
+    const cancellation = createCancellationController();
+    const pending = discoverSynthesisEmbeddingModels({
+      connection: { protocol: "openai", baseUrl: "https://svc/v1" },
+      client: fakeClient(() => new Promise(() => {})).client,
+      signal: cancellation.signal,
+    });
+    cancellation.abort();
+    const canceled = await pending;
+    assert.equal(canceled.status, "failed");
+    assert.equal(canceled.diagnostics[0].code, "embedding_discovery_canceled");
+  });
+
+  it("checks only the chosen Ollama model for an explicit embedding capability", async function () {
+    const fake = fakeClient(() => ({
+      status: 200,
+      text: JSON.stringify({
+        capabilities: ["embedding"],
+        model_info: { "bert.embedding_length": 3 },
+      }),
+    }));
+    const model = await inspectSynthesisEmbeddingModel({
+      connection: {
+        protocol: "ollama",
+        baseUrl: "https://svc",
+        modelId: "raw-model:tag",
+      },
+      client: fake.client,
+    });
+    assert.equal(model.id, "raw-model:tag");
+    assert.equal(model.embedding, "supported");
+    assert.equal(fake.calls[0].url, "https://svc/api/show");
+    assert.deepEqual(JSON.parse(fake.calls[0].body), {
+      model: "raw-model:tag",
+    });
+  });
+
+  it("splits native provider batches under one deadline and never returns a successful prefix after failure", async function () {
+    const conn = connection({ protocol: "cohere" });
+    const key = getSynthesisEmbeddingEncodingOptionsKey(conn);
+    const fake = fakeClient((args) => {
+      const texts = JSON.parse(args.body).texts;
+      assert.isAtMost(texts.length, 96);
+      return {
+        status: 200,
+        text: JSON.stringify({
+          embeddings: { float: texts.map(() => [1, 0, 0]) },
+        }),
+      };
+    });
+    const result = await provider(fake.client).encode({
+      identity: { ...identity, encodingOptionsKey: key },
+      purpose: "document",
+      inputs: Array(100).fill("alpha"),
+      deadlineAtMs: deadline(),
+      services: [{ connection: conn }],
+    });
+    assert.lengthOf(result.vectors, 100);
+    assert.lengthOf(fake.calls, 2);
+    const failing = fakeClient((args) => ({
+      status: JSON.parse(args.body).texts.length === 96 ? 200 : 400,
+      text: JSON.stringify({
+        embeddings: { float: Array(96).fill([1, 0, 0]) },
+      }),
+    }));
+    await rejects(
+      provider(failing.client).encode({
+        identity: { ...identity, encodingOptionsKey: key },
+        purpose: "document",
+        inputs: Array(100).fill("alpha"),
+        deadlineAtMs: deadline(),
+        services: [{ connection: conn }],
+      }),
+    );
+  });
 
   it("reorders OpenAI vectors by explicit index and applies the query prefix", async function () {
     const fake = fakeClient(() => ({

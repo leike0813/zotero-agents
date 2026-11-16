@@ -56,6 +56,11 @@ export function getSynthesisEmbeddingCredentialUpdatedAt(connectionId: string) {
   return readMap()[cleanId(connectionId)]?.created_at || undefined;
 }
 
+export function getSynthesisEmbeddingCredentialRevision(connectionId: string) {
+  const envelope = readMap()[cleanId(connectionId)];
+  return envelope ? `${envelope.created_at}:${envelope.iv}` : undefined;
+}
+
 export async function storeSynthesisEmbeddingCredential(
   connectionId: string,
   credentialRaw: string,
@@ -64,18 +69,20 @@ export async function storeSynthesisEmbeddingCredential(
   if (!id) {
     throw new Error("embedding connection id is required");
   }
-  const map = readMap();
   const credential = String(credentialRaw || "").trim();
   if (!credential) {
+    const map = readMap();
     delete map[id];
     writeMap(map);
     return { stored: false };
   }
-  map[id] = await encryptSynthesisCredentialContent({
+  const envelope = await encryptSynthesisCredentialContent({
     plaintext: credential,
     schemaId: CREDENTIAL_SCHEMA_ID,
     schemaVersion: CREDENTIAL_SCHEMA_VERSION,
   });
+  const map = readMap();
+  map[id] = envelope;
   writeMap(map);
   return { stored: true };
 }

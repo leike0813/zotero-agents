@@ -62,6 +62,7 @@ import {
   createSynthesisEmbeddingSettingsPort,
   getSynthesisEmbeddingConnectionIdentity,
   getSynthesisEmbeddingPrefsConfig,
+  submitSynthesisEmbeddingSettings,
   type SynthesisEmbeddingPrefsStatus,
 } from "../synthesisEmbeddingPrefs";
 import { createNativeSynthesisRetrievalPort } from "../../synthesisClient/nativeComposition";
@@ -70,6 +71,7 @@ import type {
   SynthesisRetrievalMaintenanceRequest,
   SynthesisRetrievalState,
   SynthesisRetrievalScope,
+  SynthesisRetrievalConnection,
   SynthesisWorkbenchRetrievalSnapshot,
 } from "../../../shared/synthesisWorkbenchWireContract";
 
@@ -1728,6 +1730,7 @@ export function projectRetrievalSnapshot(args: {
     pendingIdentity: args.pendingIdentity,
     pendingScope: args.prefs.pendingScope,
     connections: args.prefs.connections.map((connection) => ({
+      ...connection,
       id: connection.id,
       name: connection.name,
       protocol: connection.protocol,
@@ -5297,7 +5300,6 @@ function handleAction(
       "retrievalSaveSettings",
       {},
       async () => {
-        const { settings } = getSynthesisRetrievalPorts();
         const existing = getSynthesisEmbeddingPrefsConfig();
         const connectionInput = retrievalRecord(commandArgs.connection);
         const hasConnectionInput = Object.keys(connectionInput).length > 0;
@@ -5308,12 +5310,11 @@ function handleAction(
           retrievalString(connectionInput.id) || createRetrievalConnectionId();
         const dimensions = Math.floor(Number(connectionInput.dimensions));
         const connection = {
+          ...connectionInput,
           id: connectionId,
           name: retrievalString(connectionInput.name),
           protocol:
-            connectionInput.protocol === "ollama"
-              ? ("ollama" as const)
-              : ("openai" as const),
+            connectionInput.protocol as SynthesisRetrievalConnection["protocol"],
           baseUrl: retrievalString(connectionInput.baseUrl),
           modelId: retrievalString(connectionInput.modelId),
           queryPrefix: String(connectionInput.queryPrefix || ""),
@@ -5353,8 +5354,12 @@ function handleAction(
           !connections.some((entry) => entry.id === requestedPrimary)
             ? null
             : requestedPrimary;
-        const saved = settings.save({
-          connections,
+        const saved = await submitSynthesisEmbeddingSettings({
+          ...(hasConnectionInput ? { connection } : {}),
+          ...(removeConnectionId ? { removeConnectionId } : {}),
+          ...(hasConnectionInput && retrievalString(commandArgs.secret)
+            ? { credential: retrievalString(commandArgs.secret) }
+            : {}),
           ...(typeof commandArgs.enabled === "boolean"
             ? { enabled: commandArgs.enabled }
             : {}),
@@ -5364,13 +5369,6 @@ function handleAction(
         });
         if (saved.ok === false) {
           throw new Error(firstSyncDiagnosticMessage(saved.diagnostics));
-        }
-        if (removeConnectionId) {
-          await settings.clearCredential(removeConnectionId);
-        }
-        const secret = retrievalString(commandArgs.secret);
-        if (hasConnectionInput && secret) {
-          await settings.saveCredential(connectionId, secret);
         }
       },
       { refreshFromService: false },
