@@ -58,6 +58,17 @@ At startup, the canonical store SHALL discover supported historical Topic direct
 - **THEN** startup SHALL fail through the canonical identity or mismatch error path
 - **AND** it SHALL preserve the candidate bytes.
 
+#### Scenario: Runtime enumeration encounters a verified recovery copy
+
+- **WHEN** startup has verified a historical Topic directory and its authoritative new-path current snapshot
+- **THEN** runtime Topic enumeration SHALL exclude the historical copy before counting candidates or reading their content
+- **AND** only the authoritative current snapshot SHALL contribute a candidate for that Topic.
+
+#### Scenario: Authoritative current snapshot becomes unreadable
+
+- **WHEN** an authoritative current snapshot becomes unreadable after successful startup
+- **THEN** runtime Topic enumeration SHALL report the current source as unavailable without reading the retained historical copy as a fallback.
+
 ### Requirement: New Topic writes use only the current identity
 
 Canonical Topic creation and update promotion SHALL write only under the new slug-plus-full-hash path identity. Historical path formulas SHALL be accepted only by startup migration and SHALL not remain a live read fallback.

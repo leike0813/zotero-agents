@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { mock } from "node:test";
+import { runInNewContext } from "node:vm";
 import {
   clearRuntimeLogs,
   listRuntimeLogs,
@@ -3047,4 +3048,506 @@ describe("Synthesis native client composition", function () {
       );
     }
   });
+});
+
+describe("Synthesis retrieval port readiness", function () {
+  const readyConnection = {
+    discovery: {
+      host: "127.0.0.1" as const,
+      port: 32001,
+      profileId: "profile",
+      serviceInstanceId: "service",
+    },
+    clientToken: "token",
+  };
+
+  const retrievalStateFixture = {
+    enabled: true,
+    status: "ready",
+    activeIdentity: {
+      modelId: "fixture",
+      dimensions: 2,
+      queryPrefix: "",
+      documentPrefix: "",
+    },
+    pendingIdentity: null,
+    activeScope: {
+      libraryIds: [1],
+      sourceKinds: ["metadata"],
+      includeTopics: false,
+    },
+    pendingScope: null,
+    publication: "publication:1",
+    progress: {
+      completedGroups: 1,
+      totalGroups: 1,
+      completedFragments: 1,
+      failedGroups: 0,
+      missingGroups: 0,
+    },
+    updatedAt: null,
+    issues: [],
+  };
+
+  const maintenanceRequest = {
+    identity: {
+      modelId: "fixture",
+      dimensions: 2,
+      queryPrefix: "query: ",
+      documentPrefix: "document: ",
+      encodingOptionsKey: "fixture-options",
+    },
+    scope: {
+      libraryIds: [1],
+      sourceKinds: ["metadata" as const],
+      includeTopics: false,
+    },
+  };
+
+  for (const scenario of [
+    {
+      name: "read",
+      capability: "client.getRetrievalState",
+      result: retrievalStateFixture,
+      invoke: (port: ReturnType<typeof createNativeSynthesisRetrievalPort>) =>
+        port.getState(),
+    },
+    ...(
+      [
+        ["build", "client.buildRetrievalIndex"],
+        ["rebuild", "client.rebuildRetrievalIndex"],
+        ["update", "client.updateRetrievalIndex"],
+      ] as const
+    ).map(([name, capability]) => ({
+      name,
+      capability,
+      result: {
+        schema: "synthesis.maintenance_operation.v1",
+        operation_id: `maintenance:${capability}`,
+        operation_type: capability,
+        status: "pending",
+      },
+      invoke(port: ReturnType<typeof createNativeSynthesisRetrievalPort>) {
+        const { identity, scope } = runInNewContext(
+          `(${JSON.stringify(maintenanceRequest)})`,
+        ) as typeof maintenanceRequest;
+        return port[name]({ identity, scope });
+      },
+    })),
+  ]) {
+    it(`waits for the owner before the first ${scenario.name} RPC and dispatches it once`, async function () {
+      const ready = deferred<void>();
+      let connection: typeof readyConnection | null = null;
+      let dispatches = 0;
+      const port = createNativeSynthesisRetrievalPort({
+        getReadyConnection: () => connection,
+        recoverReadyConnection: async () => {
+          await ready.promise;
+          connection = readyConnection;
+        },
+        rpcClient: {
+          async call(args) {
+            dispatches += 1;
+            assert.equal(args.capability, scenario.capability);
+            assert.deepEqual(JSON.parse(JSON.stringify(args.payload)), {
+              args: scenario.name === "read" ? [] : [maintenanceRequest],
+            });
+            return args.rebuildResult(scenario.result);
+          },
+        },
+      });
+
+      const pending = scenario.invoke(port);
+      await Promise.resolve();
+      assert.equal(dispatches, 0);
+      ready.resolve();
+      await pending;
+      assert.equal(dispatches, 1);
+    });
+  }
+
+  it("audits invalid retrieval requests before attempting to recover the connection", async function () {
+    await clearRuntimeLogs();
+    resetSynthesisSidecarTraceForTests();
+    setDebugModeOverrideForTests(true);
+    setSynthesisSidecarDiagnosticsSourceOverrideForTests(true);
+    const capability = "client.buildRetrievalIndex";
+    const privateModel = "private-model-id";
+    let recoveries = 0;
+    let dispatches = 0;
+    const port = createNativeSynthesisRetrievalPort({
+      getReadyConnection: () => null,
+      recoverReadyConnection: async () => {
+        recoveries += 1;
+      },
+      rpcClient: {
+        async call() {
+          dispatches += 1;
+          throw new Error("unexpected_rpc");
+        },
+      },
+    });
+    try {
+      let failure: unknown;
+      try {
+        await port.build({
+          ...maintenanceRequest,
+          identity: {
+            ...maintenanceRequest.identity,
+            modelId: privateModel,
+            dimensions: 0,
+          },
+        });
+      } catch (error) {
+        failure = error;
+      }
+      assert.instanceOf(failure, SynthesisClientError);
+      assert.equal((failure as SynthesisClientError).code, "invalid_request");
+      assert.equal(recoveries, 0);
+      assert.equal(dispatches, 0);
+      const errors = listRuntimeLogs({
+        component: "synthesis-sidecar-business",
+      }).filter(
+        (entry) => entry.operation === capability && entry.level === "error",
+      );
+      assert.lengthOf(errors, 1);
+      assert.deepInclude(errors[0].details, {
+        errorCode: "invalid_request",
+        classification: "invalid",
+      });
+      const details = errors[0].details as {
+        violations: { keyword: string; pointer: string }[];
+      };
+      assert.isTrue(
+        details.violations.some((violation) => violation.keyword === "minimum"),
+      );
+      const events = readSynthesisSidecarTraceSnapshot().traces.flatMap(
+        (trace) => trace.events,
+      );
+      const failures = events.filter((event) => event.outcome === "failed");
+      assert.lengthOf(failures, 1);
+      assert.deepInclude(failures[0], {
+        source: "host",
+        boundary: "operation",
+        phase: "terminal",
+        code: "invalid_request",
+        identities: { operation: capability },
+      });
+      assert.notInclude(JSON.stringify({ errors, events }), privateModel);
+    } finally {
+      setDebugModeOverrideForTests(undefined);
+      setSynthesisSidecarDiagnosticsSourceOverrideForTests(undefined);
+      resetSynthesisSidecarTraceForTests();
+      await clearRuntimeLogs();
+    }
+  });
+
+  it("does not dispatch an RPC when the readiness wait fails", async function () {
+    let dispatches = 0;
+    const port = createNativeSynthesisRetrievalPort({
+      getReadyConnection: () => null,
+      recoverReadyConnection: async () => {
+        throw new Error("synthesis_production_owner_stopped");
+      },
+      rpcClient: {
+        async call() {
+          dispatches += 1;
+          throw new Error("unexpected_rpc");
+        },
+      },
+    });
+
+    const failure = await port.getState().then(
+      () => null,
+      (error: unknown) => error,
+    );
+    assert.instanceOf(failure, SynthesisClientError);
+    assert.equal((failure as SynthesisClientError).code, "unavailable");
+    assert.equal(dispatches, 0);
+  });
+
+  it("does not dispatch an RPC when the readiness wait exceeds the operation budget", async function () {
+    mock.timers.enable({ apis: ["setTimeout"] });
+    try {
+      const ready = deferred<void>();
+      let connection: typeof readyConnection | null = null;
+      let dispatches = 0;
+      const port = createNativeSynthesisRetrievalPort({
+        getReadyConnection: () => connection,
+        recoverReadyConnection: async () => {
+          await ready.promise;
+          connection = readyConnection;
+        },
+        rpcClient: {
+          async call() {
+            dispatches += 1;
+            throw new Error("unexpected_rpc");
+          },
+        },
+      });
+
+      const pending = port.getState().then(
+        () => null,
+        (error: unknown) => error,
+      );
+      await Promise.resolve();
+      mock.timers.tick(
+        synthesisProductionTransportDeadlineMs("client.getRetrievalState") + 1,
+      );
+      const failure = await pending;
+      assert.instanceOf(failure, SynthesisClientError);
+      assert.equal((failure as SynthesisClientError).code, "timeout");
+      assert.equal(dispatches, 0);
+      ready.resolve();
+      await ready.promise;
+      await Promise.resolve();
+      assert.equal(dispatches, 0);
+    } finally {
+      mock.timers.reset();
+    }
+  });
+
+  it("does not replay a dispatched maintenance request after a transport failure", async function () {
+    let recoveries = 0;
+    let dispatches = 0;
+    const port = createNativeSynthesisRetrievalPort({
+      getReadyConnection: () => readyConnection,
+      recoverReadyConnection: async () => {
+        recoveries += 1;
+      },
+      rpcClient: {
+        async call() {
+          dispatches += 1;
+          throw new SynthesisSidecarRpcError("service_unavailable", {});
+        },
+      },
+    });
+
+    const failure = await port.build(maintenanceRequest).then(
+      () => null,
+      (error: unknown) => error,
+    );
+    assert.instanceOf(failure, SynthesisClientError);
+    assert.equal((failure as SynthesisClientError).code, "unavailable");
+    assert.equal(dispatches, 1);
+    assert.equal(recoveries, 0);
+  });
+});
+
+describe("private Library retrieval failure audit", function () {
+  const readyConnection = {
+    discovery: {
+      host: "127.0.0.1" as const,
+      port: 32001,
+      profileId: "profile",
+      serviceInstanceId: "service",
+    },
+    clientToken: "token",
+  };
+
+  const retrievalExecution = {
+    result: {
+      results: [],
+      status: "completed",
+      method: "vector",
+      coverage: {
+        kind: "library",
+        sources: {
+          metadata: { status: "complete", sourcesScanned: 0 },
+          fulltext: { status: "not_requested", sourcesScanned: 0 },
+          analysis: { status: "not_requested", sourcesScanned: 0 },
+        },
+      },
+      issues: [],
+      nextCursor: null,
+      hasMore: false,
+      total: 0,
+    },
+    scope: { libraryIds: [1] },
+    descriptors: [],
+    catalogIssues: [],
+    catalogLimited: false,
+    publication: "publication:1",
+  };
+
+  const retrieve = (promise: Promise<unknown>) =>
+    promise.then(
+      () => null,
+      (error: unknown) => error,
+    );
+  const libraryAuditEntries = () =>
+    listRuntimeLogs({
+      component: "synthesis-sidecar-business",
+      order: "asc",
+    }).filter((entry) => entry.operation === "library.retrieval.execute");
+  const firstViolation = (entry: { details?: unknown }) =>
+    ((entry.details as { violations?: Record<string, unknown>[] }).violations ??
+      [])[0];
+
+  it("audits a rejected request once before dispatch", async function () {
+    await clearRuntimeLogs();
+    const port = createNativeSynthesisLibraryRetrievalPort({
+      getReadyConnection: () => readyConnection,
+      rpcClient: {
+        async call() {
+          assert.fail("a rejected request must not reach the sidecar");
+        },
+      },
+    });
+
+    const failure = await retrieve(
+      port.execute({ query: "private-query-marker", libraryIds: [] }),
+    );
+
+    assert.instanceOf(failure, SynthesisClientError);
+    assert.equal((failure as SynthesisClientError).code, "invalid_request");
+    const entries = libraryAuditEntries();
+    assert.lengthOf(entries, 1);
+    assert.equal(entries[0]?.level, "error");
+    assert.equal(entries[0]?.stage, "failed");
+    assert.deepInclude(entries[0]?.details as Record<string, unknown>, {
+      errorCode: "invalid_request",
+      classification: "invalid",
+      schemaRef: (failure as SynthesisClientError).details?.location,
+    });
+    assert.deepInclude(firstViolation(entries[0]), {
+      keyword: "minItems",
+      pointer: "/libraryIds",
+    });
+    assert.notInclude(JSON.stringify(entries), "private-query-marker");
+  });
+
+  it("audits a missing connection once without dispatching", async function () {
+    await clearRuntimeLogs();
+    const port = createNativeSynthesisLibraryRetrievalPort({
+      getReadyConnection: () => null,
+      rpcClient: {
+        async call() {
+          assert.fail("a missing owner must not reach the sidecar");
+        },
+      },
+    });
+
+    const failure = await retrieve(
+      port.execute({ query: "evidence", libraryIds: [1] }),
+    );
+
+    assert.instanceOf(failure, SynthesisClientError);
+    assert.equal((failure as SynthesisClientError).code, "unavailable");
+    const entries = libraryAuditEntries();
+    assert.lengthOf(entries, 1);
+    assert.deepInclude(entries[0]?.details as Record<string, unknown>, {
+      errorCode: "unavailable",
+      classification: "unavailable",
+      reason: "service_not_ready",
+    });
+  });
+
+  it("audits an RPC failure once with its stable sidecar code", async function () {
+    await clearRuntimeLogs();
+    const port = createNativeSynthesisLibraryRetrievalPort({
+      getReadyConnection: () => readyConnection,
+      rpcClient: {
+        async call() {
+          throw new SynthesisSidecarRpcError("worker_timeout");
+        },
+      },
+    });
+
+    const failure = await retrieve(
+      port.execute({ query: "evidence", libraryIds: [1] }),
+    );
+
+    assert.instanceOf(failure, SynthesisClientError);
+    assert.equal((failure as SynthesisClientError).code, "timeout");
+    const entries = libraryAuditEntries();
+    assert.lengthOf(entries, 1);
+    assert.deepInclude(entries[0]?.details as Record<string, unknown>, {
+      errorCode: "timeout",
+      classification: "timeout",
+      sidecarCode: "worker_timeout",
+    });
+  });
+
+  it("audits a rejected result once with its schema diagnostics", async function () {
+    await clearRuntimeLogs();
+    const port = createNativeSynthesisLibraryRetrievalPort({
+      getReadyConnection: () => readyConnection,
+      rpcClient: {
+        async call(args) {
+          return args.rebuildResult({
+            ...retrievalExecution,
+            result: { ...retrievalExecution.result, method: "semantic" },
+          });
+        },
+      },
+    });
+
+    const failure = await retrieve(
+      port.execute({ query: "evidence", libraryIds: [1] }),
+    );
+
+    assert.instanceOf(failure, SynthesisClientError);
+    assert.equal((failure as SynthesisClientError).code, "internal");
+    const entries = libraryAuditEntries();
+    assert.lengthOf(entries, 1);
+    assert.deepInclude(entries[0]?.details as Record<string, unknown>, {
+      errorCode: "internal",
+      classification: "internal",
+      schemaRef: (failure as SynthesisClientError).details?.location,
+    });
+    assert.deepInclude(firstViolation(entries[0]), {
+      keyword: "enum",
+      pointer: "/result/method",
+    });
+  });
+
+  for (const method of ["vector", "lexical"] as const) {
+    it(`stays silent for a ${method} execution`, async function () {
+      await clearRuntimeLogs();
+      const execution =
+        method === "lexical"
+          ? {
+              ...retrievalExecution,
+              result: {
+                ...retrievalExecution.result,
+                status: "limited",
+                method,
+                issues: [
+                  {
+                    code: "vector_unavailable",
+                    sourceKind: null,
+                    affectedCount: 1,
+                  },
+                ],
+              },
+            }
+          : {
+              ...retrievalExecution,
+              result: { ...retrievalExecution.result, method },
+            };
+      const port = createNativeSynthesisLibraryRetrievalPort({
+        getReadyConnection: () => readyConnection,
+        rpcClient: {
+          async call(args) {
+            return args.rebuildResult(execution);
+          },
+        },
+      });
+
+      const result = await port.execute({
+        query: "evidence",
+        libraryIds: [1],
+      });
+
+      assert.equal(result.result.method, method);
+      assert.equal(result.publication, "publication:1");
+      assert.isEmpty(
+        listRuntimeLogs({
+          component: "synthesis-sidecar-business",
+          order: "asc",
+        }),
+      );
+    });
+  }
 });

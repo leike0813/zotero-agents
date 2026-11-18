@@ -15,10 +15,7 @@ import {
   rebuildSynthesisEvidenceSearchResult,
   rebuildSynthesisProtocolDto,
   rebuildSynthesisRetrievalState,
-  rebuildSynthesisRetrievalMaintenanceRequest,
-  rebuildSynthesisPaperSimilarityRequest,
   rebuildSynthesisPaperSimilarityResult,
-  rebuildSynthesisRetrievalInvalidateRequest,
   type SynthesisRetrievalMaintenanceRequest,
   type SynthesisPaperSimilarityRequest,
   type SynthesisRetrievalInvalidateRequest,
@@ -282,6 +279,7 @@ export type NativeSynthesisLibraryRetrievalPort =
 
 export function createNativeSynthesisRetrievalPort(options?: {
   getReadyConnection?: () => NativeControlConnection | null;
+  recoverReadyConnection?: () => Promise<void>;
   rpcClient?: NativeRpcClient;
 }) {
   const getReadyConnection =
@@ -293,11 +291,6 @@ export function createNativeSynthesisRetrievalPort(options?: {
     args: unknown[],
     rebuild: (value: unknown) => T,
   ): Promise<T> {
-    const payload = rebuildSynthesisProtocolCapabilityDto<{ args: unknown[] }>({
-      capability,
-      direction: "request",
-      value: { args },
-    });
     rpcClient ??= createSynthesisSidecarRpcClient({
       transportErrors: SYNTHESIS_PRODUCTION_RPC_TRANSPORT_ERRORS,
     });
@@ -306,23 +299,32 @@ export function createNativeSynthesisRetrievalPort(options?: {
     const native = createNativePort({
       owner,
       getReadyConnection,
+      recoverReadyConnection: options?.recoverReadyConnection,
       rpcClient,
     }) as unknown as Record<string, (...args: unknown[]) => Promise<unknown>>;
-    return rebuild(
-      await native[capability.slice("client.".length)]!(...payload.args),
-    );
+    return rebuild(await native[capability.slice("client.".length)]!(...args));
   }
   const operation = (value: unknown) =>
     value as SynthesisPublicMaintenanceOperation;
+  const copyWorkbenchRecord = (value: unknown) =>
+    value && typeof value === "object" && !Array.isArray(value)
+      ? { ...value }
+      : value;
   const maintain = (
     capability: SynthesisSidecarProductionClientCapability,
     request: SynthesisRetrievalMaintenanceRequest,
-  ) =>
-    call(
-      capability,
-      [rebuildSynthesisRetrievalMaintenanceRequest(request)],
-      operation,
-    );
+  ) => {
+    // The direct Workbench bridge passes records created in the page's realm.
+    const input =
+      request && typeof request === "object" && !Array.isArray(request)
+        ? {
+            ...request,
+            identity: copyWorkbenchRecord(request.identity),
+            scope: copyWorkbenchRecord(request.scope),
+          }
+        : request;
+    return call(capability, [input], operation);
+  };
   return {
     getState: () =>
       call("client.getRetrievalState", [], rebuildSynthesisRetrievalState),
@@ -336,13 +338,13 @@ export function createNativeSynthesisRetrievalPort(options?: {
     recommend: (request: SynthesisPaperSimilarityRequest) =>
       call(
         "client.recommendSimilarPapers",
-        [rebuildSynthesisPaperSimilarityRequest(request)],
+        [request],
         rebuildSynthesisPaperSimilarityResult,
       ),
     invalidate: (request: SynthesisRetrievalInvalidateRequest) =>
       call(
         "client.invalidateRetrievalSources",
-        [rebuildSynthesisRetrievalInvalidateRequest(request)],
+        [request],
         (value) => value as { invalidatedGroups: number },
       ),
     getOperation: (request: SynthesisPublicMaintenanceOperationRequest) =>
@@ -363,14 +365,17 @@ export function createNativeSynthesisLibraryRetrievalPort(options?: {
   const retrieval = createNativeSynthesisRetrievalPort(options);
   return {
     async execute(request, control) {
-      const payload = rebuildSynthesisLibraryLexicalExecutionRequest(request);
-      const connection = getReadyConnection();
-      if (!connection) throw unavailable("service_not_ready");
-      rpcClient ??= createSynthesisSidecarRpcClient({
-        transportErrors: SYNTHESIS_PRODUCTION_RPC_TRANSPORT_ERRORS,
+      const audit = beginSynthesisSidecarBusinessAudit({
+        operation: "library.retrieval.execute",
       });
       try {
-        return await rpcClient.call({
+        const payload = rebuildSynthesisLibraryLexicalExecutionRequest(request);
+        const connection = getReadyConnection();
+        if (!connection) throw unavailable("service_not_ready");
+        rpcClient ??= createSynthesisSidecarRpcClient({
+          transportErrors: SYNTHESIS_PRODUCTION_RPC_TRANSPORT_ERRORS,
+        });
+        const result = await rpcClient.call({
           connection: rpcConnection(connection),
           capability: "library.retrieval.execute",
           payload,
@@ -389,8 +394,12 @@ export function createNativeSynthesisLibraryRetrievalPort(options?: {
             });
           },
         });
+        audit.succeeded(result);
+        return result;
       } catch (error) {
-        throw normalizeRpcError(error);
+        const normalized = normalizeRpcError(error);
+        audit.failed(normalized);
+        throw normalized;
       }
     },
     async getPublication() {
@@ -733,15 +742,6 @@ function createNativePort(args: {
         try {
           return await args.owner.run(operation, async (scope) => {
             scope.checkActive();
-            let connection = args.getReadyConnection();
-            if (!connection && args.recoverReadyConnection) {
-              await scope.wait(args.recoverReadyConnection());
-              scope.checkActive();
-              connection = args.getReadyConnection();
-            }
-            if (!connection) {
-              throw unavailable("service_not_ready");
-            }
             let normalizedArgs =
               property === "applyTopicSynthesisResult"
                 ? [
@@ -764,13 +764,22 @@ function createNativePort(args: {
             ) {
               normalizedArgs.pop();
             }
-            let staged: { sessionId: string } | undefined;
             let payload =
               rebuildSynthesisProtocolCapabilityDto<SynthesisJsonObject>({
                 capability: operation,
                 direction: "request",
                 value: { args: normalizedArgs },
               });
+            let connection = args.getReadyConnection();
+            if (!connection && args.recoverReadyConnection) {
+              await scope.wait(args.recoverReadyConnection());
+              scope.checkActive();
+              connection = args.getReadyConnection();
+            }
+            if (!connection) {
+              throw unavailable("service_not_ready");
+            }
+            let staged: { sessionId: string } | undefined;
             const policy = synthesisProductionOperationPolicy(operation);
             if (property === "applyTopicSynthesisResult") {
               const request = normalizedArgs[0] as {

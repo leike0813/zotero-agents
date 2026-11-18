@@ -1,22 +1,18 @@
 # synthesis-sidecar-operation-observability Specification
 
 ## Purpose
-TBD - created by syncing change govern-synthesis-sidecar-observability. Update Purpose after archive.
+Defines how the Host audits Synthesis operations and how durable sidecar
+transitions contribute to failure logs and debug traces.
 
 ## Requirements
 
 ### Requirement: Host SHALL own business operation audit
 
-The Host SHALL emit mutation start and invocation-terminal records and
-read/periodic failure records from the production operation manifest. One
-invocation SHALL own at most one failure incident regardless of nested boundary
-failures. For a manifest operation whose receipt is
-`public-maintenance-operation`, the invocation terminal SHALL classify the
-public maintenance lifecycle envelope: `pending`, `running`, and `completed`
-are accepted, while failed, canceled, timed-out, missing, malformed, or unknown
-lifecycle states are non-success. Domain promotion and failure statuses belong
-to the durable operation terminal and MUST NOT be applied to the initial
-receipt envelope.
+The Host SHALL record mutation starts and invocation terminals, and failures of
+reads and periodic calls, according to the production manifest. Each invocation
+SHALL produce at most one failure incident regardless of nested faults. The
+invocation classifies the initial receipt. The durable terminal classifies the
+domain outcome.
 
 #### Scenario: Mutation fails in a worker
 - **WHEN** a mutation starts and a nested worker failure reaches the Host
@@ -32,6 +28,12 @@ receipt envelope.
 - **THEN** the Host invocation terminal and root trace are successful with that lifecycle status
 - **AND** no `semantic_non_success` incident is created before the durable operation reaches a terminal
 
+#### Scenario: Initial maintenance receipt classifies admission
+
+- **WHEN** a manifest operation returns a public maintenance envelope
+- **THEN** `pending`, `running`, and `completed` SHALL classify the invocation as accepted
+- **AND** failed, canceled, timed-out, missing, malformed, or unknown lifecycle states SHALL classify it as unsuccessful
+
 #### Scenario: Accepted work reaches a business terminal
 - **WHEN** an accepted public maintenance operation later completes or fails
 - **THEN** its operation query and terminal receipt remain authoritative for the business outcome
@@ -46,6 +48,18 @@ receipt envelope.
 - **WHEN** an accepted maintenance worker times out, crashes, or returns an unsuccessful domain status
 - **THEN** the durable terminal and terminal trace preserve the first stable raw failure code
 - **AND** Workbench reports that code together with the public operation ID
+
+#### Scenario: Accepted retrieval index maintenance fails or times out
+
+- **WHEN** the durable transition winner commits a failed or timed-out terminal for a retrieval build, rebuild, update, or cleanup
+- **THEN** the Host supervisor SHALL write one Runtime Log error with the capability, public operation ID, status, and stable failure code regardless of the debug gate or Workbench lifetime
+- **AND** that durable terminal SHALL keep a single log through receipt polling and replay
+
+#### Scenario: Library retrieval execution throws
+
+- **WHEN** the private Library retrieval RPC exits with a validation, readiness, transport, or result error
+- **THEN** the Host SHALL write one sanitized read failure entry
+- **AND** a successful result carrying lexical fallback information SHALL retain the successful read policy
 
 ### Requirement: Maintenance lifecycle observation SHALL follow durable transition ownership
 

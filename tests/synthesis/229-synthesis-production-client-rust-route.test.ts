@@ -7528,6 +7528,54 @@ describe("Synthesis Rust production client route", function () {
       assert.equal(initial.status, "missing");
       assert.equal(embeddingCalls.length, 0);
 
+      const incompleteTopic = path.join(
+        root,
+        "data",
+        "synthesis",
+        "topics",
+        "incomplete",
+      );
+      const incompleteCurrent = path.join(incompleteTopic, "current");
+      fs.mkdirSync(incompleteCurrent, { recursive: true });
+      const trace = {
+        schema: "synthesis-sidecar-observation.v2",
+        traceId: crypto.randomBytes(16).toString("hex"),
+        spanId: crypto.randomBytes(8).toString("hex"),
+        attempt: 0,
+      } as const;
+      const rejected = await call(
+        harness.port,
+        "client.buildRetrievalIndex",
+        {
+          args: [
+            {
+              identity,
+              scope: { ...scope, libraryIds: [], includeTopics: true },
+            },
+          ],
+        },
+        trace,
+      );
+      assert.equal(rejected.status, 200, JSON.stringify(rejected.body));
+      const failed = await waitForMaintenanceOperation(
+        harness.port,
+        rejected.body.data.operation_id,
+      );
+      assert.equal(failed.status, "failed");
+      assert.deepInclude(failed.receipt?.diagnostics, {
+        code: "canonical_snapshot_incomplete",
+        severity: "error",
+      });
+      const [terminal] = await waitForSynthesisProductionRouteEvidence({
+        read: () => harness.observations(),
+        offset: 0,
+        matches: (event) =>
+          event.traceId === trace.traceId &&
+          event.phase === "maintenance-terminal",
+      });
+      assert.equal(terminal?.code, "canonical_snapshot_incomplete");
+      assert.isEmpty(embeddingCalls);
+
       const buildRequestId = "retrieval-build-replay-fixed";
       const build = await operation(
         "client.buildRetrievalIndex",
@@ -7554,6 +7602,8 @@ describe("Synthesis Rust production client route", function () {
       const builtState = await operation("client.getRetrievalState", {
         args: [],
       });
+      fs.rmdirSync(incompleteCurrent);
+      fs.rmdirSync(incompleteTopic);
 
       const recommendation = await operation("client.recommendSimilarPapers", {
         args: [{ paperRef: { libraryId: 1, key: "RETRIEVAL1" }, limit: 5 }],
@@ -7727,6 +7777,167 @@ describe("Synthesis Rust production client route", function () {
       );
     } finally {
       await harness.stop();
+    }
+  });
+
+  it("builds a Topic index beside retained history and reports failed current reads without debug", async function () {
+    this.timeout(120_000);
+    const topicId = "topic:alias";
+    const identity = {
+      modelId: "fixture-2d",
+      dimensions: 2,
+      queryPrefix: "",
+      documentPrefix: "",
+    };
+    const hostFixture = {
+      handle({
+        capability,
+        payload,
+      }: {
+        capability: string;
+        payload: Record<string, any>;
+      }) {
+        if (capability === "webdav.describe") return { configured: false };
+        if (capability === "library.items.list_page") {
+          return {
+            items: [
+              buildTestSynthesisHostItemSummary({
+                libraryId: 1,
+                itemKey: "PRODUCTION",
+                itemType: "journalArticle",
+                title: "Production Topic Source",
+                year: "2026",
+              }),
+            ],
+            cursor: payload.cursor || "",
+            nextCursor: "",
+            hasMore: false,
+            returned: 1,
+            limit: payload.limit || 100,
+            snapshotRevision: "retrieval-history",
+          };
+        }
+        if (capability === "retrieval.embedding.describe") {
+          return { enabled: true, identity };
+        }
+        if (capability === "retrieval.embedding.encode") {
+          return { identity, vectors: payload.inputs.map(() => [1, 0]) };
+        }
+        return {};
+      },
+    };
+    const owner = await startSynthesisProductionRouteHarness({
+      id: "retrieval-history-seed",
+      hostFixture,
+    });
+    let reopened:
+      | Awaited<ReturnType<typeof startSynthesisProductionRouteHarness>>
+      | undefined;
+    try {
+      const seeded = await owner.client.workflowApply.applyTopicSynthesisResult(
+        topicApplyRequest(topicId),
+      );
+      assert.equal(seeded.status, "persisted");
+      const topics = path.join(owner.root, "data", "synthesis", "topics");
+      const [pathId] = fs.readdirSync(topics);
+      assert.match(pathId, /^topic-alias-[0-9a-f]{64}$/);
+      const current = path.join(topics, pathId, "current");
+      const historical = path.join(topics, "topic-alias", "current");
+      await owner.stopProcess();
+      fs.writeFileSync(
+        path.join(current, "synthesis.md"),
+        "Canonical fixture text.\n",
+      );
+      fs.cpSync(current, historical, { recursive: true });
+      reopened = await startSynthesisProductionRouteHarness({
+        id: "retrieval-history-reopen",
+        root: owner.root,
+        diagnosticsEnabled: false,
+        hostFixture,
+      });
+      const { port } = reopened;
+      const request = {
+        args: [
+          {
+            identity,
+            scope: {
+              libraryIds: [],
+              sourceKinds: ["metadata"],
+              includeTopics: true,
+            },
+          },
+        ],
+      };
+      const build = await call(port, "client.buildRetrievalIndex", request);
+      assert.equal(build.status, 200);
+      assert.equal(
+        (await waitForMaintenanceOperation(port, build.body.data.operation_id))
+          .status,
+        "completed",
+      );
+      const builtState = await call(port, "client.getRetrievalState", {
+        args: [],
+      });
+      assert.equal(builtState.status, 200);
+      assert.isAbove(builtState.body.data.progress.completedFragments, 0);
+
+      fs.unlinkSync(path.join(current, "manifest.json"));
+      const requestId = "retrieval-history-corrupt-current";
+      const accepted = await call(
+        port,
+        "client.buildRetrievalIndex",
+        request,
+        undefined,
+        requestId,
+      );
+      assert.equal(accepted.status, 200);
+      const operationId = accepted.body.data.operation_id;
+      const failed = await waitForMaintenanceOperation(port, operationId);
+      assert.equal(failed.status, "failed");
+      assert.deepInclude(failed.receipt?.diagnostics, {
+        code: "canonical_snapshot_incomplete",
+        severity: "error",
+      });
+      const replay = await call(
+        port,
+        "client.buildRetrievalIndex",
+        request,
+        undefined,
+        requestId,
+      );
+      assert.equal(replay.body.data.operation_id, operationId);
+      await waitForMaintenanceOperation(port, operationId);
+
+      const readNotifications = () =>
+        reopened!
+          .stderr()
+          .split(/\r?\n/)
+          .slice(0, -1)
+          .flatMap((line) => (line.startsWith("{") ? [JSON.parse(line)] : []))
+          .filter((row) => row.schema === "synthesis-maintenance-failure.v1");
+      await waitForSynthesisProductionRouteEvidence({
+        read: readNotifications,
+        offset: 0,
+        matches: (row) => row.operationId === operationId,
+      });
+      assert.deepEqual(readNotifications(), [
+        {
+          schema: "synthesis-maintenance-failure.v1",
+          capability: "client.buildRetrievalIndex",
+          operationId,
+          status: "failed",
+          code: "canonical_snapshot_incomplete",
+        },
+      ]);
+      assert.isFalse(
+        reopened
+          .observations()
+          .some((event) => event.phase === "maintenance-terminal"),
+      );
+      assert.isTrue(fs.existsSync(path.join(historical, "manifest.json")));
+    } finally {
+      await reopened?.stop();
+      await owner.stop();
     }
   });
 

@@ -172,6 +172,7 @@ async function waitForCondition(predicate: () => boolean, message: string) {
 function sessionSupervisorHarness(
   options: {
     stderr?: (attempt: number) => Promise<string>;
+    diagnosticsEnabled?: boolean;
     beforeSpawn?: () => Promise<void>;
     health?: (serviceId: string) => Promise<void>;
     handshake?: (serviceId: string) => Promise<void>;
@@ -199,6 +200,7 @@ function sessionSupervisorHarness(
       authorizationToken: "8".repeat(64),
     },
     resolvedInstall: readyInstall(),
+    diagnosticsEnabled: options.diagnosticsEnabled,
     subprocess: {
       call: async (invocation: { arguments: string[] }) => {
         const config = JSON.parse(
@@ -293,6 +295,90 @@ function sessionSupervisorHarness(
 }
 
 describe("Synthesis production runtime supervisor", function () {
+  for (const diagnosticsEnabled of [false, true]) {
+    it(`logs one retrieval maintenance failure and timeout with diagnostics ${diagnosticsEnabled}`, async function () {
+      const operation = "client.buildRetrievalIndex";
+      const operationIds = [
+        `maintenance:buildRetrievalIndex:${(diagnosticsEnabled ? "1" : "2").repeat(24)}`,
+        `maintenance:buildRetrievalIndex:${(diagnosticsEnabled ? "3" : "4").repeat(24)}`,
+      ];
+      const terminal = (operationId: string, status: string, code: string) => ({
+        schema: "synthesis-maintenance-failure.v1",
+        capability: operation,
+        operationId,
+        status,
+        code,
+      });
+      const failure = terminal(
+        operationIds[0],
+        "failed",
+        "canonical_snapshot_incomplete",
+      );
+      const timeout = terminal(
+        operationIds[1],
+        "timed_out",
+        "operation_timeout",
+      );
+      const chunk = [
+        failure,
+        timeout,
+        { ...timeout, code: "C:/private/topic" },
+        { ...failure, private: "fixture-secret" },
+        {
+          schema: "synthesis-sidecar-observation.v2",
+          traceId: "1".repeat(32),
+          spanId: "2".repeat(16),
+          attempt: 0,
+          source: "rust-sidecar",
+          boundary: "operation",
+          phase: "maintenance-terminal",
+          outcome: "failed",
+          occurredAtMs: 1,
+          identities: { capability: operation, operation: operationIds[0] },
+        },
+      ]
+        .map((row) => JSON.stringify(row) + "\n")
+        .join("");
+      const chunks = [chunk.slice(0, 53), chunk.slice(53)];
+      const { supervisor } = sessionSupervisorHarness({
+        diagnosticsEnabled,
+        stderr: async () => chunks.shift() || "",
+      });
+      const entries = () =>
+        listRuntimeLogs({ component: "synthesis-sidecar-business" }).filter(
+          (entry) => operationIds.includes(String(entry.details?.operationId)),
+        );
+      try {
+        supervisor.start();
+        await waitForStatus(supervisor, "ready");
+        await waitForCondition(
+          () => entries().length > 0,
+          "maintenance failure missing",
+        );
+        for (const expected of [failure, timeout]) {
+          const records = entries().filter(
+            (entry) => entry.details?.operationId === expected.operationId,
+          );
+          assert.lengthOf(records, 1);
+          assert.include(records[0], {
+            level: "error",
+            operation,
+            phase: "maintenance-terminal",
+          });
+          assert.deepInclude(records[0].details, {
+            semanticStatus: expected.status,
+            errorCode: expected.code,
+          });
+        }
+        if (!diagnosticsEnabled) {
+          assert.equal(supervisor.getDiagnosticEvidence().stderrTail, "");
+        }
+      } finally {
+        await supervisor.stop();
+      }
+    });
+  }
+
   it("does not publish a ready connection after the child exits during handshake", async function () {
     const handshakeStarted = deferred<void>();
     const handshake = deferred<void>();

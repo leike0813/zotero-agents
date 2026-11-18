@@ -378,6 +378,12 @@ export function parseNativeDiagnosticEvent(
   } catch {
     return undefined;
   }
+  return narrowNativeDiagnosticEvent(value);
+}
+
+function narrowNativeDiagnosticEvent(
+  value: unknown,
+): SynthesisSidecarObservationEvent | undefined {
   try {
     const event = rebuildSynthesisSidecarObservationEvent(value);
     return event.source === "rust-sidecar" || event.source === "child-worker"
@@ -391,6 +397,45 @@ export function parseNativeDiagnosticEvent(
 export function parseNativeStableFailureCode(source: string) {
   const match = source.trim().match(/^([a-z][a-z0-9_.-]{0,127})(?::|$)/);
   return match?.[1];
+}
+
+function recordNativeRetrievalMaintenanceFailure(value: unknown) {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return;
+  }
+  const { schema, capability, operationId, status, code } = value as Record<
+    string,
+    unknown
+  >;
+  if (
+    schema !== "synthesis-maintenance-failure.v1" ||
+    Object.keys(value).length !== 5 ||
+    typeof capability !== "string" ||
+    !/^client\.(build|rebuild|update|cleanup)RetrievalIndex$/.test(
+      capability,
+    ) ||
+    typeof operationId !== "string" ||
+    !/^maintenance:[A-Za-z]+:[0-9a-f]{24}$/.test(operationId) ||
+    (!operationId.startsWith("maintenance:retry:") &&
+      !operationId.startsWith(
+        `maintenance:${capability.slice("client.".length)}:`,
+      )) ||
+    (status !== "failed" && status !== "timed_out") ||
+    typeof code !== "string" ||
+    !/^[a-z][a-z0-9_.-]{0,127}$/.test(code)
+  ) {
+    return;
+  }
+  appendRuntimeLog({
+    level: "error",
+    scope: "system",
+    component: "synthesis-sidecar-business",
+    operation: capability,
+    phase: "maintenance-terminal",
+    stage: "failed",
+    message: `Synthesis maintenance ${status === "timed_out" ? "timed out" : "failed"} (${code})`,
+    details: { operationId, semanticStatus: status, errorCode: code },
+  });
 }
 
 function waitForPromise(promise: Promise<unknown>, timeoutMs: number) {
@@ -526,14 +571,19 @@ export function createSynthesisProductionRuntimeSupervisor(
       const lines = source.split(/\r?\n/);
       current[bufferKey] = lines.pop()?.slice(-DIAGNOSTIC_TAIL_LIMIT) || "";
       for (const line of lines) {
-        const event =
-          kind === "stderr" ? parseNativeDiagnosticEvent(line) : undefined;
+        if (kind !== "stderr") continue;
+        let value: unknown;
+        try {
+          value = JSON.parse(line);
+        } catch {
+          current.stableFailureCode ||= parseNativeStableFailureCode(line);
+          continue;
+        }
+        recordNativeRetrievalMaintenanceFailure(value);
+        const event = narrowNativeDiagnosticEvent(value);
         if (event) {
           retainSynthesisSidecarNativeTraceEvent(event);
           options.recordTraceEvent?.(event);
-        }
-        if (kind === "stderr") {
-          current.stableFailureCode ||= parseNativeStableFailureCode(line);
         }
       }
       await yieldToEventLoop();

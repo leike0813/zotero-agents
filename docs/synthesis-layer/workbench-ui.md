@@ -63,7 +63,11 @@ Focused Topics, and unrelated Workbench regions retain their DOM identities.
   `retrievalRebuildIndex`, `retrievalCancelIndex`,
   `retrievalRetryIndex`, `retrievalContinueIndex`, and
   `retrievalCleanupIndex` Host commands keep their routing, single-flight,
-  recovery, and permission gates. Index availability comes from the usable
+  recovery, and permission gates. If the Host rejects an index maintenance
+  request before dispatch, the Workbench shows the failure and the runtime log
+  in Task Dashboard contains a Synthesis business error. With debug diagnostics
+  enabled, the Synthesis Sidecar trace shows the failed Host operation.
+  Index availability comes from the usable
   published index state and is independent from the latest maintenance
   operation. A failed update does not by itself mark a previously usable
   published index unavailable; availability follows the actual published or

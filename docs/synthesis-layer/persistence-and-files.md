@@ -90,6 +90,12 @@ through the canonical transaction machinery. It keeps the historical bytes as
 recovery evidence. Invalid v2 current content fails startup; normal reads use
 only the v2 path after startup succeeds.
 
+Topic enumeration uses the historical directories confirmed by startup
+migration to exclude recovery copies before counting or reading search
+candidates. Topic search, retrieval indexing, and Discovery share this
+enumeration. If a live v2 snapshot later becomes unreadable, it remains an
+unavailable candidate.
+
 `runtime/synthesis/service-runtime` is owned exclusively by the XPI runtime
 installer. Native manifest v3 binds the complete Rust file inventory,
 provenance, and platform identity. The fixed `current` directory is the only

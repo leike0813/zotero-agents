@@ -24,8 +24,12 @@ export type SynthesisSidecarBusinessOutcome =
   | "succeeded"
   | "failed";
 
+type SynthesisSidecarBusinessAuditOperation =
+  | SynthesisSidecarProductionClientCapability
+  | "library.retrieval.execute";
+
 export type SynthesisSidecarBusinessAuditDetails = {
-  operation: SynthesisSidecarProductionClientCapability;
+  operation: SynthesisSidecarBusinessAuditOperation;
   trigger: "user" | "workflow" | "startup" | "periodic" | "internal";
   stage: "start" | "terminal";
   outcome: SynthesisSidecarBusinessOutcome;
@@ -76,9 +80,12 @@ function stableCode(error: unknown) {
 }
 
 function semanticTerminal(
-  capability: SynthesisSidecarProductionClientCapability,
+  capability: SynthesisSidecarBusinessAuditOperation,
   result: unknown,
 ) {
+  if (capability === "library.retrieval.execute") {
+    return { succeeded: true } as const;
+  }
   if (
     synthesisProductionOperationPolicy(capability).receipt ===
     "public-maintenance-operation"
@@ -142,14 +149,17 @@ function write(details: SynthesisSidecarBusinessAuditDetails) {
 }
 
 export function beginSynthesisSidecarBusinessAudit(args: {
-  operation: SynthesisSidecarProductionClientCapability;
+  operation: SynthesisSidecarBusinessAuditOperation;
   trigger?: SynthesisSidecarBusinessAuditDetails["trigger"];
   surface?: SynthesisWorkbenchSurfaceName;
   now?: () => number;
 }) {
   const now = args.now ?? Date.now;
   const startedAt = now();
-  const access = manifest.access[args.operation];
+  const access =
+    args.operation === "library.retrieval.execute"
+      ? "read"
+      : manifest.access[args.operation];
   const trigger = args.trigger ?? "user";
   let terminal = false;
   if (access === "mutation") {

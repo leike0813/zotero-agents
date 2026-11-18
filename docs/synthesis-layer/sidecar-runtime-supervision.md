@@ -238,6 +238,16 @@ map keys with wildcards and truncates unknown fields. Payload values, raw error
 messages, credentials, local paths, HTTP status, byte counts, native request
 identity, worker code, and trace fields are excluded from this business record.
 
+Failed and timed-out retrieval index maintenance also has a Runtime Log
+terminal. The native durable transition winner emits a structured stderr
+notification with the capability, public operation ID, status, and stable
+failure code. The Host supervisor persists it even with debug diagnostics
+disabled or the Workbench closed. Receipt polls and replays only read the
+existing outcome. The private Library retrieval RPC uses the same
+failure-only query audit as the production client, including validation and
+transport failures. Successful query results can carry lexical fallback
+information without creating an error incident.
+
 Startup and debug observation both use
 `synthesis-sidecar-observation.v2`. Launch-config v4 can carry the parent trace
 into Rust. Before discovery, Rust emits safe structured phases for config

@@ -469,6 +469,9 @@ application and routes are still under implementation.
 - Publication is source-group atomic. A group stays unavailable while its
   replacement is incomplete, expected absence is a coverage gap rather than a
   failure, and unreadable or unencodable existing content blocks publication.
+- An unreadable Topic in the selected scope fails the maintenance operation.
+  The failure receipt and debug trace carry a stable reason such as
+  `canonical_snapshot_incomplete` or `canonical_hash_mismatch`.
 - Cleanup after publication is a required tail with its own issue; its failure
   never revokes a successful index.
 - Startup, queries, and Home reads never scan sources, encode missing content,

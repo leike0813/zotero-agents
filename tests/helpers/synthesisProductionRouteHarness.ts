@@ -121,6 +121,7 @@ export function synthesisProductionRouteConfig(args: {
   profileId?: string;
   runtimeRootId?: string;
   dataRootId?: string;
+  diagnosticsEnabled?: boolean;
 }) {
   const target = detectSynthesisSidecarRuntimeTarget({
     platform: process.platform,
@@ -143,7 +144,7 @@ export function synthesisProductionRouteConfig(args: {
     serviceVersion: "0.1.0",
     protocolVersion: SYNTHESIS_SIDECAR_PROTOCOL,
     schemaVersion: SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION,
-    diagnosticsEnabled: true,
+    diagnosticsEnabled: args.diagnosticsEnabled ?? true,
     supervisorInstanceId: args.supervisorInstanceId,
     repositoryDbPath: path.join(args.root, "state", "synthesis.db"),
     canonicalRoot: path.join(args.root, "data", "synthesis"),
@@ -533,6 +534,7 @@ export async function startSynthesisProductionRouteHarness(args: {
   profileId?: string;
   runtimeRootId?: string;
   dataRootId?: string;
+  diagnosticsEnabled?: boolean;
   onProtocolSample?: (sample: {
     capability: string;
     request: unknown;
@@ -677,6 +679,7 @@ export async function startSynthesisProductionRouteHarness(args: {
         profileId: args.profileId,
         runtimeRootId: args.runtimeRootId,
         dataRootId: args.dataRootId,
+        diagnosticsEnabled: args.diagnosticsEnabled,
       }),
     ),
   );
