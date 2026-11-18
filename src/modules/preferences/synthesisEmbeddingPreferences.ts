@@ -1,4 +1,5 @@
 import { config } from "../../../package.json";
+import { canonicalizeSynthesisContractJson } from "../../../packages/synthesis-contracts/src";
 import type {
   SynthesisRetrievalConnection,
   SynthesisRetrievalProtocol,
@@ -17,6 +18,8 @@ type Draft = SynthesisRetrievalConnection & {
   persisted?: boolean;
   endpointDirty?: boolean;
   embeddingUrlExplicit?: boolean;
+  discoveryProtocolExplicit?: boolean;
+  authExplicit?: boolean;
   modified?: boolean;
   credentialConfigured?: boolean;
   credentialUpdatedAt?: string;
@@ -69,42 +72,44 @@ export function bindSynthesisEmbeddingPreferences(window: Window) {
     doc.querySelector(
       `#zotero-prefpane-${config.addonRef}-retrieval-${suffix}`,
     ) as T | null;
-  const connectionsSelect = query<HTMLSelectElement>("connections");
+  const connectionsSelect = query<XUL.MenuList>("connections");
   const saveButton = query<XUL.Button>("save");
   if (!connectionsSelect || !saveButton) return () => {};
 
   const enabled = query<HTMLInputElement>("enabled");
   const addButton = query<XUL.Button>("add");
   const deleteButton = query<XUL.Button>("delete");
-  const primarySelect = query<HTMLSelectElement>("primary");
-  const fallbacksSelect = query<HTMLSelectElement>("fallbacks");
+  const primarySelect = query<XUL.MenuList>("primary");
+  const fallbacksSelect = query<XUL.MenuList>("fallbacks");
   const fallbackAdd = query<XUL.Button>("fallback-add");
   const fallbackRemove = query<XUL.Button>("fallback-remove");
   const fallbackUp = query<XUL.Button>("fallback-up");
   const fallbackDown = query<XUL.Button>("fallback-down");
-  const presetSelect = query<HTMLSelectElement>("preset");
+  const presetSelect = query<XUL.MenuList>("preset");
   const name = query<HTMLInputElement>("name");
-  const protocol = query<HTMLSelectElement>("protocol");
+  const protocol = query<XUL.MenuList>("protocol");
   const baseUrl = query<HTMLInputElement>("base-url");
   const model = query<HTMLInputElement>("model");
   const discoverButton = query<XUL.Button>("discover");
-  const modelsSelect = query<HTMLSelectElement>("models");
-  const modelFilter = query<HTMLInputElement>("model-filter");
+  const modelPopup = query<XUL.MenuPopup>("model-popup");
+  const modelToggle = query<XUL.Button>("model-toggle");
   const credential = query<HTMLInputElement>("credential");
   const clearCredential = query<XUL.Button>("clear-credential");
   const embeddingUrl = query<HTMLInputElement>("embedding-url");
-  const discoveryProtocol = query<HTMLSelectElement>("discovery-protocol");
+  const discoveryProtocol = query<XUL.MenuList>("discovery-protocol");
   const discoveryUrl = query<HTMLInputElement>("discovery-url");
-  const authType = query<HTMLSelectElement>("auth-type");
+  const authType = query<XUL.MenuList>("auth-type");
   const headerName = query<HTMLInputElement>("header-name");
   const dimensions = query<HTMLInputElement>("dimensions");
-  const queryPrefix = query<HTMLInputElement>("query-prefix");
-  const documentPrefix = query<HTMLInputElement>("document-prefix");
+  const queryPrefix = query<HTMLTextAreaElement>("query-prefix");
+  const documentPrefix = query<HTMLTextAreaElement>("document-prefix");
   const parameters = query<HTMLTextAreaElement>("parameters");
   const preview = query<HTMLElement>("preview");
   const sourceMetadata = query<HTMLInputElement>("source-metadata");
   const sourceFulltext = query<HTMLInputElement>("source-fulltext");
   const sourceAnalysis = query<HTMLInputElement>("source-analysis");
+  const includeMyLibrary = query<HTMLInputElement>("include-my-library");
+  const myLibraryLabel = query<HTMLElement>("my-library-label");
   const includeTopics = query<HTMLInputElement>("include-topics");
   const saveTestButton = query<XUL.Button>("save-test");
   const statusText = query<HTMLElement>("status");
@@ -117,10 +122,16 @@ export function bindSynthesisEmbeddingPreferences(window: Window) {
   let selectedId = "";
   let primaryId: string | null = null;
   let fallbackIds: string[] = [];
-  let libraryIds: number[] = [];
+  const userLibraryId = Number(Zotero.Libraries?.userLibraryID);
+  const myLibraryId =
+    Number.isSafeInteger(userLibraryId) && userLibraryId > 0
+      ? userLibraryId
+      : null;
+  let libraryIds = new Set(myLibraryId === null ? [] : [myLibraryId]);
   let revision = 0;
   let discoveryRevision = -1;
   let inspectRevision = -1;
+  let activeModel: Element | null = null;
   let disposed = false;
 
   const listen = (
@@ -154,18 +165,59 @@ export function bindSynthesisEmbeddingPreferences(window: Window) {
       .join(" ");
   };
   const current = () => drafts.get(selectedId);
+  const menuPopup = (menu: XUL.MenuList | null) =>
+    menu ? doc.getElementById(`${menu.id}-popup`) : null;
   const clear = (element: Element | null) => {
     if (!element) return;
     while (element.firstChild) element.removeChild(element.firstChild);
   };
   const option = (value: string, label: string) => {
-    const entry = doc.createElementNS(
-      "http://www.w3.org/1999/xhtml",
-      "option",
-    ) as HTMLOptionElement;
+    const entry = doc.createXULElement("menuitem") as XUL.MenuItem;
+    entry.setAttribute("value", value);
+    entry.setAttribute("label", label);
     entry.value = value;
-    entry.textContent = label;
     return entry;
+  };
+  const clearModels = () => {
+    activateModel(null);
+    modelPopup?.hidePopup?.();
+    clear(modelPopup);
+    if (modelToggle) modelToggle.disabled = true;
+    model?.setAttribute("aria-expanded", "false");
+  };
+  const activateModel = (entry: Element | null) => {
+    activeModel?.removeAttribute("aria-selected");
+    activeModel = entry;
+    if (entry) {
+      entry.setAttribute("aria-selected", "true");
+      model?.setAttribute("aria-activedescendant", entry.id);
+      entry.scrollIntoView?.({ block: "nearest" });
+    } else model?.removeAttribute("aria-activedescendant");
+  };
+  const filterModels = (showAll = false) => {
+    activateModel(null);
+    const needle = showAll ? "" : model?.value.toLocaleLowerCase() || "";
+    for (const entry of Array.from(modelPopup?.children || [])) {
+      (entry as XUL.MenuItem).hidden =
+        !`${entry.getAttribute("value")} ${entry.getAttribute("label")}`
+          .toLocaleLowerCase()
+          .includes(needle);
+    }
+  };
+  const openModels = (showAll = false) => {
+    filterModels(showAll);
+    if (!modelPopup || !model) return;
+    if (
+      !Array.from(modelPopup.children).some(
+        (entry) => !(entry as XUL.MenuItem).hidden,
+      )
+    ) {
+      modelPopup.hidePopup();
+      return;
+    }
+    modelPopup.style.minWidth = `${model.getBoundingClientRect().width}px`;
+    if (modelPopup.state !== "open")
+      modelPopup.openPopup(model, "after_start", 0, 0, false, false);
   };
   const connectionLabel = (connection: Draft) =>
     String(connection.name || connection.modelId || connection.id);
@@ -208,10 +260,12 @@ export function bindSynthesisEmbeddingPreferences(window: Window) {
             "Compatibility unknown",
           );
 
-  const connectionForPreview = (): SynthesisRetrievalConnection | null => {
+  const connectionFromFields = (): SynthesisRetrievalConnection | null => {
     const draft = current();
     if (!draft) return null;
-    const explicitUrl = embeddingUrl?.value.trim() || "";
+    const explicitUrl = draft.embeddingUrlExplicit
+      ? embeddingUrl?.value.trim() || ""
+      : "";
     return {
       id: draft.id,
       name: name?.value || "",
@@ -224,32 +278,118 @@ export function bindSynthesisEmbeddingPreferences(window: Window) {
       modelId: model?.value.trim() || "",
       queryPrefix: queryPrefix?.value || "",
       documentPrefix: documentPrefix?.value || "",
+      discovery: {
+        protocol: (discoveryProtocol?.value ||
+          defaultDiscovery(draft.protocol)) as NonNullable<
+          SynthesisRetrievalConnection["discovery"]
+        >["protocol"],
+        ...(discoveryUrl?.value.trim()
+          ? { url: discoveryUrl.value.trim() }
+          : {}),
+      },
+      auth: {
+        type: (authType?.value || "none") as NonNullable<
+          SynthesisRetrievalConnection["auth"]
+        >["type"],
+        ...(authType?.value === "header" && headerName?.value.trim()
+          ? { headerName: headerName.value.trim() }
+          : {}),
+      },
       ...(explicitUrl ? { embeddingUrl: explicitUrl } : {}),
     };
   };
 
+  const draftEndpoints = (connection: SynthesisRetrievalConnection) => {
+    const draft = current()!;
+    const resolved = resolveSynthesisEmbeddingEndpoints(connection);
+    if (
+      draft.persisted &&
+      !draft.endpointDirty &&
+      !draft.embeddingUrlExplicit
+    ) {
+      const url =
+        draft.embeddingUrl || synthesisEmbeddingRequestUrl(connection);
+      return resolveSynthesisEmbeddingEndpoints({
+        ...connection,
+        embeddingUrl: url,
+      });
+    }
+    return resolved;
+  };
+
+  const updatePreset = () => {
+    if (!presetSelect) return;
+    const normalize = (connection: SynthesisRetrievalConnection) => {
+      let endpoints;
+      let base = connection.baseUrl.trim();
+      try {
+        base = new URL(base).toString();
+        endpoints = resolveSynthesisEmbeddingEndpoints(connection);
+      } catch {
+        endpoints = {
+          embeddingUrl: connection.embeddingUrl || "",
+          discoveryUrl: connection.discovery?.url || "",
+          discoveryProtocol:
+            connection.discovery?.protocol ||
+            defaultDiscovery(connection.protocol),
+        };
+      }
+      return canonicalizeSynthesisContractJson({
+        protocol: connection.protocol,
+        baseUrl: base,
+        ...endpoints,
+        modelId: connection.modelId,
+        dimensions: connection.dimensions ?? null,
+        queryPrefix: connection.queryPrefix || "",
+        documentPrefix: connection.documentPrefix || "",
+        auth: connection.auth || defaultAuth(connection.protocol),
+        parameters: connection.parameters || {},
+      });
+    };
+    try {
+      const connection = connectionFromFields();
+      if (!connection) {
+        presetSelect.value = "";
+        return;
+      }
+      const value = normalize({
+        ...connection,
+        ...(dimensions?.value.trim()
+          ? { dimensions: Number(dimensions.value) }
+          : {}),
+        parameters: parseParameters(),
+      });
+      presetSelect.value =
+        presets.find(
+          (preset) =>
+            normalize({
+              ...preset.connection,
+              id: "",
+              name: "",
+            }) === value,
+        )?.id || "";
+    } catch {
+      presetSelect.value = "";
+    }
+  };
+
   const renderPreview = () => {
     const draft = current();
-    const connection = connectionForPreview();
+    const connection = connectionFromFields();
     let value = "";
     if (draft && connection) {
       try {
-        value =
-          draft.persisted && !draft.endpointDirty && !draft.embeddingUrl
-            ? synthesisEmbeddingRequestUrl(connection)
-            : resolveSynthesisEmbeddingEndpoints(connection).embeddingUrl;
-        if (
-          embeddingUrl &&
-          draft.endpointDirty &&
-          !draft.embeddingUrlExplicit
-        ) {
-          embeddingUrl.value = value;
-          draft.embeddingUrl = value;
-        }
+        const endpoints = draftEndpoints(connection);
+        value = endpoints.embeddingUrl;
+        if (discoveryUrl)
+          discoveryUrl.placeholder = endpoints.discoveryUrl || "";
       } catch {
         value = "";
+        if (discoveryUrl) discoveryUrl.placeholder = "";
       }
     }
+    if (embeddingUrl && !draft?.embeddingUrlExplicit)
+      embeddingUrl.value = value;
     if (preview) {
       preview.textContent =
         value || LOCAL("pref-retrieval-preview-empty", "No endpoint yet");
@@ -310,39 +450,35 @@ export function bindSynthesisEmbeddingPreferences(window: Window) {
             "Enter a key before saving",
           );
     }
-    clear(modelsSelect);
-    if (modelFilter) modelFilter.value = "";
+    clearModels();
     renderPreview();
+    updatePreset();
   };
 
   const renderConnections = () => {
-    clear(connectionsSelect);
+    const popup = menuPopup(connectionsSelect);
+    clear(popup);
     for (const connection of drafts.values()) {
-      connectionsSelect.appendChild(
-        option(connection.id, connectionLabel(connection)),
-      );
+      popup?.appendChild(option(connection.id, connectionLabel(connection)));
     }
-    if (selectedId && drafts.has(selectedId)) {
-      connectionsSelect.value = selectedId;
-    }
+    connectionsSelect.value =
+      selectedId && drafts.has(selectedId) ? selectedId : "";
   };
 
   const renderRouting = () => {
     if (primarySelect) {
-      clear(primarySelect);
-      primarySelect.appendChild(
-        option("", LOCAL("pref-retrieval-none", "None")),
-      );
+      const popup = menuPopup(primarySelect);
+      clear(popup);
+      popup?.appendChild(option("", LOCAL("pref-retrieval-none", "None")));
       for (const connection of drafts.values()) {
-        primarySelect.appendChild(
-          option(connection.id, connectionLabel(connection)),
-        );
+        popup?.appendChild(option(connection.id, connectionLabel(connection)));
       }
       primarySelect.value = primaryId || "";
     }
     if (!fallbacksSelect) return;
     const previous = fallbacksSelect.value;
-    clear(fallbacksSelect);
+    const popup = menuPopup(fallbacksSelect);
+    clear(popup);
     const ordered = [
       ...fallbackIds.map((id) => drafts.get(id)).filter(Boolean),
       ...[...drafts.values()].filter(
@@ -365,21 +501,24 @@ export function bindSynthesisEmbeddingPreferences(window: Window) {
         position >= 0 ? "active" : "candidate",
       );
       if (state) entry.setAttribute("data-compatibility", state);
-      fallbacksSelect.appendChild(entry);
+      popup?.appendChild(entry);
     }
     if (ordered.some((entry) => entry.id === previous)) {
       fallbacksSelect.value = previous;
+    } else {
+      fallbacksSelect.value = ordered[0]?.id || "";
     }
   };
 
   const renderPresets = () => {
     if (!presetSelect) return;
-    clear(presetSelect);
-    presetSelect.appendChild(
+    const popup = menuPopup(presetSelect);
+    clear(popup);
+    popup?.appendChild(
       option("", LOCAL("pref-retrieval-preset-custom", "Custom")),
     );
     for (const preset of presets) {
-      presetSelect.appendChild(option(preset.id, preset.name || preset.id));
+      popup?.appendChild(option(preset.id, preset.name || preset.id));
     }
   };
 
@@ -390,6 +529,11 @@ export function bindSynthesisEmbeddingPreferences(window: Window) {
   ]);
   let includeTopicsState = true;
   const renderScopeState = () => {
+    if (includeMyLibrary) {
+      includeMyLibrary.checked =
+        myLibraryId !== null && libraryIds.has(myLibraryId);
+      includeMyLibrary.disabled = myLibraryId === null;
+    }
     if (sourceMetadata)
       sourceMetadata.checked = sourceKindsState.has("metadata");
     if (sourceFulltext)
@@ -426,6 +570,15 @@ export function bindSynthesisEmbeddingPreferences(window: Window) {
         embeddingUrlExplicit: Boolean(
           entry.embeddingUrl && entry.embeddingUrl !== inferredUrl,
         ),
+        discoveryProtocolExplicit: Boolean(
+          entry.discovery?.protocol &&
+          entry.discovery.protocol !== defaultDiscovery(entry.protocol),
+        ),
+        authExplicit: Boolean(
+          entry.auth &&
+          canonicalizeSynthesisContractJson(entry.auth) !==
+            canonicalizeSynthesisContractJson(defaultAuth(entry.protocol)),
+        ),
       });
     }
     presets = Array.isArray(status.presets) ? status.presets : [];
@@ -440,9 +593,9 @@ export function bindSynthesisEmbeddingPreferences(window: Window) {
       (id) => drafts.has(id) && id !== primaryId,
     );
     if (enabled) enabled.checked = status.enabled === true;
-    libraryIds = Array.isArray(status.pendingScope?.libraryIds)
-      ? [...status.pendingScope.libraryIds]
-      : libraryIds;
+    if (status.pendingScope) {
+      libraryIds = new Set(status.pendingScope.libraryIds);
+    }
     sourceKindsState.clear();
     for (const kind of status.pendingScope?.sourceKinds || [
       "metadata",
@@ -477,6 +630,11 @@ export function bindSynthesisEmbeddingPreferences(window: Window) {
     fallbackConnectionIds: fallbacks,
   });
   const saveRouting = async (primary: string | null, fallbacks: string[]) => {
+    // Native menus stop responding if their items are replaced while closing.
+    const render = () =>
+      setTimeout(() => {
+        if (!disposed) renderRouting();
+      }, 0);
     try {
       const response = (await call(
         "saveEmbeddingPrefs",
@@ -492,16 +650,16 @@ export function bindSynthesisEmbeddingPreferences(window: Window) {
             .filter(Boolean)
             .join(" "),
         );
-        renderRouting();
+        render();
         return;
       }
       primaryId = response.status?.primaryConnectionId ?? primary;
       fallbackIds = response.status?.fallbackConnectionIds ?? fallbacks;
-      renderRouting();
+      render();
       setStatus(LOCAL("pref-retrieval-save-success", "Saved"));
     } catch (error) {
       setStatus(String(error));
-      renderRouting();
+      render();
     }
   };
 
@@ -564,45 +722,20 @@ export function bindSynthesisEmbeddingPreferences(window: Window) {
         ),
       );
     }
-    const discovery = discoveryProtocol?.value || "none";
-    const auth = authType?.value || "none";
     const parsedParameters = parseParameters();
-    const explicitUrl = embeddingUrl?.value.trim() || "";
     const connection: SynthesisRetrievalConnection = {
-      id: draft.id,
+      ...connectionFromFields()!,
       name: name?.value.trim() || "",
-      protocol: PROTOCOLS.includes(
-        protocol?.value as SynthesisRetrievalProtocol,
-      )
-        ? (protocol!.value as SynthesisRetrievalProtocol)
-        : "openai",
-      baseUrl: baseUrl?.value.trim() || "",
-      modelId: model?.value.trim() || "",
-      queryPrefix: queryPrefix?.value || "",
-      documentPrefix: documentPrefix?.value || "",
       ...(parsedDimensions ? { dimensions: parsedDimensions } : {}),
-      discovery: {
-        protocol: discovery as NonNullable<
-          SynthesisRetrievalConnection["discovery"]
-        >["protocol"],
-        ...(discoveryUrl?.value.trim()
-          ? { url: discoveryUrl.value.trim() }
-          : {}),
-      },
-      auth: {
-        type: auth as NonNullable<SynthesisRetrievalConnection["auth"]>["type"],
-        ...(auth === "header" && headerName?.value.trim()
-          ? { headerName: headerName.value.trim() }
-          : {}),
-      },
       ...(parsedParameters ? { parameters: parsedParameters } : {}),
     };
-    if (draft.embeddingUrlExplicit && explicitUrl)
-      connection.embeddingUrl = explicitUrl;
-    else if (draft.endpointDirty || !draft.persisted)
-      connection.embeddingUrl =
-        resolveSynthesisEmbeddingEndpoints(connection).embeddingUrl;
-    else if (draft.embeddingUrl) connection.embeddingUrl = draft.embeddingUrl;
+    if (
+      draft.embeddingUrlExplicit ||
+      draft.endpointDirty ||
+      !draft.persisted ||
+      draft.embeddingUrl
+    )
+      connection.embeddingUrl = draftEndpoints(connection).embeddingUrl;
     return connection;
   };
 
@@ -654,18 +787,7 @@ export function bindSynthesisEmbeddingPreferences(window: Window) {
         );
         return;
       }
-      if (response.test?.ok !== false && response.status)
-        applyStatus(response.status, connection.id);
-      else if (response.status) {
-        const persisted = response.status.connections.find(
-          (entry) => entry.id === owner,
-        );
-        if (persisted)
-          Object.assign(draft, {
-            persisted: true,
-            credentialConfigured: persisted.credentialConfigured,
-          });
-      }
+      if (response.status) applyStatus(response.status, connection.id);
       if (typedCredential && credential) credential.value = "";
       if (test) {
         const details =
@@ -675,6 +797,7 @@ export function bindSynthesisEmbeddingPreferences(window: Window) {
         setStatus(
           response.test?.ok !== true
             ? [
+                LOCAL("pref-retrieval-save-success", "Saved"),
                 LOCAL("pref-retrieval-test-failed", "Connection failed"),
                 diagnosticText(response),
               ]
@@ -706,29 +829,14 @@ export function bindSynthesisEmbeddingPreferences(window: Window) {
   const discoveryDraft = () => {
     const draft = current();
     if (!draft) return undefined;
+    const connection = connectionFromFields()!;
     const parsedParameters = parseParameters();
     return {
-      protocol: PROTOCOLS.includes(
-        protocol?.value as SynthesisRetrievalProtocol,
-      )
-        ? protocol!.value
-        : draft.protocol,
-      baseUrl: baseUrl?.value.trim() || "",
-      ...(embeddingUrl?.value.trim()
-        ? { embeddingUrl: embeddingUrl.value.trim() }
-        : {}),
-      discovery: {
-        protocol: (discoveryProtocol?.value || "none") as any,
-        ...(discoveryUrl?.value.trim()
-          ? { url: discoveryUrl.value.trim() }
-          : {}),
-      },
-      auth: {
-        type: (authType?.value || "none") as any,
-        ...(authType?.value === "header" && headerName?.value.trim()
-          ? { headerName: headerName.value.trim() }
-          : {}),
-      },
+      protocol: connection.protocol,
+      baseUrl: connection.baseUrl,
+      embeddingUrl: draftEndpoints(connection).embeddingUrl,
+      discovery: connection.discovery,
+      auth: connection.auth,
       ...(parsedParameters ? { parameters: parsedParameters } : {}),
     };
   };
@@ -745,7 +853,6 @@ export function bindSynthesisEmbeddingPreferences(window: Window) {
     }
     const atRevision = revision;
     const requestRevision = ++discoveryRevision;
-    clear(modelsSelect);
     setStatus(LOCAL("pref-retrieval-discovering", "Discovering models…"));
     const key = credential?.value || "";
     try {
@@ -761,19 +868,32 @@ export function bindSynthesisEmbeddingPreferences(window: Window) {
       )
         return;
       const models = Array.isArray(response?.models) ? response.models : [];
-      modelsSelect?.appendChild(
-        option("", LOCAL("pref-retrieval-models", "Models")),
+      const available = models.filter(
+        (candidate: any) =>
+          candidate?.id && candidate.embedding !== "unsupported",
       );
-      for (const candidate of models) {
-        if (candidate?.embedding === "unsupported" || !candidate?.id) continue;
+      if (available.length) clearModels();
+      for (const candidate of available) {
         const unknown = candidate.embedding !== "supported";
         const label = `${candidate.name || candidate.id}${unknown ? ` · ${LOCAL("pref-retrieval-model-pending-test", "Test required")}` : ""}`;
         const entry = option(String(candidate.id), label);
+        entry.id = `${modelPopup?.id}-${modelPopup?.children.length}`;
+        entry.setAttribute("role", "option");
         entry.setAttribute("data-state", unknown ? "unknown" : "supported");
         if (Number(candidate.dimensions) > 0)
           entry.setAttribute("data-dimensions", String(candidate.dimensions));
-        modelsSelect?.appendChild(entry);
+        modelPopup?.appendChild(entry);
       }
+      if (modelToggle) modelToggle.disabled = !modelPopup?.children.length;
+      const candidates = Array.from(modelPopup?.children || []);
+      const chosen =
+        available.length &&
+        !candidates.some(
+          (entry) => entry.getAttribute("value") === model?.value,
+        )
+          ? candidates[0]?.getAttribute("value")
+          : null;
+      if (chosen) selectModel(chosen, false);
       const state =
         response?.status === "ok"
           ? LOCAL(
@@ -789,23 +909,23 @@ export function bindSynthesisEmbeddingPreferences(window: Window) {
                 "pref-retrieval-discovery-failed",
                 "Model discovery failed",
               );
-      setStatus(
-        [
-          state,
-          response?.partial
-            ? LOCAL("pref-retrieval-discovery-partial", "Partial results")
-            : "",
-          diagnosticText(response),
-        ]
-          .filter(Boolean)
-          .join(" "),
-      );
+      const notice = [
+        state,
+        response?.partial
+          ? LOCAL("pref-retrieval-discovery-partial", "Partial results")
+          : "",
+        diagnosticText(response),
+      ]
+        .filter(Boolean)
+        .join(" ");
+      setStatus(notice);
+      if (chosen) void inspectModel(chosen, notice);
     } catch (error) {
       if (!disposed && atRevision === revision) setStatus(String(error));
     }
   };
 
-  const inspectModel = async (candidateId: string) => {
+  const inspectModel = async (candidateId: string, notice = "") => {
     const draft = current();
     if (!draft || draft.protocol !== "ollama" || !candidateId) return;
     const atRevision = revision;
@@ -826,7 +946,7 @@ export function bindSynthesisEmbeddingPreferences(window: Window) {
         return;
       const embedding = response?.embedding;
       const reportedDimensions = Number(response?.dimensions);
-      setStatus(
+      const capability =
         embedding === "supported"
           ? `${LOCAL("pref-retrieval-model-supported", "Embedding supported")}${
               Number.isInteger(reportedDimensions) && reportedDimensions > 0
@@ -835,11 +955,27 @@ export function bindSynthesisEmbeddingPreferences(window: Window) {
             }`
           : embedding === "unsupported"
             ? LOCAL("pref-retrieval-model-unsupported", "Embedding unsupported")
-            : LOCAL("pref-retrieval-model-pending-test", "Test required"),
-      );
+            : LOCAL("pref-retrieval-model-pending-test", "Test required");
+      setStatus([notice, capability].filter(Boolean).join(" "));
     } catch (error) {
       if (!disposed && atRevision === revision) setStatus(String(error));
     }
+  };
+
+  const selectModel = (candidate: string, inspect = true) => {
+    const draft = current();
+    if (!draft || !model) return;
+    model.value = candidate;
+    draft.modelId = candidate;
+    draft.modified = true;
+    if (draft.protocol === "gemini") draft.endpointDirty = true;
+    revision += 1;
+    cancelPending();
+    renderPreview();
+    updatePreset();
+    renderConnections();
+    renderRouting();
+    if (inspect && draft.protocol === "ollama") void inspectModel(candidate);
   };
 
   const chooseConnection = (id: string) => {
@@ -852,7 +988,7 @@ export function bindSynthesisEmbeddingPreferences(window: Window) {
     renderEditor();
   };
 
-  listen(connectionsSelect, "change", () => {
+  listen(connectionsSelect, "command", () => {
     chooseConnection(connectionsSelect.value);
   });
   listen(addButton, "command", () => {
@@ -924,13 +1060,13 @@ export function bindSynthesisEmbeddingPreferences(window: Window) {
     })();
   });
 
-  listen(presetSelect, "change", () => {
+  listen(presetSelect, "command", () => {
     const target = presetSelect;
     const preset = presets.find((entry) => entry.id === target?.value);
     if (!preset) return;
     const id = draftId();
     drafts.set(id, {
-      ...preset.connection,
+      ...JSON.parse(JSON.stringify(preset.connection)),
       id,
       name: preset.name,
       queryPrefix: preset.connection.queryPrefix || "",
@@ -941,16 +1077,27 @@ export function bindSynthesisEmbeddingPreferences(window: Window) {
       persisted: false,
       endpointDirty: true,
       embeddingUrlExplicit: Boolean(preset.connection.embeddingUrl),
+      discoveryProtocolExplicit: Boolean(
+        preset.connection.discovery?.protocol &&
+        preset.connection.discovery.protocol !==
+          defaultDiscovery(preset.connection.protocol),
+      ),
+      authExplicit: Boolean(
+        preset.connection.auth &&
+        canonicalizeSynthesisContractJson(preset.connection.auth) !==
+          canonicalizeSynthesisContractJson(
+            defaultAuth(preset.connection.protocol),
+          ),
+      ),
     });
     selectedId = id;
     revision += 1;
     cancelPending();
-    if (target) target.value = "";
     renderConnections();
     renderEditor();
   });
 
-  listen(primarySelect, "change", () => {
+  listen(primarySelect, "command", () => {
     const nextPrimary = primarySelect?.value || null;
     void saveRouting(
       nextPrimary,
@@ -984,6 +1131,7 @@ export function bindSynthesisEmbeddingPreferences(window: Window) {
     (
       update: (draft: Draft) => void,
       endpoint: boolean | ((draft: Draft) => boolean) = false,
+      keepModels = false,
     ) =>
     () => {
       const draft = current();
@@ -995,9 +1143,11 @@ export function bindSynthesisEmbeddingPreferences(window: Window) {
       revision += 1;
       setStatus("");
       cancelPending();
+      if (!keepModels) clearModels();
       renderConnections();
       renderRouting();
       renderPreview();
+      updatePreset();
     };
   listen(
     name,
@@ -1006,23 +1156,26 @@ export function bindSynthesisEmbeddingPreferences(window: Window) {
   );
   listen(
     protocol,
-    "change",
+    "command",
     changed((draft) => {
-      const previousProtocol = draft.protocol;
       draft.protocol = PROTOCOLS.includes(
         protocol?.value as SynthesisRetrievalProtocol,
       )
         ? (protocol!.value as SynthesisRetrievalProtocol)
         : "openai";
-      if (discoveryProtocol?.value === defaultDiscovery(previousProtocol)) {
+      if (discoveryProtocol && !draft.discoveryProtocolExplicit) {
         discoveryProtocol.value = defaultDiscovery(draft.protocol);
-        draft.discovery = { protocol: defaultDiscovery(draft.protocol) };
+        draft.discovery = {
+          ...draft.discovery,
+          protocol: defaultDiscovery(draft.protocol),
+        };
       }
-      if (authType?.value === defaultAuth(previousProtocol).type) {
+      if (authType && !draft.authExplicit) {
         draft.auth = defaultAuth(draft.protocol);
         authType.value = draft.auth.type;
         if (headerName) headerName.value = draft.auth.headerName ?? "";
       }
+      if (headerName) headerName.disabled = authType?.value !== "header";
     }, true),
   );
   listen(
@@ -1036,6 +1189,7 @@ export function bindSynthesisEmbeddingPreferences(window: Window) {
     changed(
       (draft) => (draft.modelId = model?.value.trim() || ""),
       (draft) => draft.protocol === "gemini",
+      true,
     ),
   );
   listen(
@@ -1050,9 +1204,10 @@ export function bindSynthesisEmbeddingPreferences(window: Window) {
   );
   listen(
     discoveryProtocol,
-    "change",
+    "command",
     changed((draft) => {
       const value = discoveryProtocol?.value || "none";
+      draft.discoveryProtocolExplicit = true;
       draft.discovery = {
         protocol: value as any,
         ...(discoveryUrl?.value.trim()
@@ -1075,9 +1230,10 @@ export function bindSynthesisEmbeddingPreferences(window: Window) {
   );
   listen(
     authType,
-    "change",
+    "command",
     changed((draft) => {
       const value = authType?.value || "none";
+      draft.authExplicit = true;
       draft.auth = {
         type: value as any,
         ...(value === "header" && headerName?.value.trim()
@@ -1092,6 +1248,7 @@ export function bindSynthesisEmbeddingPreferences(window: Window) {
     "input",
     changed((draft) => {
       if (draft.auth?.type !== "header") return;
+      draft.authExplicit = true;
       draft.auth.headerName = headerName?.value.trim() || "";
     }),
   );
@@ -1132,6 +1289,7 @@ export function bindSynthesisEmbeddingPreferences(window: Window) {
     revision += 1;
     setStatus("");
     cancelPending();
+    clearModels();
   });
   listen(enabled, "change", () => setStatus(""));
 
@@ -1147,35 +1305,87 @@ export function bindSynthesisEmbeddingPreferences(window: Window) {
       setStatus("");
     });
   }
+  if (myLibraryLabel) {
+    myLibraryLabel.textContent =
+      Zotero.getString?.("pane.collections.library") || "My Library";
+  }
+  listen(includeMyLibrary, "change", () => {
+    if (!includeMyLibrary || myLibraryId === null) return;
+    if (includeMyLibrary.checked) libraryIds.add(myLibraryId);
+    else libraryIds.delete(myLibraryId);
+    setStatus("");
+  });
   listen(includeTopics, "change", () => {
     includeTopicsState = includeTopics?.checked !== false;
     setStatus("");
   });
 
   listen(discoverButton, "command", () => void discover());
-  listen(modelFilter, "input", () => {
-    const needle = modelFilter?.value.toLocaleLowerCase() || "";
-    for (const child of Array.from(modelsSelect?.children || [])) {
-      (child as HTMLOptionElement).hidden = !String(child.textContent || "")
-        .toLocaleLowerCase()
-        .includes(needle);
+  if (modelToggle) {
+    const label = LOCAL("pref-retrieval-models", "Models");
+    modelToggle.setAttribute("aria-label", label);
+    modelToggle.setAttribute("tooltiptext", label);
+  }
+  listen(model, "input", () => {
+    if (modelPopup?.children.length) openModels();
+  });
+  listen(modelToggle, "command", () => {
+    if (modelPopup?.state === "open") modelPopup.hidePopup();
+    else {
+      model?.focus();
+      openModels(true);
     }
   });
-  listen(modelsSelect, "change", () => {
-    const draft = current();
-    const candidate = modelsSelect?.value;
-    const found = Array.from(modelsSelect?.children || []).find(
-      (entry) => (entry as HTMLOptionElement).value === candidate,
-    ) as HTMLOptionElement | undefined;
-    if (!draft || !candidate || !found) return;
-    if (model) model.value = candidate;
-    draft.modelId = candidate;
-    draft.modified = true;
-    if (draft.protocol === "gemini") draft.endpointDirty = true;
-    revision += 1;
-    setStatus("");
-    renderPreview();
-    if (draft.protocol === "ollama") void inspectModel(candidate);
+  listen(modelPopup, "popupshown", () =>
+    model?.setAttribute("aria-expanded", "true"),
+  );
+  listen(modelPopup, "popuphidden", () => {
+    model?.setAttribute("aria-expanded", "false");
+    activateModel(null);
+  });
+  listen(modelPopup, "mouseover", (event) => {
+    const entry = event.target as Element;
+    if (entry.parentNode === modelPopup) activateModel(entry);
+  });
+  listen(modelPopup, "command", (event) => {
+    const target = event.target as XUL.MenuItem;
+    const candidate = target.getAttribute("value");
+    if (target.parentNode !== modelPopup || !candidate) return;
+    selectModel(candidate);
+    modelPopup?.hidePopup?.();
+    model?.focus?.();
+  });
+  listen(model, "keydown", (event) => {
+    const key = event as KeyboardEvent;
+    if (!modelPopup) return;
+    if (key.key === "Escape" || key.key === "Tab") {
+      if (modelPopup.state === "open") {
+        modelPopup.hidePopup();
+        if (key.key === "Escape") key.preventDefault();
+      }
+      return;
+    }
+    if (key.key === "Enter" && modelPopup.state === "open" && activeModel) {
+      selectModel(activeModel.getAttribute("value")!);
+      modelPopup.hidePopup();
+      key.preventDefault();
+    } else if (key.key === "ArrowDown" || key.key === "ArrowUp") {
+      if (modelPopup.state !== "open") openModels(true);
+      const entries = Array.from(modelPopup.children).filter(
+        (entry) => !(entry as XUL.MenuItem).hidden,
+      );
+      if (!entries.length) return;
+      const index = entries.indexOf(activeModel!);
+      const next =
+        index < 0
+          ? key.key === "ArrowDown"
+            ? 0
+            : entries.length - 1
+          : (index + (key.key === "ArrowDown" ? 1 : -1) + entries.length) %
+            entries.length;
+      activateModel(entries[next]);
+      key.preventDefault();
+    }
   });
 
   listen(saveButton, "command", () => void saveConnection(false));
@@ -1198,6 +1408,9 @@ export function bindSynthesisEmbeddingPreferences(window: Window) {
           return;
         }
         draft.credentialConfigured = false;
+        revision += 1;
+        cancelPending();
+        clearModels();
         if (credential) credential.value = "";
         if (credential)
           credential.placeholder = LOCAL(
@@ -1217,11 +1430,36 @@ export function bindSynthesisEmbeddingPreferences(window: Window) {
     })();
   });
 
+  for (const [menu, values, prefix] of [
+    [protocol, PROTOCOLS, "pref-retrieval-protocol-"],
+    [
+      discoveryProtocol,
+      ["none", ...PROTOCOLS.filter((value) => value !== "voyage")],
+      "pref-retrieval-protocol-",
+    ],
+    [authType, ["none", "bearer", "header"], "pref-retrieval-auth-"],
+  ] as const) {
+    const popup = menuPopup(menu);
+    clear(popup);
+    for (const value of values) {
+      popup?.appendChild(
+        option(
+          value,
+          LOCAL(
+            value === "none" ? "pref-retrieval-none" : `${prefix}${value}`,
+            value,
+          ),
+        ),
+      );
+    }
+  }
+
   void refresh();
 
   return () => {
     if (disposed) return;
     if (discoveryRevision >= 0 || inspectRevision >= 0) cancelPending();
+    clearModels();
     disposed = true;
     for (const cleanup of cleanups.splice(0)) cleanup();
   };

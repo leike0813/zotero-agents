@@ -91,7 +91,43 @@
     .zs-execution-display-mode { display: inline-flex; gap: 4px; padding: 3px;
     border: 1px solid rgba(15, 23, 42, 0.15); border-radius: 8px; }
     .zs-execution-display-mode button[aria-checked="true"] { font-weight: 700;
-    background: rgba(15, 23, 42, 0.1); }
+    background: rgba(15, 23, 42, 0.1); } .zs-retrieval-card { color-scheme:
+    light dark; gap: 8px; background: var(--material-background, Canvas); color:
+    var(--fill-primary, CanvasText); border-color: var(--color-border, rgba(128,
+    128, 128, 0.3)); } .zs-retrieval-heading, .zs-retrieval-control,
+    .zs-retrieval-footer, .zs-retrieval-routing-actions { display: flex;
+    align-items: center; gap: 6px; min-width: 0; } .zs-retrieval-heading {
+    justify-content: space-between; flex-wrap: wrap; } .zs-retrieval-heading
+    .zs-pref-card-title { margin: 0; } .zs-retrieval-grid { display: grid;
+    grid-template-columns: minmax(80px, 8em) minmax(0, 1fr); align-items:
+    center; gap: 6px 10px; min-width: 0; } .zs-retrieval-grid > label { margin:
+    0; } .zs-retrieval-control > input, .zs-retrieval-control > textarea,
+    .zs-retrieval-control > menulist { flex: 1; width: 100%; min-width: 0;
+    margin: 0; box-sizing: border-box; } .zs-retrieval-control > input,
+    .zs-retrieval-control > textarea { font: inherit; padding: 4px 6px; border:
+    1px solid var(--color-border, rgba(128, 128, 128, 0.4)); border-radius: 4px;
+    background: Field; color: FieldText; } .zs-retrieval-control > textarea {
+    resize: vertical; } .zs-retrieval-card button { min-width: 0; margin: 0;
+    padding-inline: 8px; } .zs-retrieval-details { border-top: 1px solid
+    var(--color-border, rgba(128, 128, 128, 0.25)); padding-top: 6px; }
+    .zs-retrieval-details > summary { cursor: pointer; } .zs-retrieval-details >
+    .zs-retrieval-grid { margin-top: 8px; } .zs-retrieval-model { display: flex;
+    flex: 1; min-width: 0; } .zs-retrieval-model > input { flex: 1; min-width:
+    0; width: 100%; font: inherit; padding: 4px 6px; border: 1px solid
+    var(--color-border, rgba(128, 128, 128, 0.4)); border-radius: 4px 0 0 4px;
+    background: Field; color: FieldText; } .zs-retrieval-model > button {
+    border-radius: 0 4px 4px 0; } .zs-retrieval-model
+    menuitem[aria-selected="true"] { background: Highlight; color:
+    HighlightText; } .zs-retrieval-routing-actions { grid-column: 2; flex-wrap:
+    wrap; } .zs-retrieval-scope { flex-wrap: wrap; } .zs-retrieval-control >
+    description { min-width: 0; margin: 0; overflow-wrap: anywhere; }
+    .zs-retrieval-footer { flex-wrap: wrap; } .zs-retrieval-footer > description
+    { flex: 1 1 180px; margin: 0; overflow-wrap: anywhere; } @media (max-width:
+    560px) { .zs-retrieval-grid { grid-template-columns: minmax(0, 1fr); gap:
+    4px; } .zs-retrieval-grid > label { margin-top: 4px; }
+    .zs-retrieval-routing-actions { grid-column: 1; } .zs-retrieval-control {
+    flex-wrap: wrap; } .zs-retrieval-control > input, .zs-retrieval-control >
+    menulist { flex-basis: 160px; } }
   </html:style>
   <vbox class="zs-pref-root">
     <vbox class="zs-pref-card">
@@ -623,386 +659,368 @@
       ></description>
     </vbox>
 
-    <vbox id="zotero-prefpane-__addonRef__-retrieval-root" class="zs-pref-card">
-      <label
-        class="zs-pref-card-title"
-        data-l10n-id="pref-section-retrieval"
-      ></label>
+    <vbox
+      id="zotero-prefpane-__addonRef__-retrieval-root"
+      class="zs-pref-card zs-retrieval-card"
+    >
+      <hbox class="zs-retrieval-heading">
+        <label
+          class="zs-pref-card-title"
+          data-l10n-id="pref-section-retrieval"
+        ></label>
+        <html:label class="zs-uninstall-option"
+          ><html:input
+            type="checkbox"
+            id="zotero-prefpane-__addonRef__-retrieval-enabled"
+          ></html:input
+          ><html:span data-l10n-id="pref-retrieval-enabled"></html:span
+        ></html:label>
+      </hbox>
       <description data-l10n-id="pref-retrieval-help"></description>
-      <html:label class="zs-uninstall-option">
-        <html:input
-          id="zotero-prefpane-__addonRef__-retrieval-enabled"
-          type="checkbox"
-        ></html:input>
-        <html:span data-l10n-id="pref-retrieval-enabled"></html:span>
-      </html:label>
-
-      <hbox align="center" class="zs-pref-actions-row">
-        <html:label
-          for="zotero-prefpane-__addonRef__-retrieval-connections"
+      <vbox class="zs-retrieval-grid">
+        <label
+          control="zotero-prefpane-__addonRef__-retrieval-connections"
           data-l10n-id="pref-retrieval-connections"
-        ></html:label>
-        <html:select
-          id="zotero-prefpane-__addonRef__-retrieval-connections"
-          size="5"
-        ></html:select>
-      </hbox>
-      <hbox class="zs-pref-actions-row">
-        <button
-          id="zotero-prefpane-__addonRef__-retrieval-add"
-          data-l10n-id="pref-retrieval-add"
-        ></button>
-        <button
-          id="zotero-prefpane-__addonRef__-retrieval-delete"
-          data-l10n-id="pref-retrieval-delete"
-        ></button>
-      </hbox>
-
-      <hbox align="center" class="zs-pref-actions-row">
-        <html:label
-          for="zotero-prefpane-__addonRef__-retrieval-primary"
-          data-l10n-id="pref-retrieval-primary"
-        ></html:label>
-        <html:select id="zotero-prefpane-__addonRef__-retrieval-primary">
-          <html:option
-            value=""
-            data-l10n-id="pref-retrieval-none"
-          ></html:option>
-        </html:select>
-      </hbox>
-      <hbox align="center" class="zs-pref-actions-row">
-        <html:label
-          for="zotero-prefpane-__addonRef__-retrieval-fallbacks"
-          data-l10n-id="pref-retrieval-fallbacks"
-        ></html:label>
-        <html:select
-          id="zotero-prefpane-__addonRef__-retrieval-fallbacks"
-          size="5"
-        ></html:select>
-      </hbox>
-      <hbox class="zs-pref-actions-row">
-        <button
-          id="zotero-prefpane-__addonRef__-retrieval-fallback-add"
-          data-l10n-id="pref-retrieval-fallback-add"
-        ></button>
-        <button
-          id="zotero-prefpane-__addonRef__-retrieval-fallback-remove"
-          data-l10n-id="pref-retrieval-fallback-remove"
-        ></button>
-        <button
-          id="zotero-prefpane-__addonRef__-retrieval-fallback-up"
-          data-l10n-id="pref-retrieval-fallback-up"
-        ></button>
-        <button
-          id="zotero-prefpane-__addonRef__-retrieval-fallback-down"
-          data-l10n-id="pref-retrieval-fallback-down"
-        ></button>
-      </hbox>
-
-      <hbox align="center" class="zs-pref-actions-row">
-        <html:label
-          for="zotero-prefpane-__addonRef__-retrieval-preset"
+        ></label>
+        <hbox class="zs-retrieval-control"
+          ><menulist
+            id="zotero-prefpane-__addonRef__-retrieval-connections"
+            native="true"
+            ><menupopup
+              id="zotero-prefpane-__addonRef__-retrieval-connections-popup"
+            ></menupopup></menulist
+          ><button
+            id="zotero-prefpane-__addonRef__-retrieval-add"
+            data-l10n-id="pref-retrieval-add"
+          ></button
+          ><button
+            id="zotero-prefpane-__addonRef__-retrieval-delete"
+            data-l10n-id="pref-retrieval-delete"
+          ></button
+        ></hbox>
+        <label
+          control="zotero-prefpane-__addonRef__-retrieval-preset"
           data-l10n-id="pref-retrieval-preset"
-        ></html:label>
-        <html:select id="zotero-prefpane-__addonRef__-retrieval-preset">
-          <html:option
-            value=""
-            data-l10n-id="pref-retrieval-preset-custom"
-          ></html:option>
-        </html:select>
-      </hbox>
-      <hbox align="center" class="zs-pref-actions-row">
+        ></label>
+        <hbox class="zs-retrieval-control"
+          ><menulist
+            id="zotero-prefpane-__addonRef__-retrieval-preset"
+            native="true"
+            ><menupopup
+              id="zotero-prefpane-__addonRef__-retrieval-preset-popup"
+            ></menupopup></menulist
+        ></hbox>
         <html:label
           for="zotero-prefpane-__addonRef__-retrieval-name"
           data-l10n-id="pref-retrieval-name"
         ></html:label>
-        <html:input
-          type="text"
-          id="zotero-prefpane-__addonRef__-retrieval-name"
-        ></html:input>
-      </hbox>
-      <hbox align="center" class="zs-pref-actions-row">
-        <html:label
-          for="zotero-prefpane-__addonRef__-retrieval-protocol"
+        <hbox class="zs-retrieval-control"
+          ><html:input
+            type="text"
+            id="zotero-prefpane-__addonRef__-retrieval-name"
+          ></html:input
+        ></hbox>
+        <label
+          control="zotero-prefpane-__addonRef__-retrieval-protocol"
           data-l10n-id="pref-retrieval-protocol"
-        ></html:label>
-        <html:select id="zotero-prefpane-__addonRef__-retrieval-protocol">
-          <html:option
-            value="openai"
-            data-l10n-id="pref-retrieval-protocol-openai"
-          ></html:option>
-          <html:option
-            value="ollama"
-            data-l10n-id="pref-retrieval-protocol-ollama"
-          ></html:option>
-          <html:option
-            value="tei"
-            data-l10n-id="pref-retrieval-protocol-tei"
-          ></html:option>
-          <html:option
-            value="cohere"
-            data-l10n-id="pref-retrieval-protocol-cohere"
-          ></html:option>
-          <html:option
-            value="voyage"
-            data-l10n-id="pref-retrieval-protocol-voyage"
-          ></html:option>
-          <html:option
-            value="gemini"
-            data-l10n-id="pref-retrieval-protocol-gemini"
-          ></html:option>
-        </html:select>
-      </hbox>
-      <hbox align="center" class="zs-pref-actions-row">
+        ></label>
+        <hbox class="zs-retrieval-control"
+          ><menulist
+            id="zotero-prefpane-__addonRef__-retrieval-protocol"
+            native="true"
+            ><menupopup
+              id="zotero-prefpane-__addonRef__-retrieval-protocol-popup"
+            ></menupopup></menulist
+        ></hbox>
         <html:label
           for="zotero-prefpane-__addonRef__-retrieval-base-url"
           data-l10n-id="pref-retrieval-base-url"
         ></html:label>
-        <html:input
-          type="text"
-          id="zotero-prefpane-__addonRef__-retrieval-base-url"
-          placeholder="https://…"
-        ></html:input>
-      </hbox>
-      <hbox align="center" class="zs-pref-actions-row">
+        <hbox class="zs-retrieval-control"
+          ><html:input
+            type="url"
+            id="zotero-prefpane-__addonRef__-retrieval-base-url"
+            placeholder="https://…"
+          ></html:input
+        ></hbox>
         <html:label
           for="zotero-prefpane-__addonRef__-retrieval-model"
           data-l10n-id="pref-retrieval-model"
         ></html:label>
-        <html:input
-          type="text"
-          id="zotero-prefpane-__addonRef__-retrieval-model"
-        ></html:input>
-        <button
-          id="zotero-prefpane-__addonRef__-retrieval-discover"
-          data-l10n-id="pref-retrieval-discover"
-        ></button>
-      </hbox>
-      <hbox align="center" class="zs-pref-actions-row">
-        <html:label
-          for="zotero-prefpane-__addonRef__-retrieval-models"
-          data-l10n-id="pref-retrieval-models"
-        ></html:label>
-        <html:input
-          type="search"
-          id="zotero-prefpane-__addonRef__-retrieval-model-filter"
-          aria-labelledby="zotero-prefpane-__addonRef__-retrieval-model-filter-label"
-        ></html:input>
-        <html:label
-          id="zotero-prefpane-__addonRef__-retrieval-model-filter-label"
-          for="zotero-prefpane-__addonRef__-retrieval-model-filter"
-          data-l10n-id="pref-retrieval-model-filter"
-        ></html:label>
-        <html:select
-          id="zotero-prefpane-__addonRef__-retrieval-models"
-        ></html:select>
-      </hbox>
-      <hbox align="center" class="zs-pref-actions-row">
+        <hbox class="zs-retrieval-control"
+          ><hbox class="zs-retrieval-model"
+            ><html:input
+              type="text"
+              id="zotero-prefpane-__addonRef__-retrieval-model"
+              role="combobox"
+              aria-autocomplete="list"
+              aria-haspopup="listbox"
+              aria-expanded="false"
+              aria-controls="zotero-prefpane-__addonRef__-retrieval-model-popup"
+            ></html:input
+            ><button
+              id="zotero-prefpane-__addonRef__-retrieval-model-toggle"
+              label="▾"
+              tabindex="-1"
+              disabled="true"
+            ></button
+            ><menupopup
+              id="zotero-prefpane-__addonRef__-retrieval-model-popup"
+              role="listbox"
+              noautofocus="true"
+              ignorekeys="true"
+            ></menupopup></hbox
+          ><button
+            id="zotero-prefpane-__addonRef__-retrieval-discover"
+            data-l10n-id="pref-retrieval-discover"
+          ></button
+        ></hbox>
         <html:label
           for="zotero-prefpane-__addonRef__-retrieval-credential"
           data-l10n-id="pref-retrieval-credential"
         ></html:label>
-        <html:input
-          type="password"
-          id="zotero-prefpane-__addonRef__-retrieval-credential"
-        ></html:input>
-        <button
-          id="zotero-prefpane-__addonRef__-retrieval-clear-credential"
-          data-l10n-id="pref-retrieval-clear-credential"
-        ></button>
-      </hbox>
-
-      <html:details id="zotero-prefpane-__addonRef__-retrieval-advanced">
+        <hbox class="zs-retrieval-control"
+          ><html:input
+            type="password"
+            id="zotero-prefpane-__addonRef__-retrieval-credential"
+          ></html:input
+          ><button
+            id="zotero-prefpane-__addonRef__-retrieval-clear-credential"
+            data-l10n-id="pref-retrieval-clear-credential"
+          ></button
+        ></hbox>
+      </vbox>
+      <html:details
+        id="zotero-prefpane-__addonRef__-retrieval-routing"
+        class="zs-retrieval-details"
+      >
+        <html:summary data-l10n-id="pref-retrieval-routing"></html:summary>
+        <vbox class="zs-retrieval-grid">
+          <label
+            control="zotero-prefpane-__addonRef__-retrieval-primary"
+            data-l10n-id="pref-retrieval-primary"
+          ></label>
+          <hbox class="zs-retrieval-control"
+            ><menulist
+              id="zotero-prefpane-__addonRef__-retrieval-primary"
+              native="true"
+              ><menupopup
+                id="zotero-prefpane-__addonRef__-retrieval-primary-popup"
+              ></menupopup></menulist
+          ></hbox>
+          <label
+            control="zotero-prefpane-__addonRef__-retrieval-fallbacks"
+            data-l10n-id="pref-retrieval-fallbacks"
+          ></label>
+          <hbox class="zs-retrieval-control"
+            ><menulist
+              id="zotero-prefpane-__addonRef__-retrieval-fallbacks"
+              native="true"
+              ><menupopup
+                id="zotero-prefpane-__addonRef__-retrieval-fallbacks-popup"
+              ></menupopup></menulist
+          ></hbox>
+          <hbox class="zs-retrieval-routing-actions">
+            <button
+              id="zotero-prefpane-__addonRef__-retrieval-fallback-add"
+              data-l10n-id="pref-retrieval-fallback-add"
+            ></button
+            ><button
+              id="zotero-prefpane-__addonRef__-retrieval-fallback-remove"
+              data-l10n-id="pref-retrieval-fallback-remove"
+            ></button
+            ><button
+              id="zotero-prefpane-__addonRef__-retrieval-fallback-up"
+              data-l10n-id="pref-retrieval-fallback-up"
+            ></button
+            ><button
+              id="zotero-prefpane-__addonRef__-retrieval-fallback-down"
+              data-l10n-id="pref-retrieval-fallback-down"
+            ></button>
+          </hbox>
+        </vbox>
+      </html:details>
+      <html:details
+        id="zotero-prefpane-__addonRef__-retrieval-advanced"
+        class="zs-retrieval-details"
+      >
         <html:summary data-l10n-id="pref-retrieval-advanced"></html:summary>
-        <hbox align="center" class="zs-pref-actions-row">
+        <vbox class="zs-retrieval-grid">
           <html:label
             for="zotero-prefpane-__addonRef__-retrieval-embedding-url"
             data-l10n-id="pref-retrieval-embedding-url"
           ></html:label>
-          <html:input
-            type="text"
-            id="zotero-prefpane-__addonRef__-retrieval-embedding-url"
-          ></html:input>
-        </hbox>
-        <hbox align="center" class="zs-pref-actions-row">
-          <html:label
-            for="zotero-prefpane-__addonRef__-retrieval-discovery-protocol"
+          <hbox class="zs-retrieval-control"
+            ><html:input
+              type="url"
+              id="zotero-prefpane-__addonRef__-retrieval-embedding-url"
+            ></html:input
+          ></hbox>
+          <label
+            control="zotero-prefpane-__addonRef__-retrieval-discovery-protocol"
             data-l10n-id="pref-retrieval-discovery-protocol"
-          ></html:label>
-          <html:select
-            id="zotero-prefpane-__addonRef__-retrieval-discovery-protocol"
-          >
-            <html:option
-              value="none"
-              data-l10n-id="pref-retrieval-none"
-            ></html:option>
-            <html:option
-              value="openai"
-              data-l10n-id="pref-retrieval-protocol-openai"
-            ></html:option>
-            <html:option
-              value="ollama"
-              data-l10n-id="pref-retrieval-protocol-ollama"
-            ></html:option>
-            <html:option
-              value="tei"
-              data-l10n-id="pref-retrieval-protocol-tei"
-            ></html:option>
-            <html:option
-              value="cohere"
-              data-l10n-id="pref-retrieval-protocol-cohere"
-            ></html:option>
-            <html:option
-              value="gemini"
-              data-l10n-id="pref-retrieval-protocol-gemini"
-            ></html:option>
-          </html:select>
-        </hbox>
-        <hbox align="center" class="zs-pref-actions-row">
+          ></label>
+          <hbox class="zs-retrieval-control"
+            ><menulist
+              id="zotero-prefpane-__addonRef__-retrieval-discovery-protocol"
+              native="true"
+              ><menupopup
+                id="zotero-prefpane-__addonRef__-retrieval-discovery-protocol-popup"
+              ></menupopup></menulist
+          ></hbox>
           <html:label
             for="zotero-prefpane-__addonRef__-retrieval-discovery-url"
             data-l10n-id="pref-retrieval-discovery-url"
           ></html:label>
-          <html:input
-            type="text"
-            id="zotero-prefpane-__addonRef__-retrieval-discovery-url"
-          ></html:input>
-        </hbox>
-        <hbox align="center" class="zs-pref-actions-row">
-          <html:label
-            for="zotero-prefpane-__addonRef__-retrieval-auth-type"
+          <hbox class="zs-retrieval-control"
+            ><html:input
+              type="url"
+              id="zotero-prefpane-__addonRef__-retrieval-discovery-url"
+            ></html:input
+          ></hbox>
+          <label
+            control="zotero-prefpane-__addonRef__-retrieval-auth-type"
             data-l10n-id="pref-retrieval-auth-type"
-          ></html:label>
-          <html:select id="zotero-prefpane-__addonRef__-retrieval-auth-type">
-            <html:option
-              value="none"
-              data-l10n-id="pref-retrieval-none"
-            ></html:option>
-            <html:option
-              value="bearer"
-              data-l10n-id="pref-retrieval-auth-bearer"
-            ></html:option>
-            <html:option
-              value="header"
-              data-l10n-id="pref-retrieval-auth-header"
-            ></html:option>
-          </html:select>
-        </hbox>
-        <hbox align="center" class="zs-pref-actions-row">
+          ></label>
+          <hbox class="zs-retrieval-control"
+            ><menulist
+              id="zotero-prefpane-__addonRef__-retrieval-auth-type"
+              native="true"
+              ><menupopup
+                id="zotero-prefpane-__addonRef__-retrieval-auth-type-popup"
+              ></menupopup></menulist
+          ></hbox>
           <html:label
             for="zotero-prefpane-__addonRef__-retrieval-header-name"
             data-l10n-id="pref-retrieval-header-name"
           ></html:label>
-          <html:input
-            type="text"
-            id="zotero-prefpane-__addonRef__-retrieval-header-name"
-          ></html:input>
-        </hbox>
-        <hbox align="center" class="zs-pref-actions-row">
+          <hbox class="zs-retrieval-control"
+            ><html:input
+              type="text"
+              id="zotero-prefpane-__addonRef__-retrieval-header-name"
+            ></html:input
+          ></hbox>
           <html:label
             for="zotero-prefpane-__addonRef__-retrieval-dimensions"
             data-l10n-id="pref-retrieval-dimensions"
           ></html:label>
-          <html:input
-            type="text"
-            id="zotero-prefpane-__addonRef__-retrieval-dimensions"
-          ></html:input>
-        </hbox>
-        <hbox align="center" class="zs-pref-actions-row">
+          <hbox class="zs-retrieval-control"
+            ><html:input
+              type="number"
+              id="zotero-prefpane-__addonRef__-retrieval-dimensions"
+              min="1"
+              step="1"
+            ></html:input
+          ></hbox>
           <html:label
             for="zotero-prefpane-__addonRef__-retrieval-query-prefix"
             data-l10n-id="pref-retrieval-query-prefix"
           ></html:label>
-          <html:input
-            type="text"
-            id="zotero-prefpane-__addonRef__-retrieval-query-prefix"
-          ></html:input>
-        </hbox>
-        <hbox align="center" class="zs-pref-actions-row">
+          <hbox class="zs-retrieval-control"
+            ><html:textarea
+              rows="2"
+              id="zotero-prefpane-__addonRef__-retrieval-query-prefix"
+            ></html:textarea
+          ></hbox>
           <html:label
             for="zotero-prefpane-__addonRef__-retrieval-document-prefix"
             data-l10n-id="pref-retrieval-document-prefix"
           ></html:label>
-          <html:input
-            type="text"
-            id="zotero-prefpane-__addonRef__-retrieval-document-prefix"
-          ></html:input>
-        </hbox>
-        <hbox align="center" class="zs-pref-actions-row">
+          <hbox class="zs-retrieval-control"
+            ><html:textarea
+              rows="2"
+              id="zotero-prefpane-__addonRef__-retrieval-document-prefix"
+            ></html:textarea
+          ></hbox>
           <html:label
             for="zotero-prefpane-__addonRef__-retrieval-parameters"
             data-l10n-id="pref-retrieval-parameters"
           ></html:label>
-          <html:textarea
-            id="zotero-prefpane-__addonRef__-retrieval-parameters"
-            placeholder='{"common":{},"query":{},"document":{}}'
-          ></html:textarea>
-        </hbox>
-        <hbox align="center" class="zs-pref-actions-row">
-          <html:label data-l10n-id="pref-retrieval-preview"></html:label>
-          <description
-            id="zotero-prefpane-__addonRef__-retrieval-preview"
-            data-l10n-id="pref-retrieval-preview-empty"
-          ></description>
-        </hbox>
-        <vbox class="zs-pref-actions-row">
+          <hbox class="zs-retrieval-control"
+            ><html:textarea
+              id="zotero-prefpane-__addonRef__-retrieval-parameters"
+              rows="3"
+              placeholder='{"common":{},"query":{},"document":{}}'
+            ></html:textarea
+          ></hbox>
+          <html:label
+            for="zotero-prefpane-__addonRef__-retrieval-preview"
+            data-l10n-id="pref-retrieval-preview"
+          ></html:label>
+          <hbox class="zs-retrieval-control"
+            ><description
+              id="zotero-prefpane-__addonRef__-retrieval-preview"
+              data-l10n-id="pref-retrieval-preview-empty"
+            ></description
+          ></hbox>
           <html:label data-l10n-id="pref-retrieval-source-kinds"></html:label>
-          <html:label class="zs-uninstall-option">
-            <html:input
-              type="checkbox"
-              id="zotero-prefpane-__addonRef__-retrieval-source-metadata"
-              value="metadata"
-            ></html:input>
-            <html:span
-              data-l10n-id="pref-retrieval-source-metadata"
-            ></html:span>
-          </html:label>
-          <html:label class="zs-uninstall-option">
-            <html:input
-              type="checkbox"
-              id="zotero-prefpane-__addonRef__-retrieval-source-fulltext"
-              value="fulltext"
-            ></html:input>
-            <html:span
-              data-l10n-id="pref-retrieval-source-fulltext"
-            ></html:span>
-          </html:label>
-          <html:label class="zs-uninstall-option">
-            <html:input
-              type="checkbox"
-              id="zotero-prefpane-__addonRef__-retrieval-source-analysis"
-              value="analysis"
-            ></html:input>
-            <html:span
-              data-l10n-id="pref-retrieval-source-analysis"
-            ></html:span>
-          </html:label>
+          <hbox class="zs-retrieval-control zs-retrieval-scope">
+            <html:label class="zs-uninstall-option"
+              ><html:input
+                type="checkbox"
+                id="zotero-prefpane-__addonRef__-retrieval-include-my-library"
+              ></html:input
+              ><html:span
+                id="zotero-prefpane-__addonRef__-retrieval-my-library-label"
+              ></html:span
+            ></html:label>
+            <html:label class="zs-uninstall-option"
+              ><html:input
+                type="checkbox"
+                id="zotero-prefpane-__addonRef__-retrieval-source-metadata"
+                value="metadata"
+              ></html:input
+              ><html:span
+                data-l10n-id="pref-retrieval-source-metadata"
+              ></html:span
+            ></html:label>
+            <html:label class="zs-uninstall-option"
+              ><html:input
+                type="checkbox"
+                id="zotero-prefpane-__addonRef__-retrieval-source-fulltext"
+                value="fulltext"
+              ></html:input
+              ><html:span
+                data-l10n-id="pref-retrieval-source-fulltext"
+              ></html:span
+            ></html:label>
+            <html:label class="zs-uninstall-option"
+              ><html:input
+                type="checkbox"
+                id="zotero-prefpane-__addonRef__-retrieval-source-analysis"
+                value="analysis"
+              ></html:input
+              ><html:span
+                data-l10n-id="pref-retrieval-source-analysis"
+              ></html:span
+            ></html:label>
+            <html:label class="zs-uninstall-option"
+              ><html:input
+                type="checkbox"
+                id="zotero-prefpane-__addonRef__-retrieval-include-topics"
+              ></html:input
+              ><html:span
+                data-l10n-id="pref-retrieval-include-topics"
+              ></html:span
+            ></html:label>
+          </hbox>
         </vbox>
-        <html:label class="zs-uninstall-option">
-          <html:input
-            type="checkbox"
-            id="zotero-prefpane-__addonRef__-retrieval-include-topics"
-          ></html:input>
-          <html:span data-l10n-id="pref-retrieval-include-topics"></html:span>
-        </html:label>
       </html:details>
-
-      <hbox class="zs-pref-actions-row">
+      <hbox class="zs-retrieval-footer">
         <button
           id="zotero-prefpane-__addonRef__-retrieval-save"
           data-l10n-id="pref-retrieval-save"
-        ></button>
-        <button
+        ></button
+        ><button
           id="zotero-prefpane-__addonRef__-retrieval-save-test"
           data-l10n-id="pref-retrieval-save-test"
         ></button>
+        <description
+          id="zotero-prefpane-__addonRef__-retrieval-status"
+          role="status"
+        ></description>
       </hbox>
-      <description
-        id="zotero-prefpane-__addonRef__-retrieval-status"
-        data-l10n-id="pref-retrieval-status-idle"
-      ></description>
     </vbox>
-
     <vbox class="zs-pref-card">
       <label
         class="zs-pref-card-title"

@@ -736,6 +736,7 @@ function registerPrefsPane() {
   const runtimeRootURI = resolveRuntimeRootURI();
   Zotero.PreferencePanes.register({
     pluginID: addon.data.config.addonID,
+    id: `zotero-prefpane-${addon.data.config.addonRef}`,
     src: runtimeRootURI + "content/preferences.xhtml",
     label: getString("prefs-title"),
     image: `chrome://${addon.data.config.addonRef}/content/icons/favicon.png`,

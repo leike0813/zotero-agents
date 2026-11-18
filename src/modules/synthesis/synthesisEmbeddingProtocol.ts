@@ -91,7 +91,7 @@ export function resolveSynthesisEmbeddingEndpoints(
     if (!connection.discovery?.url) {
       let root = url.pathname;
       if (connection.protocol === "gemini")
-        root = root.replace(/\/models\/[^/]+:batchEmbedContents$/, "");
+        root = root.replace(/\/models\/[^/]*:batchEmbedContents$/, "");
       else if (connection.protocol === "ollama")
         root = root.replace(/\/api\/embed$/, "");
       else if (connection.protocol === "tei")

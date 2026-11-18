@@ -106,7 +106,10 @@ import { delay, yieldToEventLoop } from "../../../utils/runtimeCompatibility";
 import { BUILTIN_STATUS_FACET, isBuiltinStatusTag } from "../builtinTagPolicy";
 import { readSynthesisSidecarTraceSnapshot } from "../sidecar/synthesisSidecarTrace";
 import { openTaskDashboard } from "../../dashboardHost";
-import { recoverDefaultSynthesisProductionOwner } from "../production/synthesisProductionOwner";
+import {
+  recoverDefaultSynthesisProductionOwner,
+  startDefaultSynthesisProductionOwner,
+} from "../production/synthesisProductionOwner";
 import { isSynthesisLiteratureScoreInvalidationEvent } from "../itemObserver";
 import {
   getSynthesisWorkbenchSidecarStatus,
@@ -1570,7 +1573,13 @@ let synthesisRetrievalPorts: SynthesisRetrievalPorts | undefined;
 function getSynthesisRetrievalPorts(): SynthesisRetrievalPorts {
   return (synthesisRetrievalPorts ??= {
     settings: createSynthesisEmbeddingSettingsPort(),
-    retrieval: createNativeSynthesisRetrievalPort(),
+    retrieval: createNativeSynthesisRetrievalPort({
+      // The Workbench can open before the sidecar is ready, so the first read
+      // waits for the idempotent production start instead of failing.
+      recoverReadyConnection: async () => {
+        await startDefaultSynthesisProductionOwner();
+      },
+    }),
   });
 }
 

@@ -40,6 +40,8 @@ import {
 } from "../../src/modules/zoteroHost/zoteroLibraryPageQuery";
 import { createMockZoteroLibrarySourcePageQueryAdapter } from "../helpers/zoteroLibraryPageQueryAdapter";
 import { isZoteroRuntime } from "../zotero/workflow-test-utils";
+import { resolveSynthesisEmbeddingEndpoints } from "../../src/modules/synthesis/synthesisEmbeddingProtocol";
+import { SYNTHESIS_EMBEDDING_PRESETS } from "../../src/modules/synthesis/synthesisEmbeddingProvider";
 
 type Listener = (event: Record<string, unknown>) => void;
 
@@ -55,6 +57,8 @@ class FakeXULElement {
   public textContent = "";
   public checked = false;
   public disabled = false;
+  public hidden = false;
+  public state = "closed";
   public parentNode: FakeXULElement | null = null;
   public children: FakeXULElement[] = [];
   public classList = {
@@ -175,6 +179,22 @@ class FakeXULElement {
     for (const listener of listeners) {
       listener(event);
     }
+  }
+
+  focus() {}
+
+  getBoundingClientRect() {
+    return { width: 240 };
+  }
+
+  openPopup() {
+    this.state = "open";
+    this.dispatch("popupshown");
+  }
+
+  hidePopup() {
+    this.state = "closed";
+    this.dispatch("popuphidden");
   }
 
   querySelectorAll(selector: string) {
@@ -926,47 +946,50 @@ function createPrefsWindow(args?: {
     if (!args?.includeEmbeddingPreferencesControls) return null;
     const element = document.createXULElement(tagName);
     element.id = `zotero-prefpane-${config.addonRef}-retrieval-${suffix}`;
+    if (tagName === "menulist") {
+      const popup = document.createXULElement("menupopup");
+      popup.id = `${element.id}-popup`;
+      element.appendChild(popup);
+    }
     return element;
   };
   const embeddingPreferences = args?.includeEmbeddingPreferencesControls
     ? {
         root: embeddingControl("root", "vbox")!,
         enabled: embeddingControl("enabled")!,
-        connections: embeddingControl("connections", "html:select")!,
+        connections: embeddingControl("connections", "menulist")!,
         add: embeddingControl("add", "button")!,
         delete: embeddingControl("delete", "button")!,
-        primary: embeddingControl("primary", "html:select")!,
-        fallbacks: embeddingControl("fallbacks", "html:select")!,
+        primary: embeddingControl("primary", "menulist")!,
+        fallbacks: embeddingControl("fallbacks", "menulist")!,
         fallbackAdd: embeddingControl("fallback-add", "button")!,
         fallbackRemove: embeddingControl("fallback-remove", "button")!,
         fallbackUp: embeddingControl("fallback-up", "button")!,
         fallbackDown: embeddingControl("fallback-down", "button")!,
-        preset: embeddingControl("preset", "html:select")!,
+        preset: embeddingControl("preset", "menulist")!,
         name: embeddingControl("name")!,
-        protocol: embeddingControl("protocol", "html:select")!,
+        protocol: embeddingControl("protocol", "menulist")!,
         baseUrl: embeddingControl("base-url")!,
         model: embeddingControl("model")!,
         discover: embeddingControl("discover", "button")!,
-        models: embeddingControl("models", "html:select")!,
-        modelFilter: embeddingControl("model-filter")!,
+        modelPopup: embeddingControl("model-popup", "menupopup")!,
+        modelToggle: embeddingControl("model-toggle", "button")!,
         credential: embeddingControl("credential")!,
         clearCredential: embeddingControl("clear-credential", "button")!,
         embeddingUrl: embeddingControl("embedding-url")!,
-        discoveryProtocol: embeddingControl(
-          "discovery-protocol",
-          "html:select",
-        )!,
+        discoveryProtocol: embeddingControl("discovery-protocol", "menulist")!,
         discoveryUrl: embeddingControl("discovery-url")!,
-        authType: embeddingControl("auth-type", "html:select")!,
+        authType: embeddingControl("auth-type", "menulist")!,
         headerName: embeddingControl("header-name")!,
         dimensions: embeddingControl("dimensions")!,
-        queryPrefix: embeddingControl("query-prefix")!,
-        documentPrefix: embeddingControl("document-prefix")!,
+        queryPrefix: embeddingControl("query-prefix", "html:textarea")!,
+        documentPrefix: embeddingControl("document-prefix", "html:textarea")!,
         parameters: embeddingControl("parameters", "html:textarea")!,
         preview: embeddingControl("preview", "description")!,
         sourceMetadata: embeddingControl("source-metadata")!,
         sourceFulltext: embeddingControl("source-fulltext")!,
         sourceAnalysis: embeddingControl("source-analysis")!,
+        includeMyLibrary: embeddingControl("include-my-library")!,
         includeTopics: embeddingControl("include-topics")!,
         save: embeddingControl("save", "button")!,
         saveTest: embeddingControl("save-test", "button")!,
@@ -4864,9 +4887,9 @@ describe("gui: workflow context menu", function () {
       "https://proxy/custom/embeddings?api-version=1";
     controls.embeddingUrl.dispatch("input");
     controls.authType.value = "none";
-    controls.authType.dispatch("change");
+    controls.authType.dispatch("command");
     controls.discoveryProtocol.value = "none";
-    controls.discoveryProtocol.dispatch("change");
+    controls.discoveryProtocol.dispatch("command");
     controls.saveTest.dispatch("command");
     await flushTasks();
     assert.equal(
@@ -4877,7 +4900,7 @@ describe("gui: workflow context menu", function () {
     assert.equal(saved.connection.discovery.protocol, "none");
     assert.equal(saved.connection.modelId, "raw:model@tag");
     controls.connections.value = "c2";
-    controls.connections.dispatch("change");
+    controls.connections.dispatch("command");
     controls.name.value = "Second draft";
     controls.name.dispatch("input");
     release({
@@ -4888,6 +4911,103 @@ describe("gui: workflow context menu", function () {
     await flushTasks();
     assert.equal(controls.name.value, "Second draft");
     assert.notInclude(controls.status.textContent, "Connection OK");
+  });
+
+  it("defaults embedding scope to My Library and topics and preserves saved library membership", async function () {
+    const previousLibraryId = Zotero.Libraries.userLibraryID;
+    Zotero.Libraries.userLibraryID = 42;
+    let status: any = {
+      enabled: true,
+      connections: [
+        {
+          id: "c1",
+          name: "Local",
+          protocol: "ollama",
+          baseUrl: "http://127.0.0.1:11434",
+          modelId: "fixture",
+          queryPrefix: "",
+          documentPrefix: "",
+        },
+      ],
+      primaryConnectionId: "c1",
+      fallbackConnectionIds: [],
+      pendingScope: null,
+      connectionTests: {},
+      presets: [],
+    };
+    addon.hooks.onPrefsEvent = (async (type: string, data: any) => {
+      if (type === "getEmbeddingPrefsStatus") return status;
+      if (type === "saveEmbeddingPrefs") {
+        status = { ...status, pendingScope: data.pendingScope };
+        return { ok: true, status };
+      }
+    }) as typeof addon.hooks.onPrefsEvent;
+
+    const open = async () => {
+      const fixture = createPrefsWindow({
+        includeEmbeddingPreferencesControls: true,
+      });
+      await registerPrefsScripts(fixture.window);
+      await flushTasks();
+      return fixture;
+    };
+    const save = async (fixture: ReturnType<typeof createPrefsWindow>) => {
+      fixture.embeddingPreferences!.save.dispatch("command");
+      await flushTasks();
+    };
+    try {
+      const first = await open();
+      assert.isTrue(first.embeddingPreferences!.includeMyLibrary.checked);
+      await save(first);
+      assert.deepInclude(status.pendingScope, {
+        libraryIds: [42],
+        includeTopics: true,
+      });
+      first.dispatchWindowEvent("unload");
+
+      status = {
+        ...status,
+        pendingScope: {
+          libraryIds: [],
+          sourceKinds: ["metadata"],
+          includeTopics: true,
+        },
+      };
+      const topicOnly = await open();
+      assert.isFalse(topicOnly.embeddingPreferences!.includeMyLibrary.checked);
+      await save(topicOnly);
+      assert.deepEqual(status.pendingScope.libraryIds, []);
+      topicOnly.dispatchWindowEvent("unload");
+
+      status = {
+        ...status,
+        pendingScope: { ...status.pendingScope, libraryIds: [7, 42] },
+      };
+      const reopened = await open();
+      const controls = reopened.embeddingPreferences!;
+      assert.isTrue(controls.includeMyLibrary.checked);
+      controls.includeMyLibrary.checked = false;
+      controls.includeMyLibrary.dispatch("change");
+      await save(reopened);
+      assert.deepEqual(status.pendingScope, {
+        libraryIds: [7],
+        sourceKinds: ["metadata"],
+        includeTopics: true,
+      });
+      controls.includeMyLibrary.checked = true;
+      controls.includeMyLibrary.dispatch("change");
+      controls.includeTopics.checked = false;
+      controls.includeTopics.dispatch("change");
+      await save(reopened);
+      assert.deepEqual(status.pendingScope, {
+        libraryIds: [7, 42],
+        sourceKinds: ["metadata"],
+        includeTopics: false,
+      });
+      reopened.dispatchWindowEvent("unload");
+    } finally {
+      Zotero.Libraries.userLibraryID = previousLibraryId;
+    }
   });
 
   it("keeps the edited embedding connection independent from primary and fallback routing", async function () {
@@ -5017,14 +5137,16 @@ describe("gui: workflow context menu", function () {
     assert.equal(controls.connections.value, "c1");
     assert.equal(controls.primary.value, "c1");
     assert.deepEqual(
-      controls.fallbacks.children
-        .filter((entry) => entry.getAttribute("data-fallback") === "active")
+      controls.fallbacks
+        .firstChild!.children.filter(
+          (entry) => entry.getAttribute("data-fallback") === "active",
+        )
         .map((entry) => entry.value),
       ["c2"],
     );
 
     controls.connections.value = "c2";
-    controls.connections.dispatch("change");
+    controls.connections.dispatch("command");
     assert.equal(controls.name.value, "Second");
     assert.equal(controls.primary.value, "c1");
 
@@ -5050,7 +5172,7 @@ describe("gui: workflow context menu", function () {
     );
 
     controls.primary.value = "c3";
-    controls.primary.dispatch("change");
+    controls.primary.dispatch("command");
     await flushTasks();
     const primarySave = calls.findLast(
       (entry) => entry.type === "saveEmbeddingPrefs",
@@ -5074,7 +5196,7 @@ describe("gui: workflow context menu", function () {
     assert.notProperty(fallbackSave.data, "connection");
 
     controls.connections.value = "c2";
-    controls.connections.dispatch("change");
+    controls.connections.dispatch("command");
     controls.delete.dispatch("command");
     await flushTasks();
     const deleteCall = calls.findLast(
@@ -5091,7 +5213,8 @@ describe("gui: workflow context menu", function () {
     }
 
     controls.preset.value = "preset-tei";
-    controls.preset.dispatch("change");
+    controls.preset.dispatch("command");
+    assert.equal(controls.preset.value, "preset-tei");
     assert.equal(controls.name.value, "TEI preset");
     assert.equal(controls.protocol.value, "tei");
     assert.equal(controls.queryPrefix.value, "q:");
@@ -5100,6 +5223,28 @@ describe("gui: workflow context menu", function () {
       calls.filter((entry) => entry.type === "discoverEmbeddingModels").length,
       0,
     );
+
+    controls.baseUrl.value = "https://remote-tei.example/proxy";
+    controls.baseUrl.dispatch("input");
+    assert.equal(controls.preset.value, "");
+    assert.equal(
+      controls.embeddingUrl.value,
+      "https://remote-tei.example/proxy/embed",
+    );
+    controls.discover.dispatch("command");
+    await flushTasks();
+    const discovery = calls.findLast(
+      (entry) => entry.type === "discoverEmbeddingModels",
+    )!;
+    assert.equal(
+      resolveSynthesisEmbeddingEndpoints(discovery.data.connection)
+        .discoveryUrl,
+      "https://remote-tei.example/proxy/info",
+    );
+    assert.notProperty(discovery.data, "connectionId");
+    controls.baseUrl.value = "https://tei.example";
+    controls.baseUrl.dispatch("input");
+    assert.equal(controls.preset.value, "preset-tei");
 
     controls.credential.value = "new-secret";
     controls.save.dispatch("command");
@@ -5129,6 +5274,99 @@ describe("gui: workflow context menu", function () {
     )!;
     assert.equal(saveTestCall.data.test, true);
     assert.equal(saveTestCall.data.connection.name, "TEI preset");
+  });
+
+  it("recognizes every service preset before it is customized", async function () {
+    const status = {
+      enabled: false,
+      connections: [],
+      primaryConnectionId: null,
+      fallbackConnectionIds: [],
+      pendingScope: null,
+      presets: SYNTHESIS_EMBEDDING_PRESETS,
+      connectionTests: {},
+    };
+    const runtime = globalThis as any;
+    runtime.addon.hooks.onPrefsEvent = async (type: string) =>
+      type === "getEmbeddingPrefsStatus" ? status : { ok: true };
+    const fixture = createPrefsWindow({
+      includeEmbeddingPreferencesControls: true,
+    });
+    await registerPrefsScripts(fixture.window);
+    await flushTasks();
+    const controls = fixture.embeddingPreferences!;
+    for (const preset of SYNTHESIS_EMBEDDING_PRESETS) {
+      controls.preset.value = preset.id;
+      controls.preset.dispatch("command");
+      assert.equal(controls.preset.value, preset.id);
+    }
+    controls.parameters.value = '{"query":{"task":"other"}}';
+    controls.parameters.dispatch("input");
+    assert.equal(controls.preset.value, "");
+  });
+
+  it("updates automatic advanced fields while preserving manual overrides", async function () {
+    const status = {
+      enabled: false,
+      connections: [
+        {
+          id: "c1",
+          name: "Draft",
+          protocol: "openai",
+          baseUrl: "https://svc.example/v1",
+          modelId: "first",
+          queryPrefix: "",
+          documentPrefix: "",
+        },
+      ],
+      primaryConnectionId: null,
+      fallbackConnectionIds: [],
+      pendingScope: null,
+      presets: [],
+      connectionTests: {},
+    };
+    const runtime = globalThis as any;
+    runtime.addon.hooks.onPrefsEvent = async (type: string) =>
+      type === "getEmbeddingPrefsStatus" ? status : { ok: true };
+    const fixture = createPrefsWindow({
+      includeEmbeddingPreferencesControls: true,
+    });
+    await registerPrefsScripts(fixture.window);
+    await flushTasks();
+    const controls = fixture.embeddingPreferences!;
+    controls.baseUrl.value = "https://generative.example/v1beta";
+    controls.baseUrl.dispatch("input");
+    controls.protocol.value = "gemini";
+    controls.protocol.dispatch("command");
+    assert.equal(controls.discoveryProtocol.value, "gemini");
+    assert.equal(controls.authType.value, "header");
+    assert.equal(controls.headerName.value, "x-goog-api-key");
+    assert.isFalse(controls.headerName.disabled);
+    controls.model.value = "second";
+    controls.model.dispatch("input");
+    assert.equal(
+      controls.embeddingUrl.value,
+      "https://generative.example/v1beta/models/second:batchEmbedContents",
+    );
+    controls.embeddingUrl.value = "https://proxy.example/embed";
+    controls.embeddingUrl.dispatch("input");
+    controls.discoveryUrl.value = "https://catalog.example/models";
+    controls.discoveryUrl.dispatch("input");
+    controls.authType.value = "header";
+    controls.authType.dispatch("command");
+    controls.headerName.value = "x-custom-key";
+    controls.headerName.dispatch("input");
+    controls.protocol.value = "ollama";
+    controls.protocol.dispatch("command");
+    assert.equal(controls.embeddingUrl.value, "https://proxy.example/embed");
+    assert.equal(controls.discoveryUrl.value, "https://catalog.example/models");
+    assert.equal(controls.headerName.value, "x-custom-key");
+    controls.embeddingUrl.value = "";
+    controls.embeddingUrl.dispatch("input");
+    assert.equal(
+      controls.embeddingUrl.value,
+      "https://generative.example/v1beta/api/embed",
+    );
   });
 
   it("discovers embedding models only on demand and never backfills credentials", async function () {
@@ -5216,7 +5454,7 @@ describe("gui: workflow context menu", function () {
             diagnostics: [{ code: "network_failed" }],
           };
         }
-        if (discoveryCount === 3) {
+        if (discoveryCount === 3 || discoveryCount === 4) {
           return {
             status: "ok",
             models: [
@@ -5239,6 +5477,20 @@ describe("gui: workflow context menu", function () {
             diagnostics: [],
           };
         }
+        if (discoveryCount === 5)
+          return {
+            status: "failed",
+            models: [],
+            partial: false,
+            diagnostics: [{ code: "network_failed" }],
+          };
+        if (discoveryCount === 6)
+          return {
+            status: "ok",
+            models: [{ id: "partial-model", embedding: "unknown" }],
+            partial: true,
+            diagnostics: [],
+          };
         return new Promise((resolve) => {
           resolveClosedDiscovery = resolve;
         });
@@ -5253,11 +5505,12 @@ describe("gui: workflow context menu", function () {
     await flushTasks();
     const controls = fixture.embeddingPreferences!;
     assert.equal(controls.credential.value, "");
+    assert.isTrue(controls.modelToggle.disabled);
     assert.notEqual(controls.credential.placeholder, "new-secret");
 
     controls.discover.dispatch("command");
     controls.connections.value = "c2";
-    controls.connections.dispatch("change");
+    controls.connections.dispatch("command");
     resolveStaleDiscovery?.({
       status: "ok",
       models: [{ id: "stale-model", name: "Stale", embedding: "supported" }],
@@ -5267,7 +5520,9 @@ describe("gui: workflow context menu", function () {
     await flushTasks();
     assert.equal(controls.model.value, "manual-other");
     assert.equal(
-      controls.models.children.some((entry) => entry.value === "stale-model"),
+      controls.modelPopup.children.some(
+        (entry) => entry.value === "stale-model",
+      ),
       false,
     );
 
@@ -5276,9 +5531,10 @@ describe("gui: workflow context menu", function () {
     await flushTasks();
     assert.equal(controls.model.value, "manual-other");
     assert.notEqual(controls.status.textContent, "");
+    assert.isTrue(controls.modelToggle.disabled);
 
     controls.connections.value = "c1";
-    controls.connections.dispatch("change");
+    controls.connections.dispatch("command");
     controls.credential.value = "unsaved-key";
     controls.discover.dispatch("command");
     await flushTasks();
@@ -5291,30 +5547,47 @@ describe("gui: workflow context menu", function () {
     assert.notProperty(discoveryCall.data.connection, "id");
     assert.notProperty(discoveryCall.data.connection, "name");
     assert.notProperty(discoveryCall.data.connection, "modelId");
-    const modelOptions = controls.models.children.filter(
+    const modelOptions = controls.modelPopup.children.filter(
       (entry) => entry.value,
     );
     assert.deepEqual(
       modelOptions.map((entry) => entry.value),
       ["supported-model", "unknown-model"],
     );
+    assert.isFalse(controls.modelToggle.disabled);
+    assert.equal(controls.model.value, "supported-model");
     const unknown = modelOptions.find(
       (entry) => entry.value === "unknown-model",
     )!;
     assert.equal(unknown.getAttribute("data-state"), "unknown");
-    assert.notEqual(unknown.textContent, "unknown-model");
-    controls.modelFilter.value = "Unknown";
-    controls.modelFilter.dispatch("input");
+    assert.include(unknown.getAttribute("label"), "unknown-model");
+    let prevented = false;
+    controls.model.dispatch("keydown", {
+      key: "ArrowDown",
+      preventDefault() {
+        prevented = true;
+      },
+    });
+    assert.isTrue(prevented);
+    assert.equal(controls.modelPopup.state, "open");
+    controls.model.dispatch("keydown", {
+      key: "ArrowDown",
+      preventDefault() {},
+    });
+    controls.model.dispatch("keydown", { key: "Enter", preventDefault() {} });
+    assert.equal(controls.model.value, "unknown-model");
+    assert.equal(controls.modelPopup.state, "closed");
+    controls.model.value = "unknown";
+    controls.model.dispatch("input");
     assert.isTrue(
       (modelOptions.find((entry) => entry.value === "supported-model") as any)
         .hidden,
     );
     assert.isFalse((unknown as any).hidden);
-    controls.modelFilter.value = "";
-    controls.modelFilter.dispatch("input");
+    controls.model.value = "";
+    controls.model.dispatch("input");
 
-    controls.models.value = "supported-model";
-    controls.models.dispatch("change");
+    controls.modelPopup.dispatch("command", { target: modelOptions[0] });
     await flushTasks();
     assert.equal(controls.model.value, "supported-model");
     assert.equal(controls.dimensions.value, "");
@@ -5323,6 +5596,25 @@ describe("gui: workflow context menu", function () {
     )!;
     assert.equal(inspectCall.data.window, fixture.window);
     assert.equal(inspectCall.data.connection.modelId, "supported-model");
+
+    controls.model.value = "unknown-model";
+    controls.model.dispatch("input");
+    controls.discover.dispatch("command");
+    await flushTasks();
+    assert.equal(controls.model.value, "unknown-model");
+
+    controls.model.value = "custom:model@tag";
+    controls.model.dispatch("input");
+    controls.discover.dispatch("command");
+    await flushTasks();
+    assert.equal(controls.model.value, "custom:model@tag");
+    controls.discover.dispatch("command");
+    await flushTasks();
+    assert.equal(controls.model.value, "partial-model");
+    assert.include(controls.status.textContent, "Partial results");
+    controls.baseUrl.value = "https://changed.example";
+    controls.baseUrl.dispatch("input");
+    assert.isTrue(controls.modelToggle.disabled);
 
     controls.clearCredential.dispatch("command");
     await flushTasks();
@@ -5342,5 +5634,57 @@ describe("gui: workflow context menu", function () {
     assert.isOk(cancelCall);
     assert.equal(cancelCall!.data.window, fixture.window);
     resolveClosedDiscovery?.({ status: "failed", models: [] });
+  });
+
+  it("reports a saved configuration separately from a failed connection probe", async function () {
+    let status: any = {
+      enabled: false,
+      connections: [
+        {
+          id: "c1",
+          name: "Offline",
+          protocol: "ollama",
+          baseUrl: "https://offline.example",
+          modelId: "fixture",
+          queryPrefix: "",
+          documentPrefix: "",
+        },
+      ],
+      primaryConnectionId: null,
+      fallbackConnectionIds: [],
+      pendingScope: null,
+      presets: [],
+      connectionTests: {},
+    };
+    const runtime = globalThis as any;
+    runtime.addon.hooks.onPrefsEvent = async (type: string, data: any) => {
+      if (type === "getEmbeddingPrefsStatus") return status;
+      if (type === "saveEmbeddingPrefs") {
+        status = { ...status, connections: [data.connection] };
+        return {
+          ok: true,
+          status,
+          test: { ok: false, diagnostics: [{ code: "embedding_unavailable" }] },
+        };
+      }
+      return { ok: true };
+    };
+    const fixture = createPrefsWindow({
+      includeEmbeddingPreferencesControls: true,
+    });
+    await registerPrefsScripts(fixture.window);
+    await flushTasks();
+    const controls = fixture.embeddingPreferences!;
+    controls.baseUrl.value = "https://changed-offline.example";
+    controls.baseUrl.dispatch("input");
+    controls.saveTest.dispatch("command");
+    await flushTasks();
+    assert.equal(
+      status.connections[0].baseUrl,
+      "https://changed-offline.example",
+    );
+    assert.include(controls.status.textContent, "Saved");
+    assert.include(controls.status.textContent, "embedding_unavailable");
+    assert.equal(controls.baseUrl.value, "https://changed-offline.example");
   });
 });

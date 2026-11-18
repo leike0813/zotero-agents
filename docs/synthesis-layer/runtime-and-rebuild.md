@@ -489,7 +489,8 @@ the new flat optional fields on a connection are `embeddingUrl`, `discovery`,
 `auth` and common/query/document `parameters`. The new optional fields do not
 replace the stored compatibility fields. Parameter JSON is nonsecret request
 configuration; authentication credentials remain in the separate encrypted
-credential value.
+credential value. Preview, save and discovery use the same unsaved draft;
+discovery needs neither a saved connection nor a model ID.
 
 The endpoint resolver accepts a service root, API root or complete endpoint and
 preserves proxy path prefixes and query parameters. A complete endpoint is not
@@ -498,7 +499,9 @@ other roots receive the protocol's canonical API path. URL userinfo, fragments
 and credential-looking query keys are rejected. An explicit discovery override
 can select another supported catalog URL or disable discovery with `none`.
 Ollama embedding requests use `/api/embed`; a failed request is not retried by
-an automatic legacy `/api/embeddings` route.
+an automatic legacy `/api/embeddings` route. The embedding URL is derived
+automatically from the protocol, base URL and model. A manual override is
+retained, and clearing it restores automatic derivation.
 
 | Protocol | Embedding request | Discovery |
 | --- | --- | --- |
@@ -551,53 +554,50 @@ draft and a credential entered for that draft. OpenAI, Ollama, TEI, Cohere and
 Gemini expose only catalog-returned identifiers and do not guess unreturned
 models. One shared 15-second budget allows at most 20 pages and 1,000 unique
 entries; completed rows remain as an explicit partial result when a later page,
-deadline, cancellation or bound is reached. Canceled, dropped or late responses
-cannot update the current or another draft. Failures retain the draft and
-expose fixed diagnostics without raw response bodies or credentials. Voyage,
-Jina and Azure deployment names remain manual. An Ollama `show` dimensional
-hint is information only; it does not populate the requested output dimension.
-The actual dimension is established by an explicit synthetic probe.
+deadline, cancellation or bound is reached. Discovery keeps the current model ID
+when it remains in the usable candidate list and otherwise selects the first
+candidate. Failure or zero usable candidates leaves the model input unchanged.
+Canceled, dropped or late responses cannot update the current or another draft.
+Failures expose fixed diagnostics without raw response bodies or credentials.
+Voyage, Jina and Azure deployment names remain manual. An Ollama `show`
+dimensional hint is information only; it does not populate the requested output
+dimension. The actual dimension is established by an explicit synthetic probe.
 
-Save-and-test is one explicit operation. The current path validates the draft,
-saves the supplied encrypted credential, then saves the nonsecret configuration
-before launching fixed synthetic query and document probes. A failed probe
-leaves no new or updated index and marks the saved identity untested. Success
-records the request-configuration key and credential revision, and a change to
-either invalidates old success. Late responses are discarded by owner/version.
-Fallback services are filtered by the full effective encoding identity before
-primary/fallback order is applied. The complete draft and selection are
-validated before either mutation; a persistence failure restores the previous
-configuration and encrypted credential and does not start the probe. The
-focused regression covers that rollback. Writes for different connections are
-serialized so one save cannot lose another connection's credential-list entry;
-their probes remain outside that write queue and may overlap.
+Plain save persists the draft without a network request. Save-and-test validates
+the draft, saves the supplied encrypted credential, then saves the nonsecret
+configuration before launching fixed synthetic query and document probes. A
+failed probe leaves the configuration saved and marks it saved but unverified.
+Success records the request-configuration key and credential revision, and a
+change to either invalidates old success. Late responses are discarded by
+owner/version. Fallback services are filtered by the full effective encoding
+identity before primary/fallback order is applied. The complete draft and
+selection are validated before either mutation; a persistence failure restores
+the previous configuration and encrypted credential and does not start the
+probe. The focused regression covers that rollback. Writes for different
+connections are serialized so one save cannot lose another connection's
+credential-list entry; their probes remain outside that write queue and may
+overlap.
 
 The preset catalog contains six protocol service templates, the LM Studio,
 vLLM, Xinference, Azure OpenAI and Jina provider presets, and local templates
-for `qwen3-embedding:0.6b` and `qwen3-embedding:4b`. Presets fill a new unsaved
-draft only and start no request, save, primary/fallback selection, enable, test,
-activation or index work.
+for `qwen3-embedding:0.6b` and `qwen3-embedding:4b`. The selector displays a
+preset only for a complete normalized match of its non-secret connection
+configuration; changing a matched parameter displays Custom. Connection names,
+credentials and primary/fallback routing are excluded from matching. Presets
+fill a new unsaved draft only and start no request, save, primary/fallback
+selection, enable, test, activation or index work.
 
-Combined verification passed 104 tests (UI 49, provider/preferences 43, Home
-12) with two pre-existing pending tests: runtime default and context
-`openDashboard`. The new model-filter test is covered by an existing UI case.
-The Node `synthesis-workbench` shard passed 272 items
-in 31.6 seconds and `synthesis-application` passed 181 items in 41.5 seconds.
-Rust evidence covers 31 retrieval and four identity tests and one native
-embedding test. A native production run passed 43 tests in eight minutes,
-covering 121 retrieval and 92 embedding cases. The standalone full checker
-returned `ok: false` with no errors but missing current execution evidence and
-broad coverage because its identity includes actively changed tests. The full
-aggregate therefore remains incomplete and is not claimed green. Root and
-Synthesis TypeScript checks pass, and contracts including canonical validators
-pass. These checks use
-controlled HTTP, preference state and fake DOM; live provider endpoints and the
-real interactive Preferences GUI remain unexercised. All 11 locale catalogs and
-localization governance pass. The two main specs have
-been synced from the active change while implementation and deployment
-acceptance remain separate.
+Before a Workbench retrieval RPC is sent, it waits for the production owner
+within the existing operation budget. This wait may start the owner
+idempotently and does not trigger sidecar recovery. A maintenance request that
+has already been sent is not replayed automatically; readiness waiting does not
+bypass manual recovery.
 
-The seven-platform artifacts are stale against the current source fingerprint.
-XPI and real-Zotero acceptance are therefore blocked until authorized source
-publication and a remote prebuild produce current artifacts. Code completion
-and controlled tests do not establish packaging or real-host acceptance.
+Current configuration UI and packaging validation is recorded in
+[Embedding Preferences](workbench-ui.md#embedding-preferences). The seven-platform
+sidecar and Host Bridge CLI, Windows ACP bridge and dev content package have
+current freshness evidence. Earlier provider, repository and controlled HTTP
+validation is retained in the
+[archived change](../../openspec/changes/archive/2026-11-16-improve-synthesis-embedding-configuration/validation.md).
+Live provider endpoints and the complete retrieval acceptance aggregate remain
+unverified.

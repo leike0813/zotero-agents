@@ -78,6 +78,25 @@ Focused Topics, and unrelated Workbench regions retain their DOM identities.
 
 ### Embedding Preferences
 
+New configurations select **My Library** and **Include topic sections** by
+default. Existing saved scopes reopen as saved, including topic-only scopes.
+The **My Library** checkbox adds or removes the personal library while keeping
+other saved library selections. To build a literature-only index, select the
+library, clear **Include topic sections**, save, and start maintenance in
+Synthesis Home.
+
+The embedding editor uses native Zotero `menulist` controls and their `command`
+events. Items are added to each `menupopup` before assigning the selected value;
+updates to the primary menu yield to the event loop so closing a popup cannot
+disable subsequent opens. The model ID uses one editable field with a native
+candidate popup; there is no separate filter field or result dropdown. Typing
+filters candidates, and the arrow opens the full list. Up/Down moves the active
+candidate, Enter selects it, and Escape or Tab closes the popup. Common fields
+use a compact aligned grid, with connection creation and deletion beside the
+selector. Primary/fallback routing and advanced options are collapsed
+initially. The layout stacks labels above fields in narrow windows and uses
+system theme colors.
+
 Retrieval configuration lives in Zotero Preferences. The current
 preferences/provider control layer stores multiple connections with one
 explicit primary and an ordered fallback list. Saving a connection preserves the
@@ -97,37 +116,48 @@ authentication value. The shared URL resolver preserves proxy path prefixes and
 query parameters, accepts root, API-root and complete endpoint forms, and
 retains the prior meaning of an existing `baseUrl` connection. Credentials are
 write-only, and a typed credential can be used for an explicit discovery or
-save-and-test without appearing in saved snapshots.
+save-and-test without appearing in saved snapshots. The embedding URL is derived
+automatically from the protocol, base URL and model. A manual URL override is
+retained, and clearing it restores automatic derivation.
+Query and document prefixes use multiline fields so protocol-significant line
+breaks survive preset selection and saving.
 
 The preset catalog contains the six protocol service templates for OpenAI,
 Ollama, TEI, Cohere, Voyage and Gemini; the LM Studio, vLLM, Xinference, Azure
 OpenAI and Jina provider presets; and local templates for
 `qwen3-embedding:0.6b` and `qwen3-embedding:4b`. A preset fills a new unsaved
-draft only. Names identify the provider, private-network examples are absent,
-and selecting a preset starts no network request, save, primary/fallback
-selection, enable, test, activation or index work.
+draft only. The selector displays a preset only for a complete normalized match
+of its non-secret connection configuration; changing a matched parameter
+displays Custom. Connection names, credentials and primary/fallback routing are
+excluded from matching. Private-network examples are absent, and selecting a
+preset starts no network request, save, primary/fallback selection, enable,
+test, activation or index work.
 
-The current model-discovery implementation runs only from its explicit action
-against the unsaved draft and available credential. OpenAI, Ollama, TEI,
-Cohere and Gemini return only identifiers supplied by their protocol catalogs;
-Ollama follows tags with selected-model `show`, Cohere filters embedding
-models, and Gemini follows pages and explicit embedding capabilities. The
-discovery path does not guess unreturned models. Voyage, Jina and Azure
-deployment names retain manual model entry. One shared 15-second operation may
-read at most 20 pages and 1,000 unique entries; completed entries stay visible
-with a partial marker. Failure retains the draft, and cancellation, an owner
-change or a late result cannot update the current or another draft. A `show`
-dimensional hint does not populate the requested output dimension; only an
-explicit synthetic probe establishes the actual dimension.
+Preview, save and model discovery read the same unsaved draft. Discovery needs
+neither a saved connection nor a model ID. OpenAI, Ollama, TEI, Cohere and Gemini
+return only identifiers supplied by their protocol catalogs; Ollama follows tags
+with selected-model `show`, Cohere filters embedding models, and Gemini follows
+pages and explicit embedding capabilities. The discovery path does not guess
+unreturned models. Voyage, Jina and Azure deployment names retain manual model
+entry. One shared 15-second operation may read at most 20 pages and 1,000 unique
+entries. Discovery keeps the current model ID when it remains in the usable
+candidate list and otherwise selects the first candidate. Failure or zero usable
+candidates leaves the model input unchanged. Completed entries stay visible with
+a partial marker. Cancellation, an owner change or a late result cannot update
+the current or another draft. A `show` dimensional hint does not populate the
+requested output dimension; only an explicit synthetic probe establishes the
+actual dimension.
 
-The explicit save-and-test path validates the complete draft and selection
-before any preference or credential mutation. It then persists the nonsecret
-configuration and encrypted credential before sending fixed synthetic query
-and document inputs. Writes for different connections are serialized so one
-save cannot lose another connection's credential-list entry; probes remain
-outside that write queue and may overlap. If either write fails, it restores
-both the previous configuration and encrypted credential and does not probe;
-the focused regression covers this rollback. Success binds a separate request-configuration
+Plain save persists the draft without a network request. The explicit
+save-and-test path validates the complete draft and selection before any
+preference or credential mutation. It then persists the nonsecret configuration
+and encrypted credential before sending fixed synthetic query and document
+inputs. A failed probe leaves the configuration saved and marks it saved but
+unverified. Writes for different connections are serialized so one save cannot
+lose another connection's credential-list entry; probes remain outside that
+write queue and may overlap. If either write fails, it restores both the previous
+configuration and encrypted credential and does not probe; the focused
+regression covers this rollback. Success binds a separate request-configuration
 key and the encrypted credential revision. That test key includes
 request-affecting configuration, including endpoint and authentication, and
 excludes connection ID, name and discovery. The encoding identity is narrower:
@@ -137,30 +167,29 @@ newer version, including an older probe for the same configuration completing
 after a newer success. Fallback selection uses the full effective encoding
 identity.
 
-Combined verification passed 104 tests (UI 49, provider/preferences 43, Home
-12) with two pre-existing pending tests: runtime default and context
-`openDashboard`. The new model-filter test is covered by an existing UI case.
-The Node `synthesis-workbench` shard passed 272 items
-in 31.6 seconds and `synthesis-application` passed 181 items in 41.5 seconds.
-Rust evidence covers 31 retrieval and four identity tests and one native
-embedding test. A native production run passed 43 tests in eight minutes,
-covering 121 retrieval and 92 embedding cases. The standalone full checker
-returned `ok: false` with no errors but missing current execution evidence and
-broad coverage because its identity includes actively changed tests. The full
-aggregate therefore remains incomplete and is not claimed green. Root and
-Synthesis TypeScript checks pass, and contracts including canonical validators
-pass. These checks use
-controlled HTTP, preference state and fake DOM; they do not establish a live
-provider endpoint or real interactive Preferences GUI. All 11 locale catalogs
-and localization governance pass. Home continues to show
+Provider and repository validation is recorded in the
+[archived configuration change](../../openspec/changes/archive/2026-11-16-improve-synthesis-embedding-configuration/validation.md).
+The focused Preferences UI, provider and settings suites pass 95 tests with two
+pre-existing pending cases. A real-host regression preserves multiline prefixes,
+applies presets, discovers against an edited unsaved endpoint and opens the
+model popup repeatedly with mouse commands and keyboard selection. It also
+switches protocols and updates authentication and discovery settings. It passes
+on Linux Zotero 7.0.32, 9.0.6 and 10.0.2 using
+`ZOTERO_TEST_GREP='embedding preference menus' npm run test:zotero:ui` with each
+matching host binary. The test waits for the menu to become visible before
+opening it, since catalog loading can complete while Zotero is still showing
+the pane. This does not establish live provider
+access, Windows/macOS behavior or the complete retrieval acceptance aggregate.
+All 11 locale catalogs pass localization governance. Home continues to show
 runtime state only and never renders this configuration surface. Ollama uses
 `/api/embed`; no automatic legacy `/api/embeddings` fallback is part of the
 current provider path.
 
-The seven-platform artifacts are stale against the current source fingerprint,
-so XPI and real-Zotero acceptance are blocked. Source push and the remote
-prebuild were not authorized; code and focused test completion is not packaging
-acceptance.
+The current seven-platform sidecar and Host Bridge CLI freshness checks pass,
+as do the Windows ACP bridge and dev content-package checks. Plugin build and
+root, Sidebar, Dashboard and Synthesis TypeScript checks pass. The fixed
+Preferences navigation ID is specified when registering the pane, so the
+existing configuration entry opens the plugin page directly.
 
 Paper detail offers a similarity read for the selected evidence paper: title, a
 short excerpt and a metadata/generated/weak material label, excluding the seed

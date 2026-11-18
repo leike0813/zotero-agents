@@ -267,6 +267,7 @@ describe("Synthesis embedding provider", function () {
       connection: { protocol: "gemini", baseUrl: "https://svc/v1beta" },
       client: fake.client,
     });
+    assert.equal(fake.calls[0].url, "https://svc/v1beta/models");
     assert.equal(result.status, "ok");
     assert.deepEqual(
       result.models
