@@ -364,6 +364,7 @@ pub struct CanonicalStore {
     store_id: String,
     writer: AtomicBool,
     repair_required: bool,
+    historical_topic_paths: HashSet<String>,
     #[cfg(feature = "parity-harness")]
     parity_transaction_ids: Option<Arc<Mutex<VecDeque<String>>>>,
 }
@@ -1522,6 +1523,7 @@ impl CanonicalStore {
             store_id,
             writer: AtomicBool::new(false),
             repair_required: false,
+            historical_topic_paths: HashSet::new(),
             #[cfg(feature = "parity-harness")]
             parity_transaction_ids: None,
         };
@@ -1597,6 +1599,7 @@ impl CanonicalStore {
                 }
                 // Retained migration evidence can predate valid updates to the current snapshot.
                 validate_snapshot_representation(&current_snapshot)?;
+                self.historical_topic_paths.insert(historical_path_id);
                 continue;
             }
             let transaction_id = self.next_transaction_id(&path_id);
@@ -1611,6 +1614,7 @@ impl CanonicalStore {
             {
                 return Err("canonical_legacy_topic_sources_mismatch".into());
             }
+            self.historical_topic_paths.insert(historical_path_id);
         }
         Ok(())
     }
@@ -1827,6 +1831,9 @@ impl CanonicalStore {
             })?;
             let path = entry.path();
             let path_id = entry.file_name().to_string_lossy().to_string();
+            if self.historical_topic_paths.contains(&path_id) {
+                continue;
+            }
             // Every branch produces at most one candidate, so the bound below
             // is the only place that has to know a candidate was collected.
             let candidate = match fs::symlink_metadata(&path) {
@@ -2784,6 +2791,12 @@ mod tests {
                 panic!("expected the updated topic to remain readable");
             };
             assert_eq!(view.artifact["version"], 2);
+            assert_eq!(view.sections["summary"]["text"], "updated");
+            let search = store.search_snapshot(1, 1 << 20).expect("search");
+            assert!(search.complete);
+            let [CanonicalTopicSearchMember::Ready { view, .. }] = search.members.as_slice() else {
+                panic!("search should return the sole authoritative Topic");
+            };
             assert_eq!(view.sections["summary"]["text"], "updated");
             assert_eq!(
                 store.receipt("中文主题").expect("receipt"),

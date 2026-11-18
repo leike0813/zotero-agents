@@ -12,7 +12,8 @@ use synthesis_repository::{OperationQuery, OperationRecord};
 
 use crate::runtime_background_tasks::{BackgroundTaskOwner, current_task_canceled};
 use crate::runtime_diagnostics::{
-    NativeDiagnosticEvent, child_observation_context, emit_debug, with_observation_context,
+    NativeDiagnosticEvent, child_observation_context, emit_debug, emit_structured_diagnostic,
+    with_observation_context,
 };
 use crate::runtime_production_client::{
     ProductionClientCatalog, ProductionClientSemanticSuccess, ResolvedMaintenanceRoute,
@@ -456,6 +457,33 @@ fn emit_public_maintenance_event(
     outcome: &'static str,
     code: Option<&str>,
 ) {
+    if phase == "maintenance-terminal"
+        && matches!(row.status.as_str(), "failed" | "timed_out")
+        && matches!(
+            row.operation_type.as_str(),
+            "client.buildRetrievalIndex"
+                | "client.rebuildRetrievalIndex"
+                | "client.updateRetrievalIndex"
+                | "client.cleanupRetrievalIndex"
+        )
+    {
+        let code = code
+            .filter(|value| {
+                value.len() <= 128
+                    && value.as_bytes().first().is_some_and(u8::is_ascii_lowercase)
+                    && value.bytes().all(|byte| {
+                        byte.is_ascii_lowercase() || byte.is_ascii_digit() || b"_.-".contains(&byte)
+                    })
+            })
+            .unwrap_or("retrieval_maintenance_failed");
+        emit_structured_diagnostic(&json!({
+            "schema": "synthesis-maintenance-failure.v1",
+            "capability": row.operation_type,
+            "operationId": row.operation_id,
+            "status": row.status,
+            "code": code,
+        }));
+    }
     emit_debug(|| {
         let event = NativeDiagnosticEvent::new("operation", phase, outcome)
             .capability(&row.operation_type)
@@ -1784,7 +1812,7 @@ mod tests {
         .expect("repository");
         let repository = RepositoryPort::new(Arc::new(Mutex::new(repository)));
         let basis = PublicMaintenanceBasis {
-            capability: "client.refreshReferenceSidecarNow".into(),
+            capability: "client.buildRetrievalIndex".into(),
             args: Vec::new(),
             deadline_ms: 1_000,
             source_hash: "sha256:fixture".into(),
@@ -1888,9 +1916,12 @@ mod tests {
             "2026-08-02T00:00:03.000Z",
         )
         .expect("late terminal is ignored");
-        let terminals = crate::runtime_diagnostics::take_captured_diagnostic_events()
+        let events = crate::runtime_diagnostics::take_captured_diagnostic_events()
             .into_iter()
             .map(|source| serde_json::from_str::<Value>(&source).expect("diagnostic event"))
+            .collect::<Vec<_>>();
+        let terminals = events
+            .iter()
             .filter(|event| {
                 event["phase"] == "maintenance-terminal"
                     && event["identities"]["operation"] == row.operation_id
@@ -1899,6 +1930,14 @@ mod tests {
         assert_eq!(terminals.len(), 1);
         assert_eq!(terminals[0]["outcome"], "timed-out");
         assert_eq!(terminals[0]["code"], "operation_timeout");
+        let failures = events
+            .iter()
+            .filter(|event| event["schema"] == "synthesis-maintenance-failure.v1")
+            .collect::<Vec<_>>();
+        assert_eq!(failures.len(), 1);
+        assert_eq!(failures[0]["operationId"], row.operation_id);
+        assert_eq!(failures[0]["status"], "timed_out");
+        assert_eq!(failures[0]["code"], "operation_timeout");
 
         let mut late_completion = terminal.clone();
         late_completion.status = "completed".into();

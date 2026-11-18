@@ -1748,6 +1748,11 @@ fn topic_snapshot_failure(code: &str) -> String {
         | "canonical_snapshot_too_large"
         | "canonical_hash_mismatch"
         | "canonical_topic_identity_invalid"
+        | "canonical_path_identity_mismatch"
+        | "canonical_identity_invalid"
+        | "canonical_path_invalid"
+        | "canonical_section_invalid"
+        | "canonical_legacy_topic_sources_mismatch"
         | "canonical_bytes_noncanonical"
         | "canonical_symlink_rejected"
         | "canonical_unknown_file" => code,

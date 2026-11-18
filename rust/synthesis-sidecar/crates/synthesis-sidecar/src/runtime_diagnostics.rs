@@ -5,6 +5,8 @@ use serde_json::{Value, json};
 use std::cell::Cell;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
+#[cfg(not(test))]
+use std::io::Write;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 static DEBUG_EVENTS_ENABLED: AtomicBool = AtomicBool::new(false);
@@ -377,16 +379,19 @@ impl NativeDiagnosticEvent {
 }
 
 pub(crate) fn emit(event: NativeDiagnosticEvent) {
-    if !debug_events_enabled() {
-        return;
+    if debug_events_enabled() {
+        emit_structured_diagnostic(&event);
     }
-    if let Ok(source) = serde_json::to_string(&event) {
+}
+
+pub(crate) fn emit_structured_diagnostic(event: &impl Serialize) {
+    if let Ok(source) = serde_json::to_string(event) {
         #[cfg(test)]
         {
             CAPTURED_EVENTS.with(|events| events.borrow_mut().push(source));
         }
         #[cfg(not(test))]
-        eprintln!("{source}");
+        let _ = writeln!(std::io::stderr().lock(), "{source}");
     }
 }
 
