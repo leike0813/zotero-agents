@@ -1216,7 +1216,7 @@ impl RetrievalApplication {
         let snapshot = self
             .canonical
             .search_topics(4_096, 64 * 1024 * 1024)
-            .map_err(|error| error.code().to_owned())?;
+            .map_err(|error| topic_snapshot_failure(error.code()))?;
         if !snapshot.complete {
             return Err("scan_budget_exhausted".into());
         }
@@ -1238,7 +1238,7 @@ impl RetrievalApplication {
                     view,
                     ..
                 } => (topic_id, path_id, content_hash, view),
-                CanonicalTopicSearchMember::Unavailable { path_id, .. } => {
+                CanonicalTopicSearchMember::Unavailable { path_id, code } => {
                     self.repository.with_writer(|repository| {
                         for group in existing
                             .values()
@@ -1252,7 +1252,7 @@ impl RetrievalApplication {
                         }
                         Ok(())
                     })?;
-                    return Err("source_unavailable".into());
+                    return Err(topic_snapshot_failure(&code));
                 }
             };
             let item_identity = format!("topic:{path_id}");
@@ -1314,7 +1314,7 @@ impl RetrievalApplication {
                 let current = self
                     .canonical
                     .search_topics(4096, 64 * 1024 * 1024)
-                    .map_err(|error| error.code().to_owned())?;
+                    .map_err(|error| topic_snapshot_failure(error.code()))?;
                 if !current.complete
                     || !current.members.iter().any(|member| {
                         matches!(member,
@@ -1334,7 +1334,7 @@ impl RetrievalApplication {
         let current = self
             .canonical
             .search_topics(4096, 64 * 1024 * 1024)
-            .map_err(|error| error.code().to_owned())?;
+            .map_err(|error| topic_snapshot_failure(error.code()))?;
         if !current.complete || current.membership_hash != membership_hash {
             return Err("source_changed".into());
         }
@@ -1735,6 +1735,26 @@ fn fresh_publication() -> String {
         .map(|elapsed| elapsed.as_nanos())
         .unwrap_or_default();
     format!("retrieval-{timestamp:x}-{serial:x}")
+}
+
+fn topic_snapshot_failure(code: &str) -> String {
+    match code {
+        "basis_mismatch"
+        | "repair_required"
+        | "canonical_store_busy"
+        | "canonical_store_unavailable"
+        | "canonical_snapshot_incomplete"
+        | "canonical_snapshot_invalid"
+        | "canonical_snapshot_too_large"
+        | "canonical_hash_mismatch"
+        | "canonical_topic_identity_invalid"
+        | "canonical_bytes_noncanonical"
+        | "canonical_symlink_rejected"
+        | "canonical_unknown_file" => code,
+        code if code.starts_with("canonical_read_failed:") => "canonical_read_failed",
+        _ => "retrieval_topic_source_unavailable",
+    }
+    .to_owned()
 }
 
 fn push_issue(issues: &mut Vec<Value>, code: &str, source: Option<&Value>) {
