@@ -1729,13 +1729,18 @@ async function readRetrievalExplorer(
     const items = (globalThis as { Zotero?: typeof Zotero }).Zotero?.Items;
     for (const row of result.rows) {
       if (!row.itemRef || row.title !== row.identity) continue;
-      const item = items?.getByLibraryAndKey?.(
-        row.itemRef.libraryId,
-        row.itemRef.key,
-      );
-      const title = item && item.getField("title");
-      if (typeof title === "string" && title.trim())
-        row.title = title.slice(0, 1024);
+      try {
+        const item = await items?.getByLibraryAndKeyAsync?.(
+          row.itemRef.libraryId,
+          row.itemRef.key,
+        );
+        const title = item && item.getField("title");
+        if (typeof title === "string" && title.trim())
+          row.title = title.slice(0, 1024);
+      } catch {
+        // The optional display title can disappear after verification.
+      }
+      if (explorer[operation] !== loading || runtime.cleanedUp) return;
     }
     explorer[operation] = { owner, requestId, status: "ready", result };
   } catch (error) {
@@ -1841,8 +1846,19 @@ export function projectRetrievalSnapshot(args: {
   const tested = compatible.some(
     (connection) => args.prefs.connectionTests[connection.id]?.ok,
   );
+  const libraryNames: Record<string, string> = {};
+  const libraries = (globalThis as { Zotero?: typeof Zotero }).Zotero
+    ?.Libraries;
+  for (const id of new Set([
+    ...(state.activeScope?.libraryIds ?? []),
+    ...(args.prefs.pendingScope?.libraryIds ?? []),
+  ])) {
+    const library = libraries?.get?.(id);
+    if (library && library.name) libraryNames[id] = library.name;
+  }
   return {
     ...state,
+    libraryNames,
     stateReadFailed: !args.native,
     queryServiceStatus: !args.prefs.enabled
       ? "unavailable"

@@ -123,6 +123,16 @@ pub struct RetrievalScope {
 }
 
 impl RetrievalScope {
+    fn matches_saved(&self, json: &str) -> bool {
+        serde_json::from_str::<Self>(json).is_ok_and(|saved| {
+            self.include_topics == saved.include_topics
+                && self.library_ids.iter().collect::<BTreeSet<_>>()
+                    == saved.library_ids.iter().collect::<BTreeSet<_>>()
+                && self.source_kinds.iter().collect::<BTreeSet<_>>()
+                    == saved.source_kinds.iter().collect::<BTreeSet<_>>()
+        })
+    }
+
     fn validate(&self) -> Result<(), String> {
         let mut libraries = BTreeSet::new();
         let mut kinds = BTreeSet::new();
@@ -196,6 +206,7 @@ pub struct ScoredTopicFragment {
 #[derive(Clone, Debug, PartialEq)]
 pub struct RetrievalQueryOutcome {
     pub publication: String,
+    pub(crate) target_has_sources: bool,
     pub results: Vec<ScoredFragment>,
     pub issues: Vec<Value>,
     pub limited: bool,
@@ -549,7 +560,7 @@ impl RetrievalApplication {
                 self.run_full(&request, &identity_json, &scope_json, &now, checkpoint)
             }
             RetrievalBuildMode::Increment => {
-                self.run_increment(&request, &identity_json, &scope_json, &now, checkpoint)
+                self.run_increment(&request, &identity_json, checkpoint)
             }
         }
     }
@@ -862,6 +873,7 @@ impl RetrievalApplication {
         }
         Ok(RetrievalQueryOutcome {
             publication,
+            target_has_sources: !groups.is_empty(),
             results,
             issues,
             limited: unavailable > 0 || truncated,
@@ -913,7 +925,8 @@ impl RetrievalApplication {
             if let Some(publication) = existing.first() {
                 let record = repository.get_retrieval_publication(publication)?;
                 if record.as_ref().is_some_and(|record| {
-                    record.identity_json == identity_json && record.scope_json == scope_json
+                    record.identity_json == identity_json
+                        && request.scope.matches_saved(&record.scope_json)
                 }) {
                     return Ok(publication.clone());
                 }
@@ -955,8 +968,6 @@ impl RetrievalApplication {
         &self,
         request: &MaintenanceRequest,
         identity_json: &str,
-        scope_json: &str,
-        _now: &str,
         checkpoint: &dyn Fn() -> Result<(), String>,
     ) -> Result<Value, String> {
         let state = self
@@ -969,7 +980,7 @@ impl RetrievalApplication {
         if state.active_identity_json != identity_json {
             return Err("retrieval_identity_mismatch".into());
         }
-        if state.active_scope_json != scope_json {
+        if !request.scope.matches_saved(&state.active_scope_json) {
             return Err("retrieval_scope_mismatch".into());
         }
         let active = state.active_publication_id.clone();
@@ -2909,6 +2920,94 @@ mod tests {
             json!({"operation":"fragments","identity":"1:AAAA","publication":first["publication"]}),
         );
         assert_eq!(fragments["rows"][0]["preview"], "alpha");
+    }
+
+    #[test]
+    fn explorer_fills_page_after_stale_hit_and_identifies_empty_target() {
+        let source = |key, title: &str| {
+            (
+                descriptor(key, "title", "v1", title.encode_utf16().count()),
+                title.to_owned(),
+            )
+        };
+        let valid = source("BBBB", "隧道衬砌台车设计");
+        let mut fixture = fixture(
+            "verified-search",
+            vec![source("AAAA", "隧道衬砌台车"), valid.clone()],
+        );
+        fixture
+            .application
+            .build(maintenance(), RetrievalBuildMode::Full, &checkpoint())
+            .unwrap();
+        fixture.application.sources = Arc::new(FakeSources { rows: vec![valid] });
+        let search = |target| {
+            fixture
+                .application
+                .explore(
+                    json!({"operation":"search","target":target,"query":"隧道衬砌台车","limit":1}),
+                    &checkpoint(),
+                )
+                .unwrap()
+        };
+        let paper = search("paper");
+        assert_eq!(paper["rows"][0]["identity"], "1:BBBB");
+        assert_eq!(paper["rows"][0]["preview"], "隧道衬砌台车设计");
+        assert!(
+            paper["issues"]
+                .as_array()
+                .unwrap()
+                .contains(&json!("source_unavailable"))
+        );
+        assert_eq!(search("topic")["issues"], json!(["retrieval_target_empty"]));
+    }
+
+    #[test]
+    fn explorer_distinguishes_missing_fragments_from_empty_scope() {
+        let fixture = fixture(
+            "missing-fragments",
+            vec![(descriptor("AAAA", "title", "v1", 1), " ".into())],
+        );
+        fixture
+            .application
+            .maintain("build", maintenance(), &checkpoint())
+            .unwrap();
+        let page = fixture
+            .application
+            .explore(
+                json!({"operation":"search","target":"paper","query":"title"}),
+                &checkpoint(),
+            )
+            .unwrap();
+        assert_eq!(page["rows"], json!([]));
+        assert_eq!(page["issues"], json!(["retrieval_no_scorable_fragments"]));
+        assert_eq!(page["limited"], true);
+    }
+
+    #[test]
+    fn updating_with_equivalent_reordered_scope_reuses_publication() {
+        let fixture = fixture("scope-set", vec![]);
+        let mut request = maintenance();
+        request["scope"]["libraryIds"] = json!([1, 2]);
+        request["scope"]["sourceKinds"] = json!(["metadata", "analysis"]);
+        fixture
+            .application
+            .build(request.clone(), RetrievalBuildMode::Full, &checkpoint())
+            .unwrap();
+        request["scope"]["libraryIds"] = json!([2, 1]);
+        request["scope"]["sourceKinds"] = json!(["analysis", "metadata"]);
+        let result = fixture
+            .application
+            .update(request.clone(), &checkpoint())
+            .unwrap();
+        assert_eq!(result["status"], "unchanged");
+        request["scope"]["libraryIds"] = json!([2]);
+        assert_eq!(
+            fixture
+                .application
+                .update(request, &checkpoint())
+                .unwrap_err(),
+            "retrieval_scope_mismatch"
+        );
     }
 
     #[test]

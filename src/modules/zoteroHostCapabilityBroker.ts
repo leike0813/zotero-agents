@@ -3079,6 +3079,12 @@ function resolveItem(ref: ZoteroHostItemRefInput | undefined | null) {
   return zotero.Items.getByLibraryAndKey(ref.libraryId, ref.key) || null;
 }
 
+/** A published index may reference an item that is not in Zotero's object cache. */
+async function loadEvidenceItem(ref: ZoteroHostItemRefInput) {
+  assertPortableRef(ref, "item");
+  return (await resolveZotero().Items.getByLibraryAndKeyAsync(ref.libraryId, ref.key)) || null;
+}
+
 function requireItem(
   ref: ZoteroHostItemRefInput | undefined | null,
   label = "item",
@@ -19115,7 +19121,7 @@ export function createZoteroHostCapabilityBroker(
           continue;
         }
         const item = await withZoteroHostSlice(undefined, () =>
-          resolveItem(ref),
+          loadEvidenceItem(ref),
         );
         const matchesScope = await withZoteroHostSlice(
           undefined,
@@ -19276,8 +19282,8 @@ export function createZoteroHostCapabilityBroker(
       return { outcome: "invalid_source" };
     }
     const eligibleParent = () =>
-      withZoteroHostSlice(undefined, () => {
-        const item = resolveItem(descriptor.itemRef);
+      withZoteroHostSlice(undefined, async () => {
+        const item = await loadEvidenceItem(descriptor.itemRef);
         if (
           !item ||
           !item.isRegularItem?.() ||

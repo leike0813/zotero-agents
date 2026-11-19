@@ -107,6 +107,10 @@ type ZoteroMock = {
   Item: typeof MockItem;
   Items: {
     get: (id: number) => MockItem | undefined;
+    getByLibraryAndKeyAsync: (
+      libraryID: number,
+      key: string,
+    ) => Promise<MockItem | undefined>;
     getByLibraryAndKey: (
       libraryID: number,
       key: string,
@@ -2810,6 +2814,8 @@ function createZoteroMock(): ZoteroMock {
     Item: MockItem,
     Items: {
       get: (id: number) => itemsById.get(id),
+      getByLibraryAndKeyAsync: async (_libraryID: number, key: string) =>
+        itemsByKey.get(key),
       getByLibraryAndKey: (_libraryID: number, key: string) =>
         itemsByKey.get(key),
       getAll: async (libraryID: number) => {

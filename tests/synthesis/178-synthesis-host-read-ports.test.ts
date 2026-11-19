@@ -269,6 +269,52 @@ describe("Synthesis Host read capability ports", function () {
     assert.deepEqual(attachment.parentItemID, paper.id);
   });
 
+  it("can verify an indexed title after Zotero evicts the paper from memory", async function () {
+    const paper = await createPaper("COLD0001", "隧道衬砌台车");
+    const ref = { libraryId: paper.libraryID, key: paper.key };
+    const scope = { libraryIds: [ref.libraryId], itemRefs: [ref] };
+    const port = createZoteroSynthesisHostReadPort({
+      libraryId: ref.libraryId,
+    });
+    const items = Zotero.Items;
+    const sync = items.getByLibraryAndKey;
+    const asyncLookup = Object.getOwnPropertyDescriptor(
+      items,
+      "getByLibraryAndKeyAsync",
+    );
+    let cold = true;
+    items.getByLibraryAndKey = function (...args) {
+      if (cold) throw new Error("Item not yet loaded");
+      return sync.apply(items, args);
+    };
+    Object.defineProperty(items, "getByLibraryAndKeyAsync", {
+      configurable: true,
+      value: async (library: number, key: string) => {
+        cold = false;
+        return sync.call(items, library, key);
+      },
+    });
+    try {
+      const page = await port.evidence.listSources({
+        scope,
+        sourceKinds: ["metadata"],
+      });
+      const descriptor = page.descriptors.find(
+        (row) => row.source.kind === "metadata" && row.source.field === "title",
+      )!;
+      cold = true;
+      const read = await port.evidence.readSource({ scope, descriptor });
+      assert.equal(read.outcome, "available");
+      if (read.outcome === "available")
+        assert.equal(read.content, paper.getField("title"));
+    } finally {
+      items.getByLibraryAndKey = sync;
+      if (asyncLookup)
+        Object.defineProperty(items, "getByLibraryAndKeyAsync", asyncLookup);
+      else Reflect.deleteProperty(items, "getByLibraryAndKeyAsync");
+    }
+  });
+
   it("locates duplicate JSON leaves by pointer and rechecks changed managed payloads", async function () {
     const libraryId = Zotero.Libraries.userLibraryID;
     const paper = await createPaper("HOSTAN01", "Analysis evidence");
@@ -633,9 +679,7 @@ describe("Synthesis Host read capability ports", function () {
     const literatureQuality = artifact.literatureQuality;
     assert.equal(literatureQuality?.schema, "literature_score.v2");
     assert.notProperty(literatureQuality, "paper_type");
-    assert.doesNotThrow(() =>
-      rebuildSynthesisHostArtifactScanPageResult(scan),
-    );
+    assert.doesNotThrow(() => rebuildSynthesisHostArtifactScanPageResult(scan));
     assert.throws(() =>
       rebuildSynthesisHostArtifactScanPageResult({
         ...scan,

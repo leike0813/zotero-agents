@@ -1,6 +1,7 @@
 /** @jsxRuntime automatic */
 /** @jsxImportSource preact */
 
+import type { ComponentChildren } from "preact";
 import type {
   SynthesisWorkbenchHomeAction,
   SynthesisWorkbenchHomeRetrievalSelection,
@@ -41,6 +42,10 @@ export function RetrievalPanel(props: {
   pendingOperationKeys: string[];
   t: SynthesisWorkbenchHomeText;
   onAction: SynthesisWorkbenchHomeAction;
+  /** A pending target differs from the published index, so an in-place
+   * update would encode against the wrong identity or scope. */
+  targetChanged?: boolean;
+  children?: ComponentChildren;
 }) {
   const { selection: retrieval, t, onAction } = props;
   const pending = props.pendingOperationKeys;
@@ -58,6 +63,7 @@ export function RetrievalPanel(props: {
     retrieval.enabled &&
     Boolean(retrieval.pendingIdentity) &&
     !maintenanceRunning;
+  const rebuildRequired = Boolean(props.targetChanged);
   const canCleanup =
     !maintenanceRunning && (Boolean(retrieval.publication) || canRetry);
   const statusKey = !configured
@@ -102,17 +108,21 @@ export function RetrievalPanel(props: {
   return (
     <section
       class="home-service-card retrieval-panel"
-      aria-labelledby="home-retrieval-title"
+      aria-labelledby={props.children ? undefined : "home-retrieval-title"}
+      aria-label={props.children ? t("synthesis-explorer-details") : undefined}
     >
-      <div class="home-service-heading">
-        <div class="home-service-title">
-          <span class="zs-icon zs-icon-manage-search" aria-hidden="true" />
-          <h3 id="home-retrieval-title">{t("synthesis-home-retrieval")}</h3>
+      {!props.children && (
+        <div class="home-service-heading">
+          <div class="home-service-title">
+            <span class="zs-icon zs-icon-manage-search" aria-hidden="true" />
+            <h3 id="home-retrieval-title">{t("synthesis-home-retrieval")}</h3>
+          </div>
+          <div class="home-service-state" role="status">
+            <strong class={`zs-badge zs-badge--${tone}`}>{t(statusKey)}</strong>
+          </div>
         </div>
-        <div class="home-service-state" role="status">
-          <strong class={`zs-badge zs-badge--${tone}`}>{t(statusKey)}</strong>
-        </div>
-      </div>
+      )}
+      {props.children}
       {maintenance ? (
         <div class="home-service-task" role="status">
           <span
@@ -185,14 +195,15 @@ export function RetrievalPanel(props: {
                     ? "retrievalUpdateIndex"
                     : "retrievalBuildIndex",
                   maintenanceArgs,
-                  !canBuild,
-                  true,
+                  !canBuild || rebuildRequired,
+                  !rebuildRequired,
                 )}
                 {action(
                   "synthesis-action-retrieval-rebuild",
                   "retrievalRebuildIndex",
                   maintenanceArgs,
                   !canBuild,
+                  rebuildRequired,
                 )}
               </>
             ) : null}

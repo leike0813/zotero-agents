@@ -306,14 +306,23 @@ Zotero Library item notifications are UI read-model invalidations, not sidecar s
 
 ### Vector search
 
-The Vector search tab follows Index. A submitted paper or Topic query searches
-the published embedding index and displays verified excerpts and cosine scores.
-The minimum similarity control filters the returned page locally. Index contents
-can be inspected without encoding a query. Library, source and status filters
-apply before pagination. Expand an identity to inspect fragment ranges and
-current source text. Publication changes invalidate previous page cursors.
-Index maintenance uses the same operations as Home. Connection settings and
-synthetic connection tests remain in Preferences.
+The Vector search tab follows Index and opens on Semantic search. Submit a paper
+or Topic query to read ranked, verified excerpts. The minimum similarity filter
+applies locally. When a ranked source has changed, the verifier can use up to
+25 further candidates to fill the page. The view reports incomplete verification,
+an empty index scope, service failures and results hidden by the filter separately.
+
+Index contents displays a paginated table. Library, source and status filters
+apply before pagination. Expand a row to read a bounded page of verified previews
+and fragment ranges. Browsing requires no query embedding. Switching between
+the two views retains their controls and reading positions. Publication changes
+invalidate previous page cursors.
+
+Index maintenance uses the same operations as Home. The first build uses the
+planned scope. After publication the panel shows the indexed scope and identifies
+saved changes that will take effect on rebuild. Coverage gaps and maintenance
+progress describe the indexed material. Connection settings and synthetic tests
+are available in Preferences.
 
 ### Index paging, details and session reuse
 

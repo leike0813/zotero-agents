@@ -121,8 +121,9 @@ impl RetrievalApplication {
                     return Err("retrieval_index_paused".into());
                 }
                 let topic = request["target"] == "topic";
+                // Keep a bounded reserve of ranked candidates for hits whose source changed.
                 let mut query =
-                    json!({"query":request["query"],"includeTopics":topic,"maxResults":limit});
+                    json!({"query":request["query"],"includeTopics":topic,"maxResults":limit + 25});
                 if topic {
                     query["libraryIds"] = json!([]);
                     query["sourceKinds"] = json!([]);
@@ -137,7 +138,20 @@ impl RetrievalApplication {
                         issues.insert(code.to_owned());
                     }
                 }
+                if outcome.results.is_empty() && issues.is_empty() {
+                    issues.insert(if outcome.target_has_sources {
+                        limited = true;
+                        "retrieval_no_scorable_fragments".to_owned()
+                    } else {
+                        "retrieval_target_empty".to_owned()
+                    });
+                }
                 for hit in outcome.results {
+                    if rows.len() == limit {
+                        limited = true;
+                        issues.insert("result_budget_exhausted".to_owned());
+                        break;
+                    }
                     checkpoint()?;
                     let source =
                         serde_json::from_str(&hit.source_json).map_err(|_| "invalid_source")?;

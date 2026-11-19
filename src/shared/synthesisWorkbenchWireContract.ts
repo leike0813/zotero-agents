@@ -486,6 +486,7 @@ export type SynthesisWorkbenchPreferencesStatus = {
  * Credentials never appear here.
  */
 export type SynthesisWorkbenchRetrievalSnapshot = SynthesisRetrievalState & {
+  libraryNames?: Record<string, string>;
   stateReadFailed?: boolean;
   queryServiceStatus?: "available" | "unavailable" | "unverified";
   connections: SynthesisWorkbenchRetrievalConnectionSnapshot[];

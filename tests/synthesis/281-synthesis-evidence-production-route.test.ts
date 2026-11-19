@@ -17,6 +17,7 @@ import { mkTempDir, writeUtf8 } from "../zotero/workflow-test-utils";
 import { joinPath } from "../../src/utils/path";
 import {
   startSynthesisProductionRouteHarness,
+  waitForSynthesisProductionRouteReceipt,
   SYNTHESIS_PRODUCTION_ROUTE_CLIENT_TOKEN,
 } from "../helpers/synthesisProductionRouteHarness";
 import { executeHostBridgeCapability } from "../../src/modules/hostBridgeCapabilityRegistry";
@@ -85,6 +86,88 @@ describe("Synthesis evidence production route", function () {
   afterEach(function () {
     resetZoteroLibraryPageQueryAdapterForTests();
     resetZoteroLibrarySourcePageQueryAdapterForTests();
+  });
+
+  it("searches and previews the same published paper through the native explorer and Host broker", async function () {
+    const title = "隧道衬砌台车定位方法";
+    const paper = await nativeFixtureMutations.item.create({
+      itemType: "journalArticle",
+      libraryID: 1,
+      fields: { title },
+    });
+    const host = createZoteroSynthesisHostReadPort({ libraryId: 1 });
+    const identity = {
+      modelId: "route-fixture",
+      dimensions: 2,
+      queryPrefix: "",
+      documentPrefix: "",
+    };
+    const runtime = await startSynthesisProductionRouteHarness({
+      id: "published-explorer-host",
+      hostFixture: {
+        async handle({ capability, payload }) {
+          if (capability === "retrieval.embedding.describe")
+            return { enabled: true, identity };
+          if (capability === "retrieval.embedding.encode")
+            return {
+              identity,
+              vectors: (payload.inputs as string[]).map((text) =>
+                text.includes("台车") ? [1, 0] : [0, 1],
+              ),
+            };
+          if (capability === "library.evidence.sources")
+            return host.evidence.listSources(payload as never);
+          if (capability === "library.evidence.read")
+            return host.evidence.readSource(payload as never);
+          if (capability === "webdav.describe")
+            return SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION;
+          return { items: [], missingPaperRefs: [] };
+        },
+      },
+    });
+    try {
+      const op = await runtime.retrieval.build({
+        identity,
+        scope: {
+          libraryIds: [1],
+          sourceKinds: ["metadata"],
+          includeTopics: false,
+        },
+      });
+      const done = await waitForSynthesisProductionRouteReceipt({
+        operationId: op.operation_id,
+        getOperation: (operation_id) =>
+          runtime.retrieval.getOperation({ operation_id }),
+      });
+      assert.equal(done.status, "completed");
+      const page = await runtime.retrieval.explore({ operation: "browse" });
+      const row = page.rows.find((entry) => entry.itemRef?.key === paper.key);
+      assert.exists(row);
+      const fragments = await runtime.retrieval.explore({
+        operation: "fragments",
+        publication: page.publication,
+        identity: row!.identity,
+      });
+      assert.include(
+        fragments.rows.map((entry) => entry.preview),
+        title,
+      );
+      for (const query of [title, "如何为台车定位"]) {
+        const found = await runtime.retrieval.explore({
+          operation: "search",
+          target: "paper",
+          query,
+        });
+        assert.equal(
+          found.rows[0]?.identity,
+          row!.identity,
+          JSON.stringify(found.issues),
+        );
+        assert.equal(found.rows[0]?.preview, title);
+      }
+    } finally {
+      await runtime.stop();
+    }
   });
 
   it("reads verified metadata through the typed client, real Rust runtime and Broker owner", async function () {

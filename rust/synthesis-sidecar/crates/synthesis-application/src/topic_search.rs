@@ -1648,7 +1648,23 @@ mod tests {
                 .unwrap()
         );
         assert_eq!(result.method, TopicSearchMethod::Vector);
+        let explorer = fixture.search.application.retrieval.as_ref().unwrap();
+        let run_search = || {
+            explorer.explore(
+                json!({"operation":"search","target":"topic","query":"归档标记","limit":1}),
+                &|| Ok(()),
+            )
+        };
+        let page = run_search().expect("Workbench Topic search");
+        assert_eq!(page["rows"][0]["topicId"], result.results[0].topic_id);
+        assert!(
+            page["rows"][0]["preview"]
+                .as_str()
+                .unwrap()
+                .contains("archive marker")
+        );
         fixture.embeddings.fail_queries("service_unavailable");
+        assert_eq!(run_search().unwrap_err(), "service_unavailable");
         let result = searched(&fixture.search, request);
         assert_eq!(result.method, TopicSearchMethod::Lexical);
         assert!(

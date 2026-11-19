@@ -549,7 +549,7 @@ describe("synthesis workbench scaffold (src/synthesis)", function () {
       },
     });
     region
-      .querySelectorAll<HTMLButtonElement>("header button[aria-pressed]")[1]
+      .querySelectorAll<HTMLButtonElement>('[role="tab"]')[1]
       .click();
     assert.deepInclude(dispatched, {
       action: "hostCommand",
