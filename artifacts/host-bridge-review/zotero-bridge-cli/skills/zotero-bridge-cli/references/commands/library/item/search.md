@@ -354,7 +354,7 @@ zotero-bridge library item search [--endpoint <ENDPOINT>] [--operation-id <ID>] 
               "type": "boolean"
             },
             "method": {
-              "const": "lexical"
+              "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/SearchMethod"
             },
             "nextCursor": {
               "oneOf": [
@@ -458,7 +458,7 @@ zotero-bridge library item search [--endpoint <ENDPOINT>] [--operation-id <ID>] 
 
 ### query：仅形状示例
 
-由 --query 完整承载的规范词法搜索请求。
+作用域搜索请求。检索在可用时使用已发布的向量索引，并报告实际执行的方法。
 
 ```console
 zotero-bridge library item search --query '{"libraryIds":[1],"limit":25,"maxResults":100,"query":"example phrase","sourceKinds":["metadata","fulltext","analysis"]}'
@@ -534,7 +534,7 @@ zotero-bridge library item search --query '{"libraryIds":[1],"limit":25,"maxResu
     "query": {
       "examples": [
         {
-          "description": "Canonical bounded lexical-search request carried intact by --query.",
+          "description": "Scoped search request. Retrieval uses the published vector index when available and reports the executed method.",
           "kind": "shape-only",
           "prerequisites": [
             "Use a non-empty query no longer than 4096 UTF-16 code units; replace example identifiers with libraries and portable item refs valid for the current Zotero profile."
@@ -891,7 +891,7 @@ zotero-bridge library item search --query '{"libraryIds":[1],"limit":25,"maxResu
                 "type": "boolean"
               },
               "method": {
-                "const": "lexical"
+                "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/SearchMethod"
               },
               "nextCursor": {
                 "oneOf": [

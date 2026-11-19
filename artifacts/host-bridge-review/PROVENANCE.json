@@ -1,7 +1,7 @@
 {
   "schema": "host-bridge.review-mirror.v2",
-  "generatedAt": "2026-11-05T12:30:44.267Z",
-  "sourceCommit": "2778d3cf50ce38781568aecd80e739f94e797d33",
+  "generatedAt": "2026-11-19T01:10:16.841Z",
+  "sourceCommit": "60a6358a75c1d053156affc3a1bfafb23e95b382",
   "surfaceDefinitions": {
     "path": "contracts/host-bridge/surfaces.json",
     "schema": "host-bridge.surface-definitions.v1",
@@ -10,17 +10,11 @@
   "candidateReleaseSet": {
     "schema": "host-bridge.release-set.v4",
     "status": "planned",
-    "releaseSetId": "hbrs-b030702272cc636b2f37f2c9",
-    "payloadDigest": "sha256:b030702272cc636b2f37f2c9b00818d65e9b1a1a2d2f02108d57d5597029c5ba",
-    "sourceCommit": "fc7384cc7381db2a4da1373e84adf4c00c9dd2a9"
+    "releaseSetId": "hbrs-4fb7e8be09468c75b489c8d8",
+    "payloadDigest": "sha256:4fb7e8be09468c75b489c8d84c466c60566ba8867dc818e99cdb8be3485ef1b2",
+    "sourceCommit": "60a6358a75c1d053156affc3a1bfafb23e95b382"
   },
-  "latestCompleteRelease": {
-    "schema": "host-bridge.release-receipt.v2",
-    "status": "complete",
-    "releaseSetId": "hbrs-8c6de08010d459a0e87e74f2",
-    "payloadDigest": "sha256:8c6de08010d459a0e87e74f22e242479404f2725c999f89497b8e2042640f49c",
-    "sourceCommit": "a0fe8e324834e2fcfd1b513552f9013e9be4b491"
-  },
+  "latestCompleteRelease": null,
   "fileCount": 165,
   "surfaces": [
     {
@@ -515,10 +509,10 @@
       "relativePath": "references/commands/library/item/search.md",
       "artifactPath": "zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/library/item/search.md",
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/library/item/search.md",
-      "sourceSha256": "07e8cba178e3b5dae1123425145223e28a8d5499a15af51e0251cdcc338d16c3",
-      "protectedStructureSha256": "94bbb79331d52c298c6c42b9a3fc02cc5923f29306715ba587af5d0fd836ede7",
-      "translatedSha256": "e1ee1f4388b9cd47d07f80bca6d515d729e006ae21abfa8bb742c5155bc726cc",
-      "translatedStructureSha256": "94bbb79331d52c298c6c42b9a3fc02cc5923f29306715ba587af5d0fd836ede7"
+      "sourceSha256": "41a9988fddc9952deef2c34ce81fd9bceb64e0fac8095aa612b2ef511c94d17d",
+      "protectedStructureSha256": "983f50be817e666810e99748dda5bda1da12fd8addc40b98819e989810a6b836",
+      "translatedSha256": "7c593df43a85ef2bbe7ff80e9734443f9bc424c5b8cc11ba47ae05e827c5d01b",
+      "translatedStructureSha256": "983f50be817e666810e99748dda5bda1da12fd8addc40b98819e989810a6b836"
     },
     {
       "ownerSurfaceId": "zotero-bridge-cli",
