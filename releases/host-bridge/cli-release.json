@@ -1,9 +1,9 @@
 {
   "schema": "zotero-bridge-cli-release.v1",
-  "version": "0.5.2-dev.1",
+  "version": "0.5.2-dev.2",
   "binariesVersion": "0.5.2-dev.1",
-  "preparationKey": "00f4c9ad5a22d8e59d44b2af467de72a4855b86646d5f937f25a3de2cf639302",
-  "buildFingerprint": "b80575287898c5dcc80fbfcd67653edfdc08d68e5e979cc0f55995323e017762",
+  "preparationKey": "b8d9cbebc0dad4366147f95d2f8ba9663988a93ef68ec042e2021e48561695f4",
+  "buildFingerprint": "5f84a11dbcd1bb803aa294f816da53a24167f44ecce0feba01963b4b6b9a41c8",
   "binariesBuildFingerprint": "b80575287898c5dcc80fbfcd67653edfdc08d68e5e979cc0f55995323e017762",
   "fingerprintInputs": [
     "contracts/host-bridge/capabilities.v2.json",
@@ -75,5 +75,5 @@
       "bytes": 9106104
     }
   ],
-  "dispatchReason": "prebuild-only"
+  "dispatchReason": "prepare"
 }
