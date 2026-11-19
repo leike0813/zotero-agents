@@ -456,7 +456,11 @@ export async function startSystemE2EEventSink(
   accept: (event: unknown) => void | Promise<void>,
 ) {
   const server = createServer((request, response) => {
-    if (request.method !== "POST" || request.url !== "/events") {
+    const embeddings = request.url === "/embeddings";
+    if (
+      request.method !== "POST" ||
+      (!embeddings && request.url !== "/events")
+    ) {
       response.writeHead(404).end();
       return;
     }
@@ -469,8 +473,34 @@ export async function startSystemE2EEventSink(
     });
     request.on("end", () => {
       void Promise.resolve()
-        .then(() => accept(JSON.parse(Buffer.concat(chunks).toString("utf8"))))
-        .then(() => response.writeHead(200).end())
+        .then(async () => {
+          const body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+          if (!embeddings) {
+            await accept(body);
+            response.writeHead(200).end();
+            return;
+          }
+          const inputs = Array.isArray(body.input) ? body.input : [body.input];
+          if (inputs.includes("模拟服务拒绝")) {
+            response.writeHead(401).end();
+            return;
+          }
+          // Exercise the explorer past the normal 10s RPC deadline on the query alone.
+          if (inputs.includes("利用卫星影像评估土壤含水量")) {
+            await new Promise((resolve) => setTimeout(resolve, 11_500));
+          }
+          const data = inputs.map((text: string, index: number) => ({
+            index,
+            embedding: /交通|车辆/.test(text)
+              ? [1, 0, 0]
+              : /卫星|土壤/.test(text)
+                ? [0, 1, 0]
+                : [0, 0, 1],
+          }));
+          response
+            .writeHead(200, { "content-type": "application/json" })
+            .end(JSON.stringify({ data }));
+        })
         .catch(() => response.writeHead(400).end());
     });
   });

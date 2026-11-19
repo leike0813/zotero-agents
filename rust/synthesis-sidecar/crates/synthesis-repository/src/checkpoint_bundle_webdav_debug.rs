@@ -718,7 +718,7 @@ impl Repository {
 
     pub fn capture_debug_projection(&mut self) -> Result<DebugProjection, String> {
         self.transaction(|repository| {
-            let table_snapshot = repository.table_snapshot()?;
+            let durable = repository.capture_durable_bundle_state()?;
             let caches = repository
                 .query("SELECT * FROM synt_cache_basis ORDER BY cache_key", &[])?
                 .into_iter()
@@ -729,18 +729,11 @@ impl Repository {
                 limit: 1_000,
                 ..OperationQuery::default()
             })?;
-            let mut topic_ids = Vec::new();
-            let mut offset = 0;
-            loop {
-                let (states, total) = repository.list_topic_application_states(offset, 250)?;
-                topic_ids.extend(states.into_iter().map(|state| state.topic_id));
-                offset = topic_ids.len();
-                if offset >= total {
-                    break;
-                }
-            }
-            topic_ids.sort();
-            topic_ids.dedup();
+            let topic_ids = durable
+                .topic_bases
+                .into_iter()
+                .map(|topic| topic.topic_id)
+                .collect();
             let schema_version = repository
                 .query(
                     "SELECT value FROM synt_schema_meta WHERE key='repository_foundation_schema_version'",
@@ -750,7 +743,7 @@ impl Repository {
                 .map(|row| text(row, "value"))
                 .unwrap_or_default();
             let revision = stable_hash(&json!({
-                "tables":table_snapshot,
+                "aggregateBasis":durable.aggregate_basis,
                 "caches":caches,
                 "operations":operations,
             }))?;

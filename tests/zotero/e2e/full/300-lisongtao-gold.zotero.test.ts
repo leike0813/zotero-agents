@@ -18,7 +18,13 @@ import {
 import { clearPref, getPref, setPref } from "../../../../src/utils/prefs";
 import { setDebugModeOverrideForTests } from "../../../../src/modules/debugMode";
 import {
+  saveSynthesisEmbeddingPrefs,
+  testSynthesisEmbeddingConnection,
+} from "../../../../src/modules/synthesis/synthesisEmbeddingPrefs";
+
+import {
   ensureRuntimeDirectoryExclusive,
+  reserveRuntimeTemporaryDirectory,
   writeRuntimeTextFile,
 } from "../../../../src/modules/runtimePersistence";
 import { createWorkflowHostApi } from "../../../../src/workflows/hostApi";
@@ -361,6 +367,215 @@ describe("Synthesis E2E gold library", function () {
     assert.equal(installed.installed.package.version, version);
     assert.equal(installed.installed.package.channel, channel);
   });
+
+  systemE2ECase(
+    "retrieval-semantic-search-01",
+    undefined,
+    "retrieval-semantic-search-01 searches synthetic Chinese papers by title and semantic paraphrase in the real Workbench",
+    async function () {
+      const embeddingEndpoint = readDiagnosticsEnv(
+        "ZOTERO_SYSTEM_E2E_EVENT_URL",
+      ).replace(/\/events$/, "/embeddings");
+      assert.match(
+        embeddingEndpoint,
+        /^http:\/\/127\.0\.0\.1:\d+\/embeddings$/,
+      );
+      const oldPrefs = (
+        [
+          "synthesisEmbeddingEnabled",
+          "synthesisEmbeddingConnectionsJson",
+          "synthesisEmbeddingSelectionJson",
+          "synthesisEmbeddingPendingScopeJson",
+          "synthesisEmbeddingConnectionTestJson",
+        ] as const
+      ).map((key) => [key, getPref(key)] as const);
+      const connection = {
+        id: `e2e-${Date.now()}`,
+        name: "System E2E embedding fixture",
+        protocol: "openai" as const,
+        baseUrl: embeddingEndpoint,
+        embeddingUrl: embeddingEndpoint,
+        modelId: "zotero-e2e-fixture",
+        dimensions: 3,
+        queryPrefix: "",
+        documentPrefix: "",
+        discovery: { protocol: "none" as const },
+        auth: { type: "none" as const },
+      };
+      const items: Zotero.Item[] = [];
+      const mainWindow = Zotero.getMainWindow() as _ZoteroTypes.MainWindow;
+      const plugin = (Zotero as any)[config.addonInstance];
+      const openExplorer = async () => {
+        await plugin.hooks.onPrefsEvent("openSynthesisWorkbench", {
+          window: mainWindow,
+        });
+        const doc = await waitUntil(() => {
+          const shell = mainWindow.document.querySelector<WorkbenchFrame>(
+            '[data-zs-role="workspace-frame"]',
+          );
+          const frame = shell?.contentDocument?.querySelector<WorkbenchFrame>(
+            '[data-zs-role="synthesis-workbench-frame"]',
+          );
+          const doc = frame?.contentDocument;
+          return doc?.querySelector('[data-synthesis-tab="retrieval"]')
+            ? doc
+            : null;
+        });
+        doc
+          .querySelector<HTMLButtonElement>('[data-synthesis-tab="retrieval"]')!
+          .click();
+        await waitUntil(() => doc.querySelector(".retrieval-explorer"));
+        return doc;
+      };
+      const fixture = await reserveRuntimeTemporaryDirectory({
+        category: "semantic-search",
+      });
+      try {
+        let paperIndex = 0;
+        for (const [title, abstract, fullText] of [
+          [
+            "卫星遥感与土壤水分估算研究",
+            "本文使用卫星影像分析土壤含水量，评估不同地表条件下的水分变化。",
+            "全文：通过遥感反演和地面观测估算农田土壤湿度，为灌溉决策提供依据。",
+          ],
+          [
+            "城市道路交通流量预测研究",
+            "本文分析城市道路车辆流量和通勤变化。",
+            "全文：使用交通传感器研究高峰拥堵。",
+          ],
+          [
+            "区域气候降水变化研究",
+            "本文分析气温和降水的长期趋势。",
+            "全文：比较不同区域气候与降雨量。",
+          ],
+        ]) {
+          const paper = new Zotero.Item("journalArticle");
+          paper.setField("title", title);
+          paper.setField("abstractNote", abstract);
+          paper.setField("date", "2025");
+          await paper.saveTx();
+          items.push(paper);
+          const markdownPath = PathUtils.join(
+            fixture.path,
+            `p${paperIndex++}.md`,
+          );
+          await writeRuntimeTextFile(
+            markdownPath,
+            `# ${title}\n\n${abstract}\n\n${fullText}\n`,
+          );
+          await Zotero.Attachments.importFromFile({
+            file: markdownPath,
+            parentItemID: paper.id,
+            title: `synthetic-paper-${paperIndex}.md`,
+            contentType: "text/markdown",
+          });
+        }
+        const status = saveSynthesisEmbeddingPrefs({
+          enabled: true,
+          connections: [connection],
+          primaryConnectionId: connection.id,
+          fallbackConnectionIds: [],
+          pendingScope: {
+            libraryIds: [Zotero.Libraries.userLibraryID],
+            sourceKinds: ["metadata", "fulltext"],
+            includeTopics: false,
+          },
+        });
+        assert.isTrue(status.ok);
+        const verified = await testSynthesisEmbeddingConnection({
+          connectionId: connection.id,
+        });
+        assert.isTrue(verified.ok, JSON.stringify(verified.diagnostics));
+        const first = await openExplorer();
+        first
+          .querySelector<HTMLElement>(".retrieval-settings summary")!
+          .click();
+        const build = await waitUntil(() =>
+          first.querySelector<HTMLButtonElement>(
+            '[data-synthesis-command="retrievalBuildIndex"]:enabled',
+          ),
+        );
+        build.click();
+        await waitUntilBounded(
+          () =>
+            first.querySelector(
+              '[data-synthesis-command="retrievalUpdateIndex"]:enabled',
+            ),
+          120000,
+          "index-publication",
+        );
+        await (mainWindow as any).Zotero_Tabs.close("zotero-skills-workspace");
+        await waitUntil(
+          () =>
+            !first.querySelector(".retrieval-explorer") ||
+            !mainWindow.document.querySelector(
+              '[data-zs-role="workspace-frame"]',
+            ),
+        );
+        const doc = await openExplorer();
+        doc.querySelector<HTMLButtonElement>("#retrieval-browse-tab")!.click();
+        const title = await waitUntilBounded(
+          () =>
+            Array.from(doc.querySelectorAll(".retrieval-item .retrieval-title"))
+              .map((entry) => entry.textContent)
+              .find((value) => value === "城市道路交通流量预测研究"),
+          30000,
+          "published-paper-title",
+        );
+        doc.querySelector<HTMLButtonElement>("#retrieval-search-tab")!.click();
+        const search = doc.querySelector<HTMLInputElement>(
+          ".retrieval-query input",
+        )!;
+        const submitQuery = async (query: string) => {
+          search.value = query;
+          const event = doc.createEvent("Event");
+          event.initEvent("input", true, false);
+          search.dispatchEvent(event);
+          const submit = await waitUntil(() =>
+            doc.querySelector<HTMLButtonElement>(
+              '.retrieval-tools button[type="submit"]:enabled',
+            ),
+          );
+          submit.click();
+        };
+        for (const [query, expected] of [
+          [title, title],
+          ["利用卫星影像评估土壤含水量", "卫星遥感与土壤水分估算研究"],
+        ]) {
+          await submitQuery(query);
+          const excerpt = await waitUntilBounded(
+            () => {
+              const error = doc.querySelector(
+                "#retrieval-search-panel [role=alert] code",
+              );
+              if (error)
+                throw new Error("semantic_search_failed: " + error.textContent);
+              const row = doc.querySelector(".retrieval-result-row");
+              return row?.querySelector(".retrieval-title")?.textContent ===
+                expected
+                ? row.querySelector(".retrieval-excerpt")?.textContent
+                : null;
+            },
+            65000,
+            "verified-semantic-result",
+          );
+          assert.isNotEmpty(excerpt);
+        }
+        await submitQuery("模拟服务拒绝");
+        const diagnostic = await waitUntil(() =>
+          doc.querySelector("#retrieval-search-panel [role=alert] code"),
+        );
+        assert.equal(diagnostic.textContent, "embedding_http_401");
+      } finally {
+        for (const [key, value] of oldPrefs) {
+          if (value == null) clearPref(key);
+          else setPref(key, value);
+        }
+        await eraseSyntheticItems(items);
+        await fixture.cleanup();
+      }
+    },
+  );
 
   after(function () {
     if (!contentSettingsChanged) return;

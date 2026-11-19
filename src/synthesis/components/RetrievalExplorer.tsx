@@ -187,8 +187,29 @@ export function RetrievalExplorer({
         case "result_budget_exhausted":
           messages.add(t("synthesis-explorer-limited-results"));
           break;
+        case "timeout":
+        case "request_timeout":
+        case "worker_timeout":
+        case "operation_timeout":
+          messages.add(t("synthesis-explorer-timeout"));
+          break;
+        case "invalid_request":
+        case "response_invalid":
+        case "protocol_result_invalid":
+        case "worker_result_invalid":
+        case "reverse_host_result_invalid":
+        case "reverse_host_response_envelope_invalid":
+        case "production_projection_invalid":
+          messages.add(t("synthesis-explorer-invalid-response"));
+          break;
         default:
-          messages.add(t("synthesis-explorer-service-error"));
+          messages.add(
+            t(
+              code.startsWith("embedding_")
+                ? "synthesis-explorer-encoding-error"
+                : "synthesis-explorer-service-error",
+            ),
+          );
           break;
       }
     }
@@ -206,6 +227,7 @@ export function RetrievalExplorer({
         role={slot?.error ? "alert" : "status"}
       >
         <span>{[...messages].join(" · ")}</span>
+        {slot?.error && <code dir="ltr">{slot.error}</code>}
         {inspect && mode === "search" && (
           <button onClick={() => select("browse")}>
             {t("synthesis-explorer-view-index")}

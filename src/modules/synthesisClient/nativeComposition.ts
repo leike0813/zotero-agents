@@ -692,9 +692,7 @@ function normalizeRpcError(error: unknown) {
   if (error instanceof SynthesisSidecarRpcError) {
     return normalizeSynthesisSidecarRpcError(error);
   }
-  return unavailable(
-    error instanceof Error ? error.message : "native_request_failed",
-  );
+  return unavailable("native_request_failed");
 }
 
 function createNativePort(args: {

@@ -21,6 +21,7 @@ function RetrievalActionButton(props: {
   return (
     <button
       type="button"
+      data-synthesis-command={props.command}
       class={[props.primary ? "primary" : "", busy ? "is-busy" : ""].join(" ")}
       disabled={props.disabled || busy}
       aria-busy={busy ? "true" : undefined}

@@ -140,6 +140,13 @@ describe("Synthesis evidence production route", function () {
           runtime.retrieval.getOperation({ operation_id }),
       });
       assert.equal(done.status, "completed");
+      const operations = await runtime.client.debug.listOperations({
+        limit: 100,
+      });
+      assert.include(
+        operations.rows.map((entry) => entry.operationId),
+        op.operation_id,
+      );
       const page = await runtime.retrieval.explore({ operation: "browse" });
       const row = page.rows.find((entry) => entry.itemRef?.key === paper.key);
       assert.exists(row);

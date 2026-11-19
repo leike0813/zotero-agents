@@ -1970,6 +1970,11 @@ describe("Synthesis native client composition", function () {
   });
 
   it("derives production transport deadlines from the shared operation manifest", function () {
+    // The explorer still verifies original excerpts after the 30s query/score budget.
+    assert.isAbove(
+      synthesisProductionOperationDeadlineMs("client.exploreRetrievalIndex"),
+      30_000,
+    );
     assert.equal(
       synthesisProductionOperationDeadlineMs("client.listTopics"),
       10_000,
@@ -3305,6 +3310,28 @@ describe("Synthesis retrieval port readiness", function () {
     } finally {
       mock.timers.reset();
     }
+  });
+
+  it("keeps unstructured transport messages out of retrieval diagnostics", async function () {
+    const port = createNativeSynthesisRetrievalPort({
+      getReadyConnection: () => readyConnection,
+      rpcClient: {
+        async call() {
+          throw new Error("private_query");
+        },
+      },
+    });
+    const failure = await port
+      .explore({ operation: "search", target: "paper", query: "private_query" })
+      .then(
+        () => null,
+        (error: unknown) => error,
+      );
+    assert.instanceOf(failure, SynthesisClientError);
+    assert.notInclude(
+      JSON.stringify((failure as SynthesisClientError).details),
+      "private_query",
+    );
   });
 
   it("does not replay a dispatched maintenance request after a transport failure", async function () {

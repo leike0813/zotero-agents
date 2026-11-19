@@ -1744,6 +1744,11 @@ body.retrieval-workbench-open {
   background: var(--zs-danger-soft, var(--zs-warning-soft));
 }
 
+.retrieval-notice code {
+  user-select: all;
+  overflow-wrap: anywhere;
+}
+
 .retrieval-notice[data-kind="info"] {
   padding: 0 0 var(--zs-space-2);
   margin: 0;

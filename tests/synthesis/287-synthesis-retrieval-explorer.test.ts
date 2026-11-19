@@ -140,17 +140,17 @@ describe("Vector search Workbench", function () {
       assert.include(panels[0].textContent, t(key));
       assert.notInclude(panels[0].textContent, t("synthesis-explorer-empty"));
     }
-    show({
-      search: {
-        ...slot("search"),
-        status: "error",
-        error: "embedding_service_unavailable",
-      },
-    });
-    assert.include(
-      panels[0].querySelector("[role=alert]")?.textContent,
-      t("synthesis-explorer-service-error"),
-    );
+    for (const [error, key] of [
+      ["embedding_service_unavailable", "synthesis-explorer-encoding-error"],
+      ["request_timeout", "synthesis-explorer-timeout"],
+      ["protocol_result_invalid", "synthesis-explorer-invalid-response"],
+      ["service_not_ready", "synthesis-explorer-service-error"],
+    ] as const) {
+      show({ search: { ...slot("search"), status: "error", error } });
+      const alert = panels[0].querySelector("[role=alert]");
+      assert.include(alert?.textContent, t(key));
+      assert.equal(alert?.querySelector("code")?.textContent, error);
+    }
     assert.include(
       panels[0].querySelector("article")?.textContent,
       row.preview,

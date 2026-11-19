@@ -7,6 +7,7 @@
   "controlTargetBytes": 786432,
   "deadlineMs": 10000,
   "deadlineOverridesMs": {
+    "client.exploreRetrievalIndex": 60000,
     "client.getPaperArtifactManifest": 120000,
     "client.readPaperArtifacts": 120000,
     "client.exportFilteredPaperArtifacts": 120000

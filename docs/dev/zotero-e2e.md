@@ -1,5 +1,7 @@
 # Zotero E2E 测试
 
+运行 `ZOTERO_TEST_GREP='System E2E runner foundation|retrieval-semantic-search-01' npm run test:zotero:e2e` 可验证工作台语义搜索。用例在隔离库中创建三篇含 Markdown 全文的中文论文，通过工作台发布索引、重开页面并检索。回环嵌入服务为同义问句延迟 11.5 秒，另以 HTTP 401 验证错误码能传到页面。
+
 Windows 普通长路径回归位于 `tests/zotero/core/lite/165-runtime-platform-services.zotero.test.ts`。设置 `ZOTERO_TEST_GREP='supports ordinary Windows long paths'`、对应主版本的 `ZOTERO_TEST_ZOTERO_VERSION` 和实际 `ZOTERO_PLUGIN_ZOTERO_BIN_PATH` 后运行 `npm run test:zotero:core`。用例覆盖超出 259 UTF-16 的 Unicode 路径上的写入、复制、原子替换、追加、worker 范围读取、XPC 哈希、枚举、移动和 ZIP 兼容中转，并清理自己创建的目录。7/9/10 必须串行运行；长链接最终目标和真实网络 UNC 不由此用例证明。
 
 图片 worker 的真实宿主回归位于 `tests/zotero/core/lite/276-note-image-worker.zotero.test.ts`。设置 `ZOTERO_TEST_GREP='Note image worker real runtime'` 和对应版本的 `ZOTERO_PLUGIN_ZOTERO_BIN_PATH` 后运行 `npm run test:zotero:core`；用例验证关闭首选项后的 JPEG/PNG 转换和原字节导入。7/9/10 分别执行并记录实际 `Zotero.version`；本机 10.0.2 的结果不替代兼容矩阵 10.0.1 收据。端到端场景继续使用本文既有 E2E runner。

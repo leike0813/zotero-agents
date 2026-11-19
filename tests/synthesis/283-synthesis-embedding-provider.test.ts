@@ -67,10 +67,11 @@ function openAiText(entries: Array<{ index: number; embedding: number[] }>) {
   return JSON.stringify({ data: entries });
 }
 
-async function rejects(promise: Promise<unknown>) {
+async function rejects(promise: Promise<unknown>, reason?: string) {
   try {
     await promise;
-  } catch {
+  } catch (error) {
+    if (reason) assert.nestedPropertyVal(error, "details.reason", reason);
     return;
   }
   throw new Error("expected the embedding request to reject");
@@ -427,6 +428,7 @@ describe("Synthesis embedding provider", function () {
         deadlineAtMs: deadline(),
         services: [{ connection: connection() }],
       }),
+      "embedding_association_invalid",
     );
   });
 

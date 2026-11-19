@@ -1747,17 +1747,25 @@ async function readRetrievalExplorer(
     if (explorer[operation] !== loading || runtime.cleanedUp) return;
     const reason =
       error instanceof SynthesisClientError
-        ? (error.details?.sidecarReason ?? error.details?.reason ?? error.code)
+        ? [
+            error.details?.sidecarReason,
+            error.details?.reason,
+            error.details?.sidecarCode,
+            error.code === "internal" &&
+            Array.isArray(error.details?.violations)
+              ? "protocol_result_invalid"
+              : error.code,
+          ].find(
+            (value): value is string =>
+              typeof value === "string" && /^[a-z][a-z0-9_]{0,63}$/.test(value),
+          )
         : undefined;
     explorer[operation] = {
       owner,
       requestId,
       status: "error",
       result: previous,
-      error:
-        typeof reason === "string" && /^[a-z][a-z0-9_]{0,63}$/.test(reason)
-          ? reason
-          : "retrieval_unavailable",
+      error: reason ?? "retrieval_unavailable",
     };
   }
   publish();

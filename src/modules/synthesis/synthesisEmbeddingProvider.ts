@@ -292,7 +292,7 @@ function embeddingHeaders(service: SynthesisEmbeddingService) {
 
 type AssociationFailure = {
   retryable: boolean;
-  message: string;
+  reason: string;
   retryAfterMs?: number;
 };
 
@@ -319,13 +319,13 @@ function openAiVectors(
   try {
     parsed = JSON.parse(text);
   } catch {
-    return { retryable: true, message: "Embedding response is not JSON" };
+    return { retryable: true, reason: "embedding_response_invalid" };
   }
   const data = (parsed as { data?: unknown })?.data;
   if (!Array.isArray(data) || data.length !== count) {
     return {
       retryable: true,
-      message: "Embedding response associations are incomplete",
+      reason: "embedding_association_invalid",
     };
   }
   const byIndex: number[][] = new Array(count);
@@ -341,7 +341,7 @@ function openAiVectors(
     ) {
       return {
         retryable: true,
-        message: "Embedding response association is ambiguous",
+        reason: "embedding_association_invalid",
       };
     }
     byIndex[index as number] = record.embedding as number[];
@@ -349,7 +349,7 @@ function openAiVectors(
   if (byIndex.some((vector) => vector === undefined)) {
     return {
       retryable: true,
-      message: "Embedding response is missing a vector",
+      reason: "embedding_association_invalid",
     };
   }
   return byIndex;
@@ -364,7 +364,7 @@ function ollamaVectors(
   try {
     parsed = JSON.parse(text);
   } catch {
-    return { retryable: true, message: "Embedding response is not JSON" };
+    return { retryable: true, reason: "embedding_response_invalid" };
   }
   let embeddings =
     protocol === "tei"
@@ -379,14 +379,14 @@ function ollamaVectors(
   if (!Array.isArray(embeddings) || embeddings.length !== count) {
     return {
       retryable: true,
-      message: "Embedding response associations are incomplete",
+      reason: "embedding_association_invalid",
     };
   }
   for (const vector of embeddings) {
     if (!Array.isArray(vector)) {
       return {
         retryable: true,
-        message: "Embedding response vector is malformed",
+        reason: "embedding_response_invalid",
       };
     }
   }
@@ -506,13 +506,13 @@ export function createSynthesisEmbeddingProvider(options?: {
       }
       return {
         retryable: true,
-        message: "embedding_request_failed",
+        reason: "embedding_request_failed",
       };
     }
     if (response.status < 200 || response.status >= 300) {
       return {
         retryable: retryableStatus(response.status),
-        message: `embedding_http_${response.status}`,
+        reason: `embedding_http_${response.status}`,
         retryAfterMs: parseRetryAfterMs(response.headers),
       };
     }
@@ -599,16 +599,13 @@ export function createSynthesisEmbeddingProvider(options?: {
               request.inputs.length,
             );
             return { identity: request.identity, vectors };
-          } catch (error) {
+          } catch {
             // A dimension or finite-float32 failure means the service is not
             // the identity's service. Skip it and spend the remaining shared
             // budget on the next selected service instead of aborting.
             lastFailure = {
               retryable: false,
-              message:
-                error instanceof Error
-                  ? error.message
-                  : "embedding_validation_failed",
+              reason: "embedding_vector_invalid",
             };
             break;
           }
@@ -637,7 +634,7 @@ export function createSynthesisEmbeddingProvider(options?: {
       lastError = new SynthesisClientError(
         "unavailable",
         "Embedding document batch exhausted its attempt budget",
-        { reason: lastFailure?.message ?? "embedding_attempts_exhausted" },
+        { reason: lastFailure?.reason ?? "embedding_attempts_exhausted" },
       );
     }
     throw (
@@ -645,7 +642,7 @@ export function createSynthesisEmbeddingProvider(options?: {
       new SynthesisClientError(
         "unavailable",
         "Every compatible embedding service failed",
-        { reason: lastFailure?.message ?? "embedding_service_failed" },
+        { reason: lastFailure?.reason ?? "embedding_service_failed" },
       )
     );
   }
@@ -732,7 +729,7 @@ export function createSynthesisEmbeddingProvider(options?: {
         throw new SynthesisClientError(
           "unavailable",
           "Embedding connection test failed",
-          { reason: vectors.message },
+          { reason: vectors.reason },
         );
       }
       return vectors;

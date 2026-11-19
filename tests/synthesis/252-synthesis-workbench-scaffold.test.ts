@@ -493,19 +493,29 @@ describe("synthesis workbench scaffold (src/synthesis)", function () {
     assert.ok(buttons[0].classList.contains("active"), "home tab is active");
   });
 
-  it("renders every nav tab icon with the base zs-icon class", function () {
-    const { root } = renderPanelIntoRoot(projectHosted(makeSnapshot()));
-    const shell = root.querySelector('[data-role="synthesis-shell"]');
-    assert.ok(shell, "shell container exists");
-    const buttons = shell!.querySelectorAll("button[data-synthesis-tab]");
-    assert.ok(shell!.querySelector('button[data-synthesis-tab="retrieval"]'));
-    assert.lengthOf(buttons, 8);
-    buttons.forEach((button) => {
-      const tabKey = button.getAttribute("data-synthesis-tab") || "";
-      const icon = button.querySelector("span.nav-icon > span.zs-icon");
-      assert.ok(icon, `nav-icon span missing for ${tabKey}`);
+  for (const sidebarExpanded of [false, true]) {
+    it(`distinguishes nav icons when sidebarExpanded=${sidebarExpanded}`, function () {
+      const { root } = renderPanelIntoRoot(
+        projectHosted(makeSnapshot(), {
+          sidebarExpanded,
+          jobPopoverOpen: false,
+        }),
+      );
+      const shell = root.querySelector('[data-role="synthesis-shell"]');
+      assert.ok(shell, "shell container exists");
+      const buttons = shell!.querySelectorAll("button[data-synthesis-tab]");
+      assert.ok(shell!.querySelector('button[data-synthesis-tab="retrieval"]'));
+      assert.lengthOf(buttons, 8);
+      const icons = new Set<string>();
+      buttons.forEach((button) => {
+        const tabKey = button.getAttribute("data-synthesis-tab") || "";
+        const icon = button.querySelector("span.nav-icon > span.zs-icon");
+        assert.ok(icon, `nav-icon span missing for ${tabKey}`);
+        icons.add(icon!.className);
+      });
+      assert.equal(icons.size, buttons.length);
     });
-  });
+  }
 
   it("opens a semantic paper result and browses the published index on demand", function () {
     const { root, dispatched } = renderPanelIntoRoot(
