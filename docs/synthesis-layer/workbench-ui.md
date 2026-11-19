@@ -304,6 +304,17 @@ Workbench read.
 
 Zotero Library item notifications are UI read-model invalidations, not sidecar synchronization events. Parent item add/modify/delete/trash/refresh notifications mark the Index surface dirty because the Zotero title/year/creator rows shown there are direct-read SSOT data. Custom-column repaint notifications carry a UI-only marker and do not invalidate Index or consume related-item sync echoes. Ordinary native refresh notifications retain their data semantics. If Index is visible, Workbench may debounce and reload only the Index surface; if it is hidden, it must remain dirty until selected. This invalidation must not start `refreshReferenceSidecarNow`, must not rebuild graph/tag/concept caches, and must not change `synt_cache_basis`.
 
+### Vector search
+
+The Vector search tab follows Index. A submitted paper or Topic query searches
+the published embedding index and displays verified excerpts and cosine scores.
+The minimum similarity control filters the returned page locally. Index contents
+can be inspected without encoding a query. Library, source and status filters
+apply before pagination. Expand an identity to inspect fragment ranges and
+current source text. Publication changes invalidate previous page cursors.
+Index maintenance uses the same operations as Home. Connection settings and
+synthetic connection tests remain in Preferences.
+
 ### Index paging, details and session reuse
 
 The native query matches all parents in the selected library and scope in

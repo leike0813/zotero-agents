@@ -1,6 +1,7 @@
 import { config } from "../../../../package.json";
 import {
   SynthesisClientError,
+  rebuildSynthesisRetrievalExplorerRequest,
   type SynthesisClient,
   type SynthesisCitationGraphPageMetadata,
   type SynthesisGraphCommandResult,
@@ -66,6 +67,7 @@ import {
   type SynthesisEmbeddingPrefsStatus,
 } from "../synthesisEmbeddingPrefs";
 import { createNativeSynthesisRetrievalPort } from "../../synthesisClient/nativeComposition";
+import { isSynthesisEmbeddingConnectionCompatible } from "../synthesisEmbeddingProvider";
 import type {
   SynthesisEncodingIdentity,
   SynthesisRetrievalMaintenanceRequest,
@@ -73,6 +75,7 @@ import type {
   SynthesisRetrievalScope,
   SynthesisRetrievalConnection,
   SynthesisWorkbenchRetrievalSnapshot,
+  SynthesisWorkbenchRetrievalExplorer,
 } from "../../../shared/synthesisWorkbenchWireContract";
 
 import {
@@ -240,6 +243,7 @@ type SynthesisWorkbenchRuntime = {
   // Retrieval (optional semantic enhancement): last aggregated Home snapshot
   // (kept across getState failures) and latest public maintenance operation.
   retrievalSnapshot?: SynthesisWorkbenchRetrievalSnapshot;
+  retrievalExplorer?: SynthesisWorkbenchRetrievalExplorer;
   retrievalMaintenance?: SynthesisPublicMaintenanceOperation;
 };
 
@@ -747,7 +751,10 @@ function buildSnapshotErrorInput(error: unknown): SynthesisUiSnapshotInput {
   };
 }
 
-function surfaceForTab(tab: SynthesisUiTab): SynthesisWorkbenchSurfaceName {
+function surfaceForTab(
+  tab: SynthesisUiTab,
+): SynthesisWorkbenchSurfaceName | null {
+  if (tab === "retrieval") return null;
   if (tab === "overview") return "home";
   if (tab === "artifacts") return "topics";
   if (tab === "registry") return "index";
@@ -757,10 +764,8 @@ function surfaceForTab(tab: SynthesisUiTab): SynthesisWorkbenchSurfaceName {
 
 function snapshotForRuntime(runtime: SynthesisWorkbenchRuntime) {
   const base = runtime.snapshotInput || buildDefaultSnapshotInput();
-  const cached = cachedSurfaceInput(
-    runtime,
-    surfaceForTab(runtime.state.selectedTab),
-  );
+  const surface = surfaceForTab(runtime.state.selectedTab);
+  const cached = surface && cachedSurfaceInput(runtime, surface);
   const input = cached
     ? { ...base, ...cached.input, reviews: base.reviews }
     : base;
@@ -787,6 +792,7 @@ function snapshotForRuntime(runtime: SynthesisWorkbenchRuntime) {
   return buildSynthesisUiSnapshot(
     {
       ...input,
+      retrievalExplorer: runtime.retrievalExplorer,
       ...(runtime.retrievalSnapshot
         ? { retrieval: runtime.retrievalSnapshot }
         : {}),
@@ -922,7 +928,7 @@ function scheduleLibraryReadModelSurfaceRefresh(
   runtime.libraryReadModelDirtyTimer = globalThis.setTimeout(() => {
     runtime.libraryReadModelDirtyTimer = undefined;
     const activeSurface = surfaceForTab(runtime.state.selectedTab);
-    if (!surfaces.includes(activeSurface)) {
+    if (!activeSurface || !surfaces.includes(activeSurface)) {
       return;
     }
     if (!surfaceNeedsServiceRefresh(runtime, activeSurface)) {
@@ -1452,11 +1458,12 @@ function runWorkbenchCommandOnce(
           markSurfaceDirty(runtime, surface),
         );
         const activeSurface = surfaceForTab(runtime.state.selectedTab);
-        const activeSurfaceRefresh = invalidatedSurfaces.includes(activeSurface)
-          ? sendSurface(runtime, activeSurface, {
-              refreshFromService: options.refreshFromService !== false,
-            })
-          : Promise.resolve();
+        const activeSurfaceRefresh =
+          activeSurface && invalidatedSurfaces.includes(activeSurface)
+            ? sendSurface(runtime, activeSurface, {
+                refreshFromService: options.refreshFromService !== false,
+              })
+            : Promise.resolve();
         if (
           commandSucceeded &&
           isCitationGraphCacheCommand(command) &&
@@ -1663,12 +1670,92 @@ async function refreshRetrievalMaintenance(
  * operation, so unrelated high-frequency snapshots never issue the read.
  */
 function shouldRefreshRetrieval(runtime: SynthesisWorkbenchRuntime): boolean {
-  if (runtime.state.selectedTab === "overview") return true;
+  if (
+    runtime.state.selectedTab === "overview" ||
+    runtime.state.selectedTab === "retrieval"
+  )
+    return true;
   const operation = runtime.retrievalMaintenance;
   return Boolean(
     operation &&
     (operation.status === "pending" || operation.status === "running"),
   );
+}
+
+async function readRetrievalExplorer(
+  runtime: SynthesisWorkbenchRuntime,
+  operation: keyof SynthesisWorkbenchRetrievalExplorer,
+  args: Record<string, unknown>,
+) {
+  if (runtime.state.selectedTab !== "retrieval") return;
+  const { requestId, ...input } = args;
+  if (
+    typeof requestId !== "number" ||
+    !Number.isSafeInteger(requestId) ||
+    requestId <= 0
+  )
+    return;
+  const explorer = (runtime.retrievalExplorer ??= {});
+  const owner = JSON.stringify(input);
+  const previous =
+    explorer[operation]?.owner === owner
+      ? explorer[operation]?.result
+      : undefined;
+  const loading = {
+    owner,
+    requestId,
+    status: "loading" as const,
+    result: previous,
+  };
+  explorer[operation] = loading;
+  const publish = () => {
+    if (runtime.state.selectedTab === "retrieval" && !runtime.cleanedUp) {
+      postWorkbenchMessage(
+        runtime,
+        "synthesis:chrome",
+        snapshotForRuntime(runtime),
+      );
+    }
+  };
+  publish();
+  try {
+    const request = rebuildSynthesisRetrievalExplorerRequest({
+      ...input,
+      operation,
+    });
+    const result =
+      await getSynthesisRetrievalPorts().retrieval.explore(request);
+    if (explorer[operation] !== loading || runtime.cleanedUp) return;
+    const items = (globalThis as { Zotero?: typeof Zotero }).Zotero?.Items;
+    for (const row of result.rows) {
+      if (!row.itemRef || row.title !== row.identity) continue;
+      const item = items?.getByLibraryAndKey?.(
+        row.itemRef.libraryId,
+        row.itemRef.key,
+      );
+      const title = item && item.getField("title");
+      if (typeof title === "string" && title.trim())
+        row.title = title.slice(0, 1024);
+    }
+    explorer[operation] = { owner, requestId, status: "ready", result };
+  } catch (error) {
+    if (explorer[operation] !== loading || runtime.cleanedUp) return;
+    const reason =
+      error instanceof SynthesisClientError
+        ? (error.details?.sidecarReason ?? error.details?.reason ?? error.code)
+        : undefined;
+    explorer[operation] = {
+      owner,
+      requestId,
+      status: "error",
+      result: previous,
+      error:
+        typeof reason === "string" && /^[a-z][a-z0-9_]{0,63}$/.test(reason)
+          ? reason
+          : "retrieval_unavailable",
+    };
+  }
+  publish();
 }
 
 /**
@@ -1733,8 +1820,39 @@ export function projectRetrievalSnapshot(args: {
             { code: "vector_unavailable", sourceKind: null, affectedCount: 0 },
           ],
         });
+  const selected = new Set([
+    args.prefs.primaryConnectionId,
+    ...args.prefs.fallbackConnectionIds,
+  ]);
+  const compatible = args.prefs.connections.filter(
+    (connection) =>
+      selected.has(connection.id) &&
+      state.activeIdentity &&
+      isSynthesisEmbeddingConnectionCompatible(
+        {
+          ...connection,
+          dimensions:
+            connection.dimensions ??
+            args.prefs.connectionTests[connection.id]?.dimensions,
+        },
+        state.activeIdentity,
+      ),
+  );
+  const tested = compatible.some(
+    (connection) => args.prefs.connectionTests[connection.id]?.ok,
+  );
   return {
     ...state,
+    stateReadFailed: !args.native,
+    queryServiceStatus: !args.prefs.enabled
+      ? "unavailable"
+      : !args.native || !state.activeIdentity
+        ? "unverified"
+        : !args.native.enabled || !compatible.length
+          ? "unavailable"
+          : tested
+            ? "available"
+            : "unverified",
     enabled: args.prefs.enabled,
     pendingIdentity: args.pendingIdentity,
     pendingScope: args.prefs.pendingScope,
@@ -3178,7 +3296,8 @@ async function sendActiveSurface(
   runtime: SynthesisWorkbenchRuntime,
   options: { refreshFromService?: boolean } = {},
 ) {
-  await sendSurface(runtime, surfaceForTab(runtime.state.selectedTab), options);
+  const surface = surfaceForTab(runtime.state.selectedTab);
+  if (surface) await sendSurface(runtime, surface, options);
 }
 
 function scheduleActiveSurfaceRefresh(
@@ -3186,6 +3305,7 @@ function scheduleActiveSurfaceRefresh(
   options: { refreshFromService?: boolean } = {},
 ) {
   const scheduledSurface = surfaceForTab(runtime.state.selectedTab);
+  if (!scheduledSurface) return;
   globalThis.setTimeout(() => {
     if (!isActiveSurface(runtime, scheduledSurface)) {
       return;
@@ -5302,6 +5422,24 @@ function handleAction(
     );
     return;
   }
+  if (
+    result.hostCommand?.command === "retrievalSemanticSearch" ||
+    result.hostCommand?.command === "retrievalBrowseIndex" ||
+    result.hostCommand?.command === "retrievalReadFragments"
+  ) {
+    const operation =
+      result.hostCommand.command === "retrievalSemanticSearch"
+        ? "search"
+        : result.hostCommand.command === "retrievalBrowseIndex"
+          ? "browse"
+          : "fragments";
+    void readRetrievalExplorer(
+      runtime,
+      operation,
+      commandArgsFromPayload(envelope.payload),
+    );
+    return;
+  }
   if (result.hostCommand?.command === "retrievalSaveSettings") {
     const commandArgs = commandArgsFromPayload(envelope.payload);
     runWorkbenchCommandOnce(
@@ -5673,7 +5811,7 @@ function surfacesInvalidatedByCommand(
   ) {
     return ["home"];
   }
-  return [surfaceForTab(createDefaultSynthesisUiState().selectedTab)];
+  return ["home"];
 }
 
 function shouldRefreshGraphLayoutForAction(

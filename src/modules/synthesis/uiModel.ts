@@ -28,11 +28,13 @@ import type {
   SynthesisWorkbenchRegistryReferenceRow,
   SynthesisWorkbenchRegistryRow,
   SynthesisWorkbenchRetrievalSnapshot,
+  SynthesisWorkbenchRetrievalExplorer,
   SynthesisWorkbenchSidecarStatus,
   SynthesisWorkbenchSnapshot,
   SynthesisWorkbenchSnapshotHostTypes,
   SynthesisWorkbenchStagedTagRow,
   SynthesisWorkbenchSurfaceName,
+  SynthesisWorkbenchTab,
   SynthesisWorkbenchTagImportPreview,
   SynthesisWorkbenchTagRow,
   SynthesisWorkbenchTopicArtifactRow,
@@ -50,15 +52,7 @@ import type {
 
 export type { SynthesisWorkbenchSurfaceName } from "../../shared/synthesisWorkbenchWireContract";
 
-export type SynthesisUiTab =
-  | "overview"
-  | "artifacts"
-  | "registry"
-  | "reviews"
-  | "tags"
-  | "concepts"
-  | "graph"
-  | "reader";
+export type SynthesisUiTab = SynthesisWorkbenchTab;
 
 export type SynthesisUiCoverage = SynthesisWorkbenchArtifactCoverage;
 export type SynthesisUiSourceMaterialsStatus =
@@ -433,6 +427,7 @@ export type SynthesisUiState = {
     selectedElement?: SynthesisUiGraphElement;
   };
   reader: {
+    section?: string;
     topicId: string;
     previousTab: Exclude<SynthesisUiTab, "reader">;
   };
@@ -452,6 +447,7 @@ export type SynthesisUiSnapshotInput = {
     webdav?: unknown;
   };
   retrieval?: SynthesisWorkbenchRetrievalSnapshot;
+  retrievalExplorer?: SynthesisWorkbenchRetrievalExplorer;
   conflicts?: SynthesisUiConflictCandidate[];
   deletedArtifacts?: {
     rows?: SynthesisUiDeletedArtifactRow[];
@@ -636,6 +632,9 @@ const HOST_COMMANDS: SynthesisUiHostCommandName[] = [
   "retrievalContinueIndex",
   "retrievalCleanupIndex",
   "retrievalRecommendSimilar",
+  "retrievalSemanticSearch",
+  "retrievalBrowseIndex",
+  "retrievalReadFragments",
 ];
 
 const COMMAND_LABELS: Record<SynthesisUiHostCommandName, string> = {
@@ -706,6 +705,9 @@ const COMMAND_LABELS: Record<SynthesisUiHostCommandName, string> = {
   retrievalContinueIndex: "Continue retrieval index",
   retrievalCleanupIndex: "Clean up retrieval index",
   retrievalRecommendSimilar: "Find similar papers",
+  retrievalSemanticSearch: "Search indexed content",
+  retrievalBrowseIndex: "Browse indexed sources",
+  retrievalReadFragments: "Read indexed fragments",
 };
 
 function cleanString(value: unknown) {
@@ -798,6 +800,7 @@ function normalizeTab(value: unknown): SynthesisUiTab {
     tab === "overview" ||
     tab === "artifacts" ||
     tab === "registry" ||
+    tab === "retrieval" ||
     tab === "reviews" ||
     tab === "tags" ||
     tab === "concepts" ||
@@ -3556,6 +3559,9 @@ export function buildSynthesisUiSnapshot(
       webdav: normalizeDurableSyncStatus(input.sync?.webdav),
     },
     ...(input.retrieval ? { retrieval: { ...input.retrieval } } : {}),
+    ...(input.retrievalExplorer && state.selectedTab === "retrieval"
+      ? { retrievalExplorer: input.retrievalExplorer }
+      : {}),
     conflicts: {
       candidates: normalizeConflictCandidates(input.conflicts),
     },
@@ -3735,6 +3741,7 @@ export function buildSynthesisUiSnapshot(
     },
     reader: {
       topicId: cleanString(state.reader.topicId),
+      ...(state.reader.section && { section: state.reader.section }),
       previousTab: normalizeNonReaderTab(state.reader.previousTab),
     },
     hostCommands: [...HOST_COMMANDS],
@@ -3817,6 +3824,7 @@ export function applySynthesisUiAction(
       return { handled: false, state: next, reason: "invalid_payload" };
     }
     next.reader.topicId = topicId;
+    next.reader.section = cleanString(payload.section).slice(0, 128);
     next.reader.previousTab =
       "previousTab" in payload
         ? normalizeNonReaderTab(payload.previousTab)

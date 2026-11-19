@@ -25,6 +25,7 @@ import type {
   SynthesisPortableItemRef,
   SynthesisPublicMaintenanceOperation,
   SynthesisRetrievalConnection,
+  SynthesisRetrievalExplorerResult,
   SynthesisRetrievalState,
   SynthesisTagValidationWarning,
   SynthesisWorkbenchPaperDigestResult,
@@ -83,6 +84,7 @@ export type SynthesisWorkbenchTab =
   | "overview"
   | "artifacts"
   | "registry"
+  | "retrieval"
   | "reviews"
   | "tags"
   | "concepts"
@@ -187,7 +189,10 @@ export type SynthesisWorkbenchHostCommandName =
   | "retrievalRetryIndex"
   | "retrievalContinueIndex"
   | "retrievalCleanupIndex"
-  | "retrievalRecommendSimilar";
+  | "retrievalRecommendSimilar"
+  | "retrievalSemanticSearch"
+  | "retrievalBrowseIndex"
+  | "retrievalReadFragments";
 
 // ---------------------------------------------------------------------------
 // page -> host
@@ -481,11 +486,28 @@ export type SynthesisWorkbenchPreferencesStatus = {
  * Credentials never appear here.
  */
 export type SynthesisWorkbenchRetrievalSnapshot = SynthesisRetrievalState & {
+  stateReadFailed?: boolean;
+  queryServiceStatus?: "available" | "unavailable" | "unverified";
   connections: SynthesisWorkbenchRetrievalConnectionSnapshot[];
   primaryConnectionId: string | null;
   fallbackConnectionIds: string[];
   maintenance: SynthesisPublicMaintenanceOperation | null;
 };
+
+export type SynthesisWorkbenchRetrievalExplorerSlot = {
+  owner: string;
+  requestId: number;
+  status: "loading" | "ready" | "error";
+  result?: SynthesisRetrievalExplorerResult;
+  error?: string;
+};
+
+export type SynthesisWorkbenchRetrievalExplorer = Partial<
+  Record<
+    "search" | "browse" | "fragments",
+    SynthesisWorkbenchRetrievalExplorerSlot
+  >
+>;
 
 /** Nonsecret connection plus whether a synthetic test verified its dimensions. */
 export type SynthesisWorkbenchRetrievalConnectionSnapshot =
@@ -1161,6 +1183,7 @@ export type SynthesisWorkbenchSnapshot<
   preferences: SynthesisWorkbenchPreferencesStatus;
   sync: SynthesisWorkbenchSyncStatus;
   retrieval?: SynthesisWorkbenchRetrievalSnapshot;
+  retrievalExplorer?: SynthesisWorkbenchRetrievalExplorer;
   conflicts: {
     candidates: Array<{
       id: string;
@@ -1269,6 +1292,7 @@ export type SynthesisWorkbenchSnapshot<
     visibleEdges: Array<Host["graphEdge"]>;
   };
   reader: {
+    section?: string;
     topicId: string;
     previousTab: SynthesisWorkbenchNavTab;
   };

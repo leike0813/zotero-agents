@@ -131,6 +131,7 @@
       "required": ["kind", "sources"],
       "properties": {
         "kind": { "const": "library" },
+        "vector": { "$ref": "#/$defs/VectorCoverage" },
         "sources": {
           "type": "object",
           "additionalProperties": false,
@@ -151,30 +152,14 @@
     },
     "SearchCoverage": {
       "oneOf": [
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["kind", "sources"],
-          "properties": {
-            "kind": { "const": "library" },
-            "sources": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": ["metadata", "fulltext", "analysis"],
-              "properties": {
-                "metadata": { "$ref": "#/$defs/SourceCoverage" },
-                "fulltext": { "$ref": "#/$defs/SourceCoverage" },
-                "analysis": { "$ref": "#/$defs/SourceCoverage" }
-              }
-            }
-          }
-        },
+        { "$ref": "#/$defs/LibrarySearchCoverage" },
         {
           "type": "object",
           "additionalProperties": false,
           "required": ["kind", "sections"],
           "properties": {
             "kind": { "const": "topic" },
+            "vector": { "$ref": "#/$defs/VectorCoverage" },
             "sections": {
               "type": "array",
               "maxItems": 100,
@@ -183,6 +168,19 @@
           }
         }
       ]
+    },
+    "VectorCoverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status"],
+      "properties": {
+        "status": { "enum": ["complete", "limited", "unavailable"] },
+        "reason": {
+          "type": "string",
+          "maxLength": 64,
+          "pattern": "^[a-z][a-z0-9_]*$"
+        }
+      }
     },
     "SourceCoverage": {
       "type": "object",
@@ -479,6 +477,7 @@
               "required": ["kind", "sections"],
               "properties": {
                 "kind": { "const": "topic" },
+                "vector": { "$ref": "#/$defs/VectorCoverage" },
                 "sections": {
                   "type": "array",
                   "maxItems": 16,

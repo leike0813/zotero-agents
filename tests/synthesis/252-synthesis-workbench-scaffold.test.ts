@@ -470,12 +470,12 @@ describe("synthesis workbench scaffold (src/synthesis)", function () {
     assert.equal(controller.state.latestGraphPage?.generation, 3);
   });
 
-  it("renders the shell nav with 7 tabs and no reader entry", function () {
+  it("renders the shell nav with the retrieval tab and no reader entry", function () {
     const { root } = renderPanelIntoRoot(projectHosted(makeSnapshot()));
     const shell = root.querySelector('[data-role="synthesis-shell"]');
     assert.ok(shell, "shell container exists");
     const buttons = shell!.querySelectorAll("button[data-synthesis-tab]");
-    assert.equal(buttons.length, 7);
+    assert.equal(buttons.length, 8);
     const tabs = Array.from(buttons).map((button) =>
       button.getAttribute("data-synthesis-tab"),
     );
@@ -485,6 +485,7 @@ describe("synthesis workbench scaffold (src/synthesis)", function () {
       "concepts",
       "graph",
       "registry",
+      "retrieval",
       "tags",
       "reviews",
     ]);
@@ -497,11 +498,62 @@ describe("synthesis workbench scaffold (src/synthesis)", function () {
     const shell = root.querySelector('[data-role="synthesis-shell"]');
     assert.ok(shell, "shell container exists");
     const buttons = shell!.querySelectorAll("button[data-synthesis-tab]");
-    assert.lengthOf(buttons, 7);
+    assert.ok(shell!.querySelector('button[data-synthesis-tab="retrieval"]'));
+    assert.lengthOf(buttons, 8);
     buttons.forEach((button) => {
       const tabKey = button.getAttribute("data-synthesis-tab") || "";
       const icon = button.querySelector("span.nav-icon > span.zs-icon");
       assert.ok(icon, `nav-icon span missing for ${tabKey}`);
+    });
+  });
+
+  it("opens a semantic paper result and browses the published index on demand", function () {
+    const { root, dispatched } = renderPanelIntoRoot(
+      projectHosted(
+        makeSnapshot({
+          selectedTab: "retrieval",
+          retrievalExplorer: {
+            search: {
+              owner: "search",
+              requestId: 1,
+              status: "ready",
+              result: {
+                operation: "search",
+                publication: "p",
+                rows: [
+                  {
+                    identity: "1:AAAA",
+                    title: "Excavation",
+                    itemRef: { libraryId: 1, key: "AAAA" },
+                    score: 0.87,
+                    preview: "field observation",
+                  },
+                ],
+                nextCursor: null,
+                limited: false,
+                issues: [],
+              },
+            },
+          },
+        }),
+      ),
+    );
+    const region = root.querySelector(".retrieval-explorer")!;
+    assert.include(region.textContent, "field observation");
+    region.querySelector<HTMLButtonElement>("article button")!.click();
+    assert.deepInclude(dispatched, {
+      action: "hostCommand",
+      payload: {
+        command: "openZoteroItem",
+        args: { libraryId: 1, itemKey: "AAAA" },
+      },
+    });
+    region
+      .querySelectorAll<HTMLButtonElement>("header button[aria-pressed]")[1]
+      .click();
+    assert.deepInclude(dispatched, {
+      action: "hostCommand",
+      payload: { command: "retrievalBrowseIndex", args: { requestId: 1 } },
     });
   });
 

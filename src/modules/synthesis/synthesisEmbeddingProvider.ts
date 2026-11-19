@@ -257,7 +257,7 @@ export function createSynthesisEmbeddingHttpClient(): SynthesisEmbeddingHttpClie
   };
 }
 
-function compatible(
+export function isSynthesisEmbeddingConnectionCompatible(
   connection: SynthesisRetrievalConnection,
   identity: SynthesisEncodingIdentity,
 ) {
@@ -535,7 +535,10 @@ export function createSynthesisEmbeddingProvider(options?: {
       deadlineAtMs: args.deadlineAtMs,
     });
     const services = args.services.filter((service) =>
-      compatible(service.connection, request.identity),
+      isSynthesisEmbeddingConnectionCompatible(
+        service.connection,
+        request.identity,
+      ),
     );
     for (const service of services)
       validateSynthesisEmbeddingConnection(service.connection);
@@ -657,7 +660,10 @@ export function createSynthesisEmbeddingProvider(options?: {
       deadlineAtMs: args.deadlineAtMs,
     });
     const matching = args.services.filter((service) =>
-      compatible(service.connection, request.identity),
+      isSynthesisEmbeddingConnectionCompatible(
+        service.connection,
+        request.identity,
+      ),
     );
     const batchSize = Math.min(
       256,

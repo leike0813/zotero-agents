@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Provides Synthesis-owned lexical search over bounded, citable Library source passages and returns only content verified against its current source owner during the search request.
+Provides Synthesis-owned lexical and published-index search over citable Library source passages and returns only content verified against its current source owner during the search request.
 
 ## Requirements
 
@@ -115,3 +115,9 @@ Evidence retrieved through derived vectors SHALL be re-read from its source owne
 
 - **WHEN** current source and original range still match
 - **THEN** the result exposes exact current text and separate source context without inferred PDF pages, local paths or mutation authority
+
+#### Scenario: Published evidence lies beyond the lexical scan
+
+- **WHEN** a published passage belongs to the current Library, item, collection, tag, item type and source-kind intersection but its descriptor lies beyond the lexical scan window
+- **THEN** it remains eligible for semantic ranking and can enter the results after a targeted source read verifies its version and original UTF-16 range
+- **AND** an item excluded by a current filter cannot occupy a semantic result slot

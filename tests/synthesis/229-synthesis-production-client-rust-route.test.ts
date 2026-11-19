@@ -933,6 +933,7 @@ describe("Synthesis Rust production client route", function () {
       ]);
       assert.deepEqual(expected.coverage, {
         kind: "topic",
+        vector: { status: "unavailable", reason: "embedding_disabled" },
         sections: [{ section: "comparison_matrix", status: "complete" }],
       });
       assert.isFalse(
@@ -1105,7 +1106,7 @@ describe("Synthesis Rust production client route", function () {
     assert.lengthOf(TOPIC_WORKBENCH_OPERATIONS, 21);
     assert.deepEqual(inspectSynthesisTopicWorkbenchSurfaceParity(), {
       ok: true,
-      operations: 28,
+      operations: 29,
       observables: 21,
       errors: [],
     });
@@ -1831,11 +1832,20 @@ describe("Synthesis Rust production client route", function () {
             entry.id,
           );
         } else {
-          assert.deepInclude(
-            response.body.data,
-            entry.expected.projection,
-            entry.id,
-          );
+          const projection =
+            entry.operation === "client.searchTopics"
+              ? {
+                  ...entry.expected.projection,
+                  coverage: {
+                    ...(entry.expected.projection.coverage as object),
+                    vector: {
+                      status: "unavailable",
+                      reason: "embedding_disabled",
+                    },
+                  },
+                }
+              : entry.expected.projection;
+          assert.deepInclude(response.body.data, projection, entry.id);
         }
         assert.deepEqual(captureDurableState(root), before, entry.id);
         observed.push(entry.id);
@@ -7605,6 +7615,24 @@ describe("Synthesis Rust production client route", function () {
       fs.rmdirSync(incompleteCurrent);
       fs.rmdirSync(incompleteTopic);
 
+      const page = await harness.retrieval.explore({
+        operation: "browse",
+        limit: 1,
+      });
+      assert.lengthOf(page.rows, 1);
+      const details = await harness.retrieval.explore({
+        operation: "fragments",
+        publication: page.publication,
+        identity: page.rows[0].identity,
+      });
+      assert.isString(details.rows[0].preview);
+      const semantic = await harness.retrieval.explore({
+        operation: "search",
+        target: "paper",
+        query: "semantic search",
+      });
+      assert.isNumber(semantic.rows[0].score);
+
       const recommendation = await operation("client.recommendSimilarPapers", {
         args: [{ paperRef: { libraryId: 1, key: "RETRIEVAL1" }, limit: 5 }],
       });
@@ -7740,6 +7768,10 @@ describe("Synthesis Rust production client route", function () {
     });
     const rejectedRequests = [
       ["client.getRetrievalState", { args: [{}] }],
+      [
+        "client.exploreRetrievalIndex",
+        { args: [{ operation: "search", target: "paper", query: "" }] },
+      ],
       ["client.recommendSimilarPapers", { args: [] }],
       ["client.invalidateRetrievalSources", { args: [] }],
       ["library.retrieval.execute", { query: "" }],

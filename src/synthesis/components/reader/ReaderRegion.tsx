@@ -152,7 +152,15 @@ function TopicDetailToolbar(props: {
 function TopicDetailView(props: ReaderRegionProps) {
   const { selection, t, onAction } = props;
   const detail = selection.detail!;
-  const [section, setSection] = useState<TopicDetailSectionId>("overview");
+  const [section, setSection] = useState<TopicDetailSectionId>(() => {
+    const initial = selection.initialSection;
+    if (initial === "synthesis_report") return "report";
+    if (initial === "comparison_matrix") return "compare";
+    return (
+      TOPIC_DETAIL_SECTION_TABS.find((tab) => tab.id === initial)?.id ??
+      "overview"
+    );
+  });
   const [evidenceOpen, setEvidenceOpen] = useState(false);
   const [selectedEvidenceId, setSelectedEvidenceId] = useState<
     string | undefined

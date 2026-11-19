@@ -269,6 +269,7 @@
     "client.updateRetrievalIndex": "mutation",
     "client.cleanupRetrievalIndex": "mutation",
     "client.recommendSimilarPapers": "read",
+    "client.exploreRetrievalIndex": "read",
     "client.invalidateRetrievalSources": "mutation"
   },
   "semanticSuccess": {

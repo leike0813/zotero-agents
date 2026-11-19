@@ -2307,7 +2307,7 @@
               "prerequisites": [
                 "Use a non-empty query no longer than 4096 UTF-16 code units; replace example identifiers with libraries and portable item refs valid for the current Zotero profile."
               ],
-              "description": "Canonical bounded lexical-search request carried intact by --query."
+              "description": "Scoped search request. Retrieval uses the published vector index when available and reports the executed method."
             }
           ],
           "schemaSource": "target-capability"

@@ -218,6 +218,8 @@ const GROUPED_INVOCATIONS: Record<
     harness.retrieval.invalidate({
       paperRefs: [{ libraryId: 1, key: "SCENARIO1" }],
     }),
+  "client.exploreRetrievalIndex": (_, harness) =>
+    harness.retrieval.explore({ operation: "browse", limit: 1 }),
   "client.recommendSimilarPapers": (_, harness) =>
     harness.retrieval.recommend({
       paperRef: { libraryId: 1, key: "SCENARIO1" },

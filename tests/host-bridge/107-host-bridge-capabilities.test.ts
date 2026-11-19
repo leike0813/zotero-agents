@@ -353,6 +353,15 @@ describe("Host Bridge navigation contract", function () {
       validateHostBridgeCapabilityOutput("library.search_items", result),
       [],
     );
+    for (const method of ["hybrid", "vector"]) {
+      assert.deepEqual(
+        validateHostBridgeCapabilityOutput("library.search_items", {
+          ...result,
+          method,
+        }),
+        [],
+      );
+    }
     assert.isNotEmpty(
       validateHostBridgeCapabilityOutput("library.search_items", {
         ...result,

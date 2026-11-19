@@ -18021,6 +18021,7 @@ export function createZoteroHostCapabilityBroker(
       ? undefined
       : createNativeSynthesisLibraryRetrievalPort());
   type LibrarySearchRound = {
+    semanticDescriptors: SynthesisHostEvidenceDescriptor[];
     requestBasis: string;
     publication: string | null;
     scope: SynthesisHostEvidenceScope;
@@ -18266,7 +18267,10 @@ export function createZoteroHostCapabilityBroker(
         }
         if (descriptors.length !== frozenKeys.length) throw searchConflict();
       }
-      for (const descriptor of entry.round.descriptors) {
+      for (const descriptor of [
+        ...entry.round.descriptors,
+        ...entry.round.semanticDescriptors,
+      ]) {
         assertSearchBudget();
         const current = await readEvidenceSource({
           scope: entry.round.scope,
@@ -18361,6 +18365,13 @@ export function createZoteroHostCapabilityBroker(
           execution = await lexicalPort.execute(executionRequest, control);
           execution.result = {
             ...execution.result,
+            coverage: {
+              ...execution.result.coverage,
+              vector: {
+                status: "unavailable",
+                reason: "retrieval_unavailable",
+              },
+            },
             issues: [
               ...execution.result.issues,
               {
@@ -18397,6 +18408,7 @@ export function createZoteroHostCapabilityBroker(
     // of rescanning and re-hashing the whole descriptor list, and each distinct
     // descriptor is read at most once per request.
     const descriptorMap = new Map<string, SynthesisHostEvidenceDescriptor>();
+    const semanticDescriptors: SynthesisHostEvidenceDescriptor[] = [];
     for (const descriptor of execution.descriptors) {
       descriptorMap.set(
         evidenceDescriptorIdentityKey(
@@ -18418,7 +18430,43 @@ export function createZoteroHostCapabilityBroker(
           match.sourceVersion,
           match.source,
         );
-        const descriptor = descriptorMap.get(descriptorKey);
+        let descriptor = descriptorMap.get(descriptorKey);
+        if (
+          !descriptor &&
+          execution.result.method !== "lexical" &&
+          normalized.sourceKinds.includes(match.source.kind) &&
+          scope.libraryIds.includes(hit.itemRef.libraryId) &&
+          (!scope.itemRefs ||
+            scope.itemRefs.some(
+              (ref) =>
+                ref.libraryId === hit.itemRef.libraryId &&
+                ref.key === hit.itemRef.key,
+            ))
+        ) {
+          let cursor: string | undefined;
+          do {
+            assertSearchBudget();
+            const page = await listEvidenceSources({
+              scope: { ...scope, itemRefs: [hit.itemRef] },
+              sourceKinds: [match.source.kind],
+              limit: 100,
+              cursor,
+            });
+            descriptor = page.descriptors.find(
+              (row) =>
+                evidenceDescriptorIdentityKey(
+                  row.itemRef,
+                  row.sourceVersion,
+                  row.source,
+                ) === descriptorKey,
+            );
+            cursor = page.nextCursor ?? undefined;
+          } while (!descriptor && cursor);
+          if (descriptor) {
+            descriptorMap.set(descriptorKey, descriptor);
+            semanticDescriptors.push(descriptor);
+          }
+        }
         if (!descriptor) throw searchConflict();
         // The first reference to a descriptor loads the full current content once
         // (its version is already validated by readSource); later matches reuse it
@@ -18456,6 +18504,7 @@ export function createZoteroHostCapabilityBroker(
       results.push({ item: summary, matches: hit.matches });
     }
     const round: LibrarySearchRound = {
+      semanticDescriptors,
       requestBasis,
       publication:
         "publication" in execution && typeof execution.publication === "string"

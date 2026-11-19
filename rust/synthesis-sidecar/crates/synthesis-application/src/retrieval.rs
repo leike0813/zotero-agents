@@ -27,6 +27,9 @@ use synthesis_repository::{
     RetrievalFragmentRecord, RetrievalGroupRecord, RetrievalPromotion, RetrievalPublicationRecord,
 };
 
+#[path = "retrieval_explorer.rs"]
+mod explorer;
+
 /// Largest accepted encoding dimension. Research model maxima are smaller;
 /// this is a transport bound, not a claimed model capacity.
 pub const RETRIEVAL_MAX_VECTOR_DIMENSIONS: usize = 16_384;
@@ -198,12 +201,78 @@ pub struct RetrievalQueryOutcome {
     pub limited: bool,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum VectorCoverageStatus {
+    Complete,
+    Limited,
+    Unavailable,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct VectorCoverage {
+    pub status: VectorCoverageStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+impl VectorCoverage {
+    pub fn verification_failure(code: &str) -> Self {
+        Self {
+            status: VectorCoverageStatus::Limited,
+            reason: Some(code.to_owned()),
+        }
+    }
+
+    pub fn failure(code: &str) -> Self {
+        let reason = match code {
+            "retrieval_index_missing"
+            | "retrieval_index_paused"
+            | "embedding_disabled"
+            | "embedding_service_unavailable"
+            | "operation_timeout"
+            | "source_changed"
+            | "basis_mismatch"
+            | "scan_budget_exhausted"
+            | "source_unavailable" => code,
+            _ => "query_encoding_failed",
+        };
+        Self {
+            status: VectorCoverageStatus::Unavailable,
+            reason: Some(reason.to_owned()),
+        }
+    }
+
+    pub fn searched(outcome: &RetrievalQueryOutcome) -> Self {
+        let incomplete = outcome
+            .issues
+            .iter()
+            .any(|i| i["code"] != "result_budget_exhausted");
+        Self {
+            status: if incomplete {
+                VectorCoverageStatus::Limited
+            } else {
+                VectorCoverageStatus::Complete
+            },
+            reason: None,
+        }
+    }
+}
+
 pub struct RetrievalApplication {
     pub(crate) repository: Arc<RepositoryPort>,
     pub(crate) sources: Arc<dyn EvidenceSourcePort>,
     pub(crate) embeddings: Arc<dyn RetrievalEmbeddingPort>,
     pub(crate) canonical: Arc<dyn TopicCanonicalPort>,
     pub(crate) clock: Arc<dyn Fn() -> String + Send + Sync>,
+}
+
+pub(crate) fn topic_section(asset: &str) -> &str {
+    match asset {
+        "synthesis.md" => "synthesis_report",
+        section => section,
+    }
 }
 
 impl RetrievalApplication {
@@ -530,8 +599,14 @@ impl RetrievalApplication {
             .repository
             .with_reader(|repository| repository.get_retrieval_state())?
             .unwrap_or_default();
-        if !state.enabled || state.status != "ready" || state.active_publication_id.is_empty() {
-            return Err("retrieval_unavailable".into());
+        if state.status == "paused" {
+            return Err("retrieval_index_paused".into());
+        }
+        if state.active_publication_id.is_empty() {
+            return Err("retrieval_index_missing".into());
+        }
+        if !state.enabled || state.status != "ready" {
+            return Err("embedding_disabled".into());
         }
         let Ok(identity) = serde_json::from_str::<EncodingIdentity>(&state.active_identity_json)
         else {
@@ -545,7 +620,7 @@ impl RetrievalApplication {
             .describe()
             .map_err(|_| "retrieval_unavailable".to_owned())?;
         if described.get("enabled").and_then(Value::as_bool) != Some(true) {
-            return Err("retrieval_unavailable".into());
+            return Err("embedding_disabled".into());
         }
         let deadline = request
             .deadline_at_ms
@@ -603,9 +678,11 @@ impl RetrievalApplication {
                         .as_str()
                         .is_none_or(|id| !ids.iter().any(|wanted| wanted == id))
                 }) || request.sections.as_ref().is_some_and(|sections| {
-                    source["section"]
-                        .as_str()
-                        .is_none_or(|section| !sections.iter().any(|wanted| wanted == section))
+                    source["section"].as_str().is_none_or(|section| {
+                        !sections
+                            .iter()
+                            .any(|wanted| wanted == topic_section(section))
+                    })
                 }) {
                     continue;
                 }
@@ -653,76 +730,84 @@ impl RetrievalApplication {
             .filter(|group| group.status == "ready")
             .map(|group| group.group_id.clone())
             .collect::<BTreeSet<_>>();
-        let fragments = self.load_fragments(&publication, &identities)?;
-
         let mut best: BTreeMap<String, ScoredFragment> = BTreeMap::new();
-        for fragment in fragments {
+        for batch in identities.chunks(RETRIEVAL_FRAGMENT_QUERY_BATCH) {
             checkpoint()?;
-            if now_millis() > deadline {
-                return Err("operation_timeout".into());
-            }
-            if !ready_groups.contains(&fragment.group_id) {
-                continue;
-            }
-            let Some(score) = cosine_from_original(&fragment.vector, &query_vector) else {
-                continue;
-            };
-            let replace = match best.get(&fragment.item_identity) {
-                None => true,
-                Some(current) => {
-                    score > current.score
-                        || (score == current.score && fragment.fragment_id < current.fragment_id)
+            let fragments = self.repository.with_reader(|repository| {
+                repository.list_retrieval_fragments_for_items(&publication, batch)
+            })?;
+            for fragment in fragments {
+                checkpoint()?;
+                if now_millis() > deadline {
+                    return Err("operation_timeout".into());
                 }
-            };
-            if !replace {
-                continue;
-            }
-            let source: Value = serde_json::from_str(&fragment.source_json).unwrap_or(Value::Null);
-            let (item_ref, topic) =
-                if source_kind_of(&fragment.source_json).as_deref() == Some("topic") {
-                    (
-                        None,
-                        Some(RetrievalTopicRef {
-                            topic_id: source
-                                .get("topicId")
-                                .and_then(Value::as_str)
-                                .unwrap_or_default()
-                                .to_owned(),
-                            path_id: source
-                                .get("pathId")
-                                .and_then(Value::as_str)
-                                .unwrap_or_default()
-                                .to_owned(),
-                            section: source
-                                .get("section")
-                                .and_then(Value::as_str)
-                                .unwrap_or_default()
-                                .to_owned(),
-                        }),
-                    )
-                } else {
-                    match item_ref_from_identity(&fragment.item_identity) {
-                        Some(item_ref) => (Some(item_ref), None),
-                        None => continue,
+                if !ready_groups.contains(&fragment.group_id) {
+                    continue;
+                }
+                let Some(score) = cosine_from_original(&fragment.vector, &query_vector) else {
+                    continue;
+                };
+                let replace = match best.get(&fragment.item_identity) {
+                    None => true,
+                    Some(current) => {
+                        score > current.score
+                            || (score == current.score
+                                && fragment.fragment_id < current.fragment_id)
                     }
                 };
-            best.insert(
-                fragment.item_identity.clone(),
-                ScoredFragment {
-                    item_ref,
-                    topic,
-                    item_identity: fragment.item_identity.clone(),
-                    library_id: fragment.library_id,
-                    group_id: fragment.group_id,
-                    fragment_id: fragment.fragment_id,
-                    source_json: fragment.source_json,
-                    source_version: fragment.source_version,
-                    range_start: fragment.range_start,
-                    range_end: fragment.range_end,
-                    location_json: fragment.location_json,
-                    score,
-                },
-            );
+                if !replace {
+                    continue;
+                }
+                let source: Value =
+                    serde_json::from_str(&fragment.source_json).unwrap_or(Value::Null);
+                let (item_ref, topic) =
+                    if source_kind_of(&fragment.source_json).as_deref() == Some("topic") {
+                        (
+                            None,
+                            Some(RetrievalTopicRef {
+                                topic_id: source
+                                    .get("topicId")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or_default()
+                                    .to_owned(),
+                                path_id: source
+                                    .get("pathId")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or_default()
+                                    .to_owned(),
+                                section: topic_section(
+                                    source
+                                        .get("section")
+                                        .and_then(Value::as_str)
+                                        .unwrap_or_default(),
+                                )
+                                .to_owned(),
+                            }),
+                        )
+                    } else {
+                        match item_ref_from_identity(&fragment.item_identity) {
+                            Some(item_ref) => (Some(item_ref), None),
+                            None => continue,
+                        }
+                    };
+                best.insert(
+                    fragment.item_identity.clone(),
+                    ScoredFragment {
+                        item_ref,
+                        topic,
+                        item_identity: fragment.item_identity.clone(),
+                        library_id: fragment.library_id,
+                        group_id: fragment.group_id,
+                        fragment_id: fragment.fragment_id,
+                        source_json: fragment.source_json,
+                        source_version: fragment.source_version,
+                        range_start: fragment.range_start,
+                        range_end: fragment.range_end,
+                        location_json: fragment.location_json,
+                        score,
+                    },
+                );
+            }
         }
         let mut results = best.into_values().collect::<Vec<_>>();
         results.sort_by(|left, right| {
@@ -813,23 +898,6 @@ impl RetrievalApplication {
                 })
             })
             .collect())
-    }
-
-    /// Bounded, chunked fragment load for a scoped identity list. A whole
-    /// library is never materialized.
-    fn load_fragments(
-        &self,
-        publication: &str,
-        identities: &[String],
-    ) -> Result<Vec<RetrievalFragmentRecord>, String> {
-        let mut fragments = Vec::new();
-        for batch in identities.chunks(RETRIEVAL_FRAGMENT_QUERY_BATCH) {
-            let mut loaded = self.repository.with_reader(|repository| {
-                repository.list_retrieval_fragments_for_items(publication, batch)
-            })?;
-            fragments.append(&mut loaded);
-        }
-        Ok(fragments)
     }
 
     fn run_full(
@@ -1256,7 +1324,12 @@ impl RetrievalApplication {
                 }
             };
             let item_identity = format!("topic:{path_id}");
-            for (section, text) in &view.markdown {
+            for section in view.markdown.keys().chain(
+                view.sections
+                    .keys()
+                    .filter(|key| !view.markdown.contains_key(*key)),
+            ) {
+                let text = crate::topic_search::retrieval_section_text(&view, section)?;
                 if text.trim().is_empty() {
                     continue;
                 }
@@ -1286,7 +1359,7 @@ impl RetrievalApplication {
                 };
                 self.put_group(&group, "suspended")?;
                 let mut records = Vec::new();
-                for unit in split_fragments(text, &source) {
+                for unit in split_fragments(&text, &source) {
                     checkpoint()?;
                     let input = text[unit.byte_start..unit.byte_end].to_owned();
                     let vectors = match self.encode_documents(identity, &[input]) {
@@ -2407,6 +2480,158 @@ mod tests {
     }
 
     #[test]
+    fn explorer_reads_verified_fragments_and_binds_pages_to_query_and_publication() {
+        let fixture = fixture(
+            "explorer",
+            vec![
+                (descriptor("AAAA", "title", "v1", 5), "alpha".into()),
+                (descriptor("BBBB", "title", "v1", 4), "beta".into()),
+            ],
+        );
+        let app = fixture.application;
+        let browse = json!({"operation":"browse","limit":1});
+        assert_eq!(
+            app.explore(browse.clone(), &checkpoint()).unwrap_err(),
+            "retrieval_index_missing"
+        );
+        app.maintain("build", maintenance(), &checkpoint()).unwrap();
+        let page = app.explore(browse.clone(), &checkpoint()).unwrap();
+        assert_eq!(page["rows"][0]["identity"], "1:AAAA");
+        let mut next = browse;
+        next["cursor"] = page["nextCursor"].clone();
+        next["publication"] = page["publication"].clone();
+        assert_eq!(
+            app.explore(next.clone(), &checkpoint()).unwrap()["rows"][0]["identity"],
+            "1:BBBB"
+        );
+        let fragments =
+            json!({"operation":"fragments","identity":"1:AAAA","publication":page["publication"]});
+        assert_eq!(
+            app.explore(fragments, &checkpoint()).unwrap()["rows"][0]["preview"],
+            "alpha"
+        );
+        let search = app
+            .explore(
+                json!({"operation":"search","target":"paper","query":"needle"}),
+                &checkpoint(),
+            )
+            .unwrap();
+        assert!(
+            search["rows"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|row| row["score"].is_number() && row["preview"].is_string())
+        );
+        next["libraryId"] = json!(2);
+        assert_eq!(
+            app.explore(next.clone(), &checkpoint()).unwrap_err(),
+            "basis_mismatch"
+        );
+        next.as_object_mut().unwrap().remove("libraryId");
+        app.maintain("rebuild", maintenance(), &checkpoint())
+            .unwrap();
+        assert_eq!(
+            app.explore(next, &checkpoint()).unwrap_err(),
+            "basis_mismatch"
+        );
+    }
+
+    #[test]
+    fn published_paper_beyond_catalog_budget_respects_current_scope() {
+        struct Paged(FakeSources);
+        impl EvidenceSourcePort for Paged {
+            fn list_sources(&self, r: Value) -> Result<Value, String> {
+                let scope = &r["scope"];
+                let rows: Vec<_> = self
+                    .0
+                    .rows
+                    .iter()
+                    .map(|v| &v.0)
+                    .filter(|d| {
+                        scope["itemRefs"]
+                            .as_array()
+                            .is_none_or(|refs| refs.contains(&d["itemRef"]))
+                            && (d["itemRef"]["key"] != "ZZZZ"
+                                || ["tag", "itemType", "collectionRef"]
+                                    .iter()
+                                    .all(|k| scope.get(k).is_none()))
+                    })
+                    .collect();
+                let start = r["cursor"]
+                    .as_str()
+                    .unwrap_or("0")
+                    .parse::<usize>()
+                    .unwrap();
+                let end = (start + r["limit"].as_u64().unwrap() as usize).min(rows.len());
+                Ok(
+                    json!({"scope":scope,"descriptors":rows[start..end],"issues":[],"hasMore":end<rows.len(),
+                    "nextCursor":(end<rows.len()).then(||end.to_string())}),
+                )
+            }
+            fn read_source(&self, r: Value) -> Result<Value, String> {
+                let mut result = self.0.read_source(r.clone())?;
+                result["location"] = r.get("location").cloned().unwrap_or_else(
+                    || json!({"unit":"field","field":"title","range":{"start":0,"end":5}}),
+                );
+                Ok(result)
+            }
+        }
+        let last = (descriptor("ZZZZ", "title", "v1", 5), "alpha".to_owned());
+        let fixture = fixture("outside-catalog", vec![last.clone()]);
+        fixture
+            .application
+            .maintain("build", maintenance(), &checkpoint())
+            .unwrap();
+        let mut rows = (0..300)
+            .map(|i| {
+                (
+                    descriptor(&format!("K{i:04}"), "title", "v1", 5),
+                    "alpha".to_owned(),
+                )
+            })
+            .collect::<Vec<_>>();
+        rows.push(last);
+        let search =
+            crate::evidence_search::EvidenceSearchApplication::new(Arc::new(Paged(FakeSources {
+                rows,
+            })))
+            .with_retrieval(Arc::new(fixture.application));
+        for library in [false, true] {
+            for filter in [
+                json!({}),
+                json!({"tag":"filtered"}),
+                json!({"itemType":"book"}),
+                json!({"collectionRef":{"libraryId":1,"key":"CCCC"}}),
+                json!({"itemRefs":[{"libraryId":1,"key":"K0000"}]}),
+            ] {
+                let mut input =
+                    json!({"query":"needle","libraryIds":[1],"sourceKinds":["metadata"]});
+                input
+                    .as_object_mut()
+                    .unwrap()
+                    .extend(filter.as_object().unwrap().clone());
+                let result = if library {
+                    search
+                        .search_library_items_with_retrieval(input, &checkpoint())
+                        .unwrap()["result"]
+                        .clone()
+                } else {
+                    search.search(input, &checkpoint()).unwrap()
+                };
+                if filter == json!({}) {
+                    assert_eq!(result["method"], "vector", "{result}");
+                    assert_eq!(result["results"][0]["itemRef"]["key"], "ZZZZ");
+                    assert_eq!(result["status"], "limited");
+                    assert_eq!(result["coverage"]["vector"]["status"], "complete");
+                } else {
+                    assert_eq!(result["results"], json!([]));
+                }
+            }
+        }
+    }
+
+    #[test]
     fn enhancement_timeout_preserves_lexical_results_but_cancellation_propagates() {
         use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -2671,6 +2896,19 @@ mod tests {
         assert_eq!(scored.results.len(), 2);
         assert_eq!(scored.results[0].item_ref.as_ref().unwrap().key, "AAAA");
         assert!(scored.results[0].score >= scored.results[1].score);
+        let explore = |request| fixture.application.explore(request, &checkpoint()).unwrap();
+        let found = explore(json!({"operation":"search","target":"paper","query":"alpha"}));
+        assert_eq!(found["rows"][0]["preview"], "alpha");
+        let first = explore(json!({"operation":"browse","limit":1}));
+        assert_eq!(first["rows"][0]["identity"], "1:AAAA");
+        let second = explore(
+            json!({"operation":"browse","limit":1,"publication":first["publication"],"cursor":first["nextCursor"]}),
+        );
+        assert_eq!(second["rows"][0]["identity"], "1:BBBB");
+        let fragments = explore(
+            json!({"operation":"fragments","identity":"1:AAAA","publication":first["publication"]}),
+        );
+        assert_eq!(fragments["rows"][0]["preview"], "alpha");
     }
 
     #[test]
@@ -2682,7 +2920,7 @@ mod tests {
                 .application
                 .query(json!({"query": "alpha"}))
                 .unwrap_err(),
-            "retrieval_unavailable"
+            "retrieval_index_missing"
         );
         assert_eq!(
             fixture.application.state().unwrap()["status"],

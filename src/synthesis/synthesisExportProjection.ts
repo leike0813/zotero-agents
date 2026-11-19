@@ -58,6 +58,7 @@ export function projectReaderSelection(
     topicId:
       detail?.topicId || artifact?.topicId || snapshot.reader?.topicId || "",
     previousTab: snapshot.reader?.previousTab || "artifacts",
+    initialSection: snapshot.reader?.section,
     detail,
     artifact,
     digestResult: narrowDigestResult(context.digestResult),

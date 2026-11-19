@@ -541,6 +541,8 @@ describe("synthesis workbench retrieval snapshot fallback", function () {
     assert.equal(snapshot.connections[0].dimensions, 1024);
     assert.equal(snapshot.primaryConnectionId, "c1");
     assert.equal(snapshot.status, "missing");
+    assert.isTrue(snapshot.stateReadFailed);
+    assert.equal(snapshot.queryServiceStatus, "unverified");
     assert.deepEqual(snapshot.pendingIdentity, pendingIdentity);
     assert.deepEqual(snapshot.issues, [
       { code: "vector_unavailable", sourceKind: null, affectedCount: 0 },
@@ -580,6 +582,9 @@ describe("synthesis workbench retrieval snapshot fallback", function () {
       maintenance: null,
     });
     assert.equal(second.status, "ready");
+    assert.equal(first.queryServiceStatus, "available");
+    assert.isTrue(second.stateReadFailed);
+    assert.equal(second.queryServiceStatus, "unverified");
     assert.equal(second.publication, "pub-1");
     assert.deepEqual(second.progress, first.progress);
     assert.deepEqual(second.issues, []);

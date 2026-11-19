@@ -43,9 +43,15 @@ export type SynthesisTopicSearchRequest = SynthesisSearchRequest & {
   sections?: string[];
 };
 
+type VectorCoverage = {
+  status: "complete" | "limited" | "unavailable";
+  reason?: string;
+};
+
 export type SynthesisSearchCoverage =
   | {
       kind: "library";
+      vector?: VectorCoverage;
       sources: Record<
         SynthesisSearchSourceKind,
         { status: SynthesisSearchWorkStatus; sourcesScanned: number }
@@ -53,6 +59,7 @@ export type SynthesisSearchCoverage =
     }
   | {
       kind: "topic";
+      vector?: VectorCoverage;
       sections: Array<{ section: string; status: SynthesisSearchWorkStatus }>;
     };
 

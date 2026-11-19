@@ -89,6 +89,18 @@ const result: SynthesisEvidenceSearchResult = {
 };
 
 describe("Synthesis evidence search projection", function () {
+  it("preserves independent vector coverage when lexical evidence is limited", function () {
+    const coverage = { ...result.coverage, vector: { status: "complete" } };
+    const actual = rebuildSynthesisEvidenceSearchResult({
+      ...result,
+      method: "hybrid",
+      status: "limited",
+      total: null,
+      coverage,
+    });
+    assert.deepEqual(actual.coverage, coverage);
+  });
+
   it("rebuilds and forwards the grouped client request and result", async function () {
     let received: unknown;
     const client = createSynthesisClientFromPort({

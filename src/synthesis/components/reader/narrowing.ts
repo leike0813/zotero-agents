@@ -1065,6 +1065,7 @@ export type ReaderRegionKind = "topicDetail" | "artifact" | "empty";
  * sections, surface runtime metadata and background job counters never enter.
  */
 export type ReaderRegionSelection = {
+  initialSection?: string;
   kind: ReaderRegionKind;
   /** Standalone export shape: hides host-bound actions, enables local digest. */
   standalone: boolean;

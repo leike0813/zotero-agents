@@ -186,6 +186,40 @@ fn decode_library_lexical_request(value: Value) -> Result<EvidenceSearchRequest,
 pub trait EvidenceSourcePort: Send + Sync {
     fn list_sources(&self, request: Value) -> Result<Value, String>;
     fn read_source(&self, request: Value) -> Result<Value, String>;
+
+    fn indexed_descriptor(
+        &self,
+        scope: &Value,
+        item: &ItemRef,
+        source: &Value,
+    ) -> Result<Value, String> {
+        let mut targeted = scope.clone();
+        targeted["itemRefs"] = json!([item]);
+        let mut request = json!({"scope":targeted,"limit":100,"sourceKinds":[source["kind"]]});
+        let mut cursors = BTreeSet::new();
+        loop {
+            let page = self.list_sources(request.clone())?;
+            if page["scope"] != targeted {
+                return Err("source_changed".into());
+            }
+            if let Some(row) = page["descriptors"]
+                .as_array()
+                .ok_or("invalid_source")?
+                .iter()
+                .find(|d| d["itemRef"] == json!(item) && &d["source"] == source)
+            {
+                return Ok(row.clone());
+            }
+            if page["hasMore"] != true {
+                return Err("source_unavailable".into());
+            }
+            let cursor = page["nextCursor"].as_str().ok_or("invalid_source")?;
+            if !cursors.insert(cursor.to_owned()) || cursors.len() > MAX_SOURCES {
+                return Err("scan_budget_exhausted".into());
+            }
+            request["cursor"] = json!(cursor);
+        }
+    }
 }
 
 #[derive(Deserialize, Serialize)]
@@ -541,6 +575,7 @@ impl EvidenceSearchApplication {
                 Err(code) => add_issue(&mut issues, code, Some(candidate.descriptor.source.kind())),
             }
         }
+        let mut vector_coverage = None;
         let method = match self.retrieval.clone() {
             Some(retrieval) => self
                 .union_evidence_passages(
@@ -552,6 +587,7 @@ impl EvidenceSearchApplication {
                     },
                     &mut verified,
                     &mut issues,
+                    &mut vector_coverage,
                     &retrieval,
                     checkpoint,
                 )?
@@ -564,11 +600,14 @@ impl EvidenceSearchApplication {
             .retrieval
             .as_ref()
             .and_then(|retrieval| retrieval.publication_basis().ok().flatten());
-        let coverage = json!({"kind":"library","sources":{
+        let mut coverage = json!({"kind":"library","sources":{
             "metadata": work_coverage(SourceKind::Metadata,&kinds,&counts,&issues,catalog_limited),
             "fulltext": work_coverage(SourceKind::Fulltext,&kinds,&counts,&issues,catalog_limited),
             "analysis": work_coverage(SourceKind::Analysis,&kinds,&counts,&issues,catalog_limited),
         }});
+        if let Some(vector) = vector_coverage {
+            coverage["vector"] = json!(vector);
+        }
         let total = if issues.is_empty() {
             Some(verified.len())
         } else {
@@ -682,7 +721,13 @@ impl EvidenceSearchApplication {
                     add_issue(&mut issues, "passage_budget_exhausted", None);
                     break;
                 }
-                if let Some(matched) = query.match_text(&passage) {
+                let matched = match &descriptor.source {
+                    EvidenceSource::Metadata { field } if field == "tags" => {
+                        query.match_tags(&passage)
+                    }
+                    _ => query.match_text(&passage),
+                };
+                if let Some(matched) = matched {
                     let identity = format!(
                         "{:020}:{}:{}:{:010}",
                         descriptor.item_ref.library_id,
@@ -783,7 +828,12 @@ impl EvidenceSearchApplication {
                     }
                     let reference = candidate.descriptor.item_ref.clone();
                     let priority = field_priority(&candidate.descriptor.source);
-                    let terms = query.matched_terms(&candidate.content);
+                    let terms = match &candidate.descriptor.source {
+                        EvidenceSource::Metadata { field } if field == "tags" => {
+                            query.matched_terms(&query.searchable_tags(&candidate.content))
+                        }
+                        _ => query.matched_terms(&candidate.content),
+                    };
                     let hit = json!({
                         "source":candidate.descriptor.source,
                         "sourceVersion":candidate.descriptor.source_version,
@@ -919,21 +969,6 @@ impl EvidenceSearchApplication {
             .as_array()
             .cloned()
             .unwrap_or_default();
-        // Eligible identities come from this call's catalog scope, so a vector
-        // hit outside the requested libraries/filters can never enter.
-        let eligible = descriptors
-            .iter()
-            .filter_map(|descriptor| {
-                Some(format!(
-                    "{}:{}",
-                    descriptor["itemRef"]["libraryId"].as_u64()?,
-                    descriptor["itemRef"]["key"].as_str()?
-                ))
-            })
-            .collect::<BTreeSet<_>>();
-        // The Retrieval owner intersects this call's complete eligible identity
-        // set before scoring, so a collection/tag/itemType hard scope is applied
-        // before any result budget is spent.
         let mut query = json!({"query": parsed.query.clone(), "maxResults": 500});
         if let Some(libraries) = scope.get("libraryIds").filter(|value| value.is_array()) {
             query["libraryIds"] = libraries.clone();
@@ -941,9 +976,11 @@ impl EvidenceSearchApplication {
         if let Some(kinds) = &parsed.source_kinds {
             query["sourceKinds"] = json!(kinds);
         }
-        let outcome = match retrieval.query_scoped(query, &eligible, checkpoint) {
+        let outcome = match self.query_published(&retrieval, query, &scope, checkpoint) {
             Ok(outcome) => outcome,
             Err(code) => {
+                execution["result"]["coverage"]["vector"] =
+                    json!(crate::retrieval::VectorCoverage::failure(&code));
                 let issue = enhancement_failure_issue(code, checkpoint)?;
                 // Enhancement was expected but failed: keep the lexical method and
                 // report it truthfully. A disabled or unconfigured index stays
@@ -960,6 +997,8 @@ impl EvidenceSearchApplication {
                 return Ok(execution);
             }
         };
+        execution["result"]["coverage"]["vector"] =
+            json!(crate::retrieval::VectorCoverage::searched(&outcome));
         let mut results = execution["result"]["results"]
             .as_array()
             .cloned()
@@ -992,9 +1031,6 @@ impl EvidenceSearchApplication {
                 continue;
             };
             let identity = format!("{}:{}", item_ref.library_id, item_ref.key);
-            if !eligible.contains(&identity) {
-                continue;
-            }
             if results
                 .iter()
                 .any(|result| library_item_identity(result) == identity)
@@ -1005,7 +1041,13 @@ impl EvidenceSearchApplication {
                 match self.verify_indexed_hit_library(&scope, &descriptors, fragment) {
                     Ok(_) => vector.push((identity, fragment.score)),
                     Err(code) => {
-                        let _ = retrieval.suspend_group(&outcome.publication, &fragment.group_id);
+                        if code == "source_changed" {
+                            let _ =
+                                retrieval.suspend_group(&outcome.publication, &fragment.group_id);
+                        }
+                        execution["result"]["coverage"]["vector"] = json!(
+                            crate::retrieval::VectorCoverage::verification_failure(&code)
+                        );
                         add_issue(&mut issues, &code, None);
                     }
                 }
@@ -1020,7 +1062,12 @@ impl EvidenceSearchApplication {
                     vector.push((identity, fragment.score));
                 }
                 Err(code) => {
-                    let _ = retrieval.suspend_group(&outcome.publication, &fragment.group_id);
+                    if code == "source_changed" {
+                        let _ = retrieval.suspend_group(&outcome.publication, &fragment.group_id);
+                    }
+                    execution["result"]["coverage"]["vector"] = json!(
+                        crate::retrieval::VectorCoverage::verification_failure(&code)
+                    );
                     add_issue(&mut issues, &code, None);
                 }
             }
@@ -1086,6 +1133,56 @@ impl EvidenceSearchApplication {
         }))
     }
 
+    fn query_published(
+        &self,
+        retrieval: &crate::retrieval::RetrievalApplication,
+        mut query: Value,
+        scope: &Value,
+        checkpoint: &dyn Fn() -> Result<(), String>,
+    ) -> Result<crate::retrieval::RetrievalQueryOutcome, String> {
+        query["includeTopics"] = json!(false);
+        if let Some(refs) = scope.get("itemRefs") {
+            query["itemRefs"] = refs.clone();
+        }
+        if ["collectionRef", "tag", "itemType"]
+            .iter()
+            .all(|k| scope.get(k).is_none())
+        {
+            return retrieval.query_with_checkpoint(query, checkpoint);
+        }
+        // Zotero owns mutable filter membership. Complete the filtered identity set before scoring.
+        let mut input = json!({"scope":scope,"limit":100,"sourceKinds":["metadata"]});
+        let mut eligible = BTreeSet::new();
+        let mut cursors = BTreeSet::new();
+        loop {
+            checkpoint()?;
+            let page = self.sources.list_sources(input.clone())?;
+            if &page["scope"] != scope {
+                return Err("basis_mismatch".into());
+            }
+            if page["issues"]
+                .as_array()
+                .is_none_or(|issues| !issues.is_empty())
+            {
+                return Err("source_unavailable".into());
+            }
+            for d in page["descriptors"].as_array().ok_or("invalid_source")? {
+                let item: ItemRef =
+                    serde_json::from_value(d["itemRef"].clone()).map_err(|_| "invalid_source")?;
+                eligible.insert(format!("{}:{}", item.library_id, item.key));
+            }
+            if page["hasMore"] == false {
+                break;
+            }
+            let cursor = page["nextCursor"].as_str().ok_or("invalid_source")?;
+            if cursors.len() >= 10000 || !cursors.insert(cursor.to_owned()) {
+                return Err("scan_budget_exhausted".into());
+            }
+            input["cursor"] = json!(cursor);
+        }
+        retrieval.query_scoped(query, &eligible, checkpoint)
+    }
+
     /// Shared Library trust check. The indexed descriptor must still match the
     /// current source, source version and original range, and the read passage
     /// must pass the same `available_content` verification the lexical search
@@ -1111,7 +1208,9 @@ impl EvidenceSearchApplication {
                     && descriptor["itemRef"]["key"].as_str() == Some(item_ref.key.as_str())
                     && descriptor["source"] == source
             })
-            .ok_or_else(|| "source_unavailable".to_owned())?;
+            .cloned()
+            .map(Ok)
+            .unwrap_or_else(|| self.sources.indexed_descriptor(scope, item_ref, &source))?;
         let parsed: SourceDescriptor =
             serde_json::from_value(descriptor.clone()).map_err(|_| "invalid_source".to_owned())?;
         if parsed.source_version != fragment.source_version
@@ -1342,6 +1441,7 @@ impl EvidenceSearchApplication {
         catalog: EvidenceCatalog<'_>,
         verified: &mut Vec<Candidate>,
         issues: &mut Vec<Value>,
+        vector_coverage: &mut Option<crate::retrieval::VectorCoverage>,
         retrieval: &crate::retrieval::RetrievalApplication,
         checkpoint: &dyn Fn() -> Result<(), String>,
     ) -> Result<Option<&'static str>, String> {
@@ -1352,19 +1452,6 @@ impl EvidenceSearchApplication {
         } = catalog;
         let max_results = request.max_results.unwrap_or(100);
         let lexical_empty = verified.is_empty();
-        // Hard scope: the Retrieval owner intersects this call's complete
-        // eligible identity set before any scoring, so no out-of-scope vector
-        // can occupy the result budget and no ref list is rebuilt into the
-        // bounded public DTO.
-        let eligible = descriptors
-            .iter()
-            .map(|descriptor| {
-                format!(
-                    "{}:{}",
-                    descriptor.item_ref.library_id, descriptor.item_ref.key
-                )
-            })
-            .collect::<BTreeSet<_>>();
         let mut query = json!({
             "query": request.query.clone(),
             "sourceKinds": kinds,
@@ -1373,9 +1460,10 @@ impl EvidenceSearchApplication {
         if let Some(libraries) = scope.get("libraryIds").filter(|value| value.is_array()) {
             query["libraryIds"] = libraries.clone();
         }
-        let outcome = match retrieval.query_scoped(query, &eligible, checkpoint) {
+        let outcome = match self.query_published(retrieval, query, scope, checkpoint) {
             Ok(outcome) => outcome,
             Err(code) => {
+                *vector_coverage = Some(crate::retrieval::VectorCoverage::failure(&code));
                 let issue = enhancement_failure_issue(code, checkpoint)?;
                 // A configured, enabled index that failed is reported; a disabled
                 // index just continues lexically without noise.
@@ -1385,6 +1473,7 @@ impl EvidenceSearchApplication {
                 return Ok(None);
             }
         };
+        *vector_coverage = Some(crate::retrieval::VectorCoverage::searched(&outcome));
         if outcome.limited {
             add_issue(issues, "result_budget_exhausted", None);
         }
@@ -1454,9 +1543,6 @@ impl EvidenceSearchApplication {
                 continue;
             };
             let identity = format!("{}:{}", item_ref.library_id, item_ref.key);
-            if !eligible.contains(&identity) {
-                continue;
-            }
             if covered.contains(&identity) {
                 // A lexical item's semantic rank only counts once its indexed
                 // source version and current range verify, so a stale vector
@@ -1464,7 +1550,13 @@ impl EvidenceSearchApplication {
                 match self.verify_indexed_hit(scope, descriptors, fragment) {
                     Ok(_) => vector.push((identity, fragment.score)),
                     Err(code) => {
-                        let _ = retrieval.suspend_group(&outcome.publication, &fragment.group_id);
+                        if code == "source_changed" {
+                            let _ =
+                                retrieval.suspend_group(&outcome.publication, &fragment.group_id);
+                        }
+                        *vector_coverage = Some(
+                            crate::retrieval::VectorCoverage::verification_failure(&code),
+                        );
                         add_issue(issues, &code, None);
                     }
                 }
@@ -1478,7 +1570,12 @@ impl EvidenceSearchApplication {
                     vector.push((identity, fragment.score));
                 }
                 Err(code) => {
-                    let _ = retrieval.suspend_group(&outcome.publication, &fragment.group_id);
+                    if code == "source_changed" {
+                        let _ = retrieval.suspend_group(&outcome.publication, &fragment.group_id);
+                    }
+                    *vector_coverage = Some(
+                        crate::retrieval::VectorCoverage::verification_failure(&code),
+                    );
                     add_issue(issues, &code, None);
                 }
             }
@@ -1570,7 +1667,12 @@ impl EvidenceSearchApplication {
                     && descriptor.item_ref.key == item_ref.key
                     && serde_json::to_value(&descriptor.source).ok() == Some(source.clone())
             })
-            .ok_or_else(|| "source_unavailable".to_owned())?;
+            .cloned()
+            .map(Ok)
+            .unwrap_or_else(|| {
+                serde_json::from_value(self.sources.indexed_descriptor(scope, item_ref, &source)?)
+                    .map_err(|_| "invalid_source".to_owned())
+            })?;
         if descriptor.source_version != fragment.source_version
             || fragment.range_end <= fragment.range_start
             || fragment.range_end > descriptor.content_length as i64
@@ -1578,14 +1680,14 @@ impl EvidenceSearchApplication {
             return Err("source_changed".into());
         }
         let descriptor_value =
-            serde_json::to_value(descriptor).map_err(|_| "invalid_source".to_owned())?;
+            serde_json::to_value(&descriptor).map_err(|_| "invalid_source".to_owned())?;
         let read = self
             .sources
             .read_source(
                 json!({"scope": scope, "descriptor": descriptor_value, "location": location}),
             )
             .map_err(|_| "source_read_failed".to_owned())?;
-        let content = available_content(&read, descriptor, Some(&location))
+        let content = available_content(&read, &descriptor, Some(&location))
             .ok_or_else(|| read_issue(&read).to_owned())?;
         Ok((descriptor.clone(), location, content))
     }
@@ -1995,8 +2097,16 @@ enum SearchMethod {
 #[derive(Deserialize)]
 #[serde(tag = "kind", rename_all = "lowercase", deny_unknown_fields)]
 enum CoverageWire {
-    Library { sources: SourceCoverageWire },
-    Topic { sections: Vec<SectionCoverageWire> },
+    Library {
+        sources: SourceCoverageWire,
+        #[serde(rename = "vector")]
+        _vector: Option<crate::retrieval::VectorCoverage>,
+    },
+    Topic {
+        sections: Vec<SectionCoverageWire>,
+        #[serde(rename = "vector")]
+        _vector: Option<crate::retrieval::VectorCoverage>,
+    },
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -2165,7 +2275,7 @@ pub fn validate_evidence_result(value: &Value) -> bool {
         return false;
     }
     let coverage_ok = match &result.coverage {
-        CoverageWire::Library { sources } => {
+        CoverageWire::Library { sources, .. } => {
             [&sources.metadata, &sources.fulltext, &sources.analysis]
                 .iter()
                 .all(|c| {
@@ -2173,7 +2283,7 @@ pub fn validate_evidence_result(value: &Value) -> bool {
                     c.sources_scanned <= 1_000_000
                 })
         }
-        CoverageWire::Topic { sections } => {
+        CoverageWire::Topic { sections, .. } => {
             sections.len() <= 100
                 && sections.iter().all(|s| {
                     let _ = &s.status;
@@ -2285,7 +2395,7 @@ fn validate_library_execution(value: &Value, allow_semantic: bool) -> bool {
         return false;
     };
     let _ = (&result.status, &result.method);
-    let CoverageWire::Library { sources } = &result.coverage else {
+    let CoverageWire::Library { sources, .. } = &result.coverage else {
         return false;
     };
     let envelope_ok = result.results.len() <= 500
@@ -2293,11 +2403,7 @@ fn validate_library_execution(value: &Value, allow_semantic: bool) -> bool {
         && !result.total.is_some_and(|n| n > 1_000_000)
         && !result.has_more
         && result.next_cursor.is_none()
-        && if allow_semantic {
-            matches!(result.method, SearchMethod::Vector | SearchMethod::Hybrid)
-        } else {
-            matches!(result.method, SearchMethod::Lexical)
-        }
+        && (allow_semantic || matches!(result.method, SearchMethod::Lexical))
         && ![&sources.metadata, &sources.fulltext, &sources.analysis]
             .iter()
             .any(|entry| entry.sources_scanned > 1_000_000);
@@ -2338,7 +2444,8 @@ fn validate_library_execution(value: &Value, allow_semantic: bool) -> bool {
                 && matched.location.range.end <= 262144
                 && !matched.source_version.is_empty()
                 && matched.source_version.chars().count() <= 256
-                && (allow_semantic || !matched.matched_terms.is_empty())
+                && (!matches!(result.method, SearchMethod::Lexical)
+                    || !matched.matched_terms.is_empty())
                 && matched.matched_terms.len() <= 4096
                 && !(matched.phrase_match && matched.matched_terms.is_empty())
                 && matched
@@ -3331,10 +3438,10 @@ mod tests {
     }
 
     #[test]
-    fn library_retrieval_validator_admits_semantic_methods_only() {
+    fn library_retrieval_validator_admits_automatic_methods() {
         let lexical = library_execution("lexical", json!([library_item("AAAA", "alpha")]));
         assert!(validate_library_lexical_result(&lexical));
-        assert!(!validate_library_retrieval_result(&lexical));
+        assert!(validate_library_retrieval_result(&lexical));
         let mut hybrid = lexical.clone();
         hybrid["result"]["method"] = json!("hybrid");
         assert!(!validate_library_lexical_result(&hybrid));

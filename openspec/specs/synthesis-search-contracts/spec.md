@@ -33,6 +33,16 @@ Every search result SHALL contain results, status, actual method, bounded covera
 - **WHEN** the owner cannot determine the exact number of matching results in the declared scope
 - **THEN** total is null and is not inferred from a page, candidate bound, or per-round maximum
 
+#### Scenario: Semantic coverage and lexical coverage differ
+
+- **WHEN** the active publication is searched across the requested scope and a lexical scan budget is exhausted
+- **THEN** the owner can report complete vector coverage alongside limited lexical work and an unknown total
+
+#### Scenario: Semantic execution is unavailable
+
+- **WHEN** an automatic search falls back to verified lexical results because the index or query service is unavailable
+- **THEN** its method is lexical and the optional `coverage.vector` reports the vector execution status and bounded reason for unavailability
+
 
 ### Requirement: Search cursors SHALL freeze the current result basis
 A continuation cursor SHALL bind the query, filters, scope, method/version, ordering, and current source basis for one bounded result round.

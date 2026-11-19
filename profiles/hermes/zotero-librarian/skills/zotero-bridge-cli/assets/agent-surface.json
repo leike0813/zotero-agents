@@ -1,6 +1,6 @@
 {
   "cliSchema": "zotero-bridge.cli.v5",
-  "commandCatalogChecksum": "ff5de601a1c67869541e326a257cc8680f29a4746dfd7c384afba5bb3334914b",
+  "commandCatalogChecksum": "68a4f3402f06cab508b261a737f48e422ab58cf066a27f35c053d9697c2f85cb",
   "commands": [
     {
       "approvalContract": {
@@ -7784,7 +7784,7 @@
         "query": {
           "examples": [
             {
-              "description": "Canonical bounded lexical-search request carried intact by --query.",
+              "description": "Scoped search request. Retrieval uses the published vector index when available and reports the executed method.",
               "kind": "shape-only",
               "prerequisites": [
                 "Use a non-empty query no longer than 4096 UTF-16 code units; replace example identifiers with libraries and portable item refs valid for the current Zotero profile."
@@ -8141,7 +8141,7 @@
                     "type": "boolean"
                   },
                   "method": {
-                    "const": "lexical"
+                    "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/SearchMethod"
                   },
                   "nextCursor": {
                     "oneOf": [

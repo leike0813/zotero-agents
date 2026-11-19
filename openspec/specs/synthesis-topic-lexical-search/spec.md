@@ -25,6 +25,16 @@ Lets callers find canonical Synthesis Topics by their structured text through a 
 - **WHEN** one Topic matches in several sections or fields
 - **THEN** those matches are aggregated into its single Topic result and do not consume separate Topic result slots
 
+#### Scenario: A semantic Topic lies outside the lexical scan window
+
+- **WHEN** the published index matches a Topic outside the lexical prefix in a requested canonical section
+- **THEN** search admits the semantic match after verifying the current Topic identity, content version and range, and reports the canonical section and semantic match reason
+
+#### Scenario: Topic content is stored in a structured section
+
+- **WHEN** a Topic has searchable structured section text and no separate Markdown asset
+- **THEN** index maintenance includes that text and semantic retrieval can verify the corresponding excerpt against the same section
+
 ### Requirement: Topic search SHALL use canonical section names
 
 Searchable section names SHALL come from the canonical Topic artifact schema. The searchable inventory SHALL include `topic`, `summary`, `taxonomy`, `comparison_matrix`, `improvement_dimensions`, `claims`, `timeline_events`, `source_papers`, `debates`, `coverage`, `future_directions`, `review_outline`, `statistics`, `synthesis_report`, `source_artifacts`, and `diagnostics`. An absent optional section, including `comparison_matrix`, SHALL be skipped; search SHALL NOT make it mandatory in a newly authored artifact. Search SHALL consider user-facing text values and SHALL omit identity-only, hash, path, status, and code values from lexical matching.

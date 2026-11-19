@@ -56,6 +56,11 @@ pub(crate) const RETRIEVAL_CLIENT_ROUTES: &[ProductionClientRouteEntry] = &[
             .recommend(one(args)?, &|| checkpoint_current_before_promotion(apps))
     })
     .with_request_validator(similarity_args),
+    ProductionClientRouteEntry::new("client.exploreRetrievalIndex", |apps, args| {
+        apps.retrieval
+            .explore(one(args)?, &|| checkpoint_current_before_promotion(apps))
+    })
+    .with_request_validator(|args| validate_one(args, "RetrievalExplorerRequest")),
     ProductionClientRouteEntry::new("client.invalidateRetrievalSources", |apps, args| {
         apps.retrieval.invalidate(one(args)?)
     })
@@ -210,6 +215,7 @@ mod tests {
                     "client.updateRetrievalIndex" => maintenance_args(args),
                     "client.cleanupRetrievalIndex" => no_args(args),
                     "client.recommendSimilarPapers" => similarity_args(args),
+                    "client.exploreRetrievalIndex" => validate_one(args,"RetrievalExplorerRequest"),
                     "client.invalidateRetrievalSources" => invalidate_args(args),
                     _ => Err("invalid_request".into()),
                 }

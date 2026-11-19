@@ -413,6 +413,232 @@
     "PaperSimilarityMaterialKind": {
       "enum": ["metadata", "generated", "weak"]
     },
+    "RetrievalExplorerRequest": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["operation", "target", "query"],
+          "properties": {
+            "operation": {
+              "const": "search"
+            },
+            "target": {
+              "enum": ["paper", "topic"]
+            },
+            "query": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["operation"],
+          "properties": {
+            "operation": {
+              "const": "browse"
+            },
+            "publication": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "cursor": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1024
+            },
+            "libraryId": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "sourceKind": {
+              "enum": ["metadata", "fulltext", "analysis", "topic"]
+            },
+            "status": {
+              "enum": ["ready", "missing", "failed", "suspended"]
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["operation", "publication", "identity"],
+          "properties": {
+            "operation": {
+              "const": "fragments"
+            },
+            "publication": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "cursor": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1024
+            },
+            "identity": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          }
+        }
+      ]
+    },
+    "RetrievalExplorerResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operation",
+        "publication",
+        "rows",
+        "nextCursor",
+        "limited",
+        "issues"
+      ],
+      "properties": {
+        "operation": {
+          "enum": ["search", "browse", "fragments"]
+        },
+        "publication": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "rows": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["identity", "title"],
+            "properties": {
+              "identity": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2048
+              },
+              "itemRef": {
+                "$ref": "#/$defs/PaperRef"
+              },
+              "topicId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "section": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "sourceKind": {
+                "enum": ["metadata", "fulltext", "analysis", "topic"]
+              },
+              "status": {
+                "enum": ["ready", "missing", "failed", "suspended"]
+              },
+              "sourceCount": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 1000000
+              },
+              "fragmentCount": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "score": {
+                "type": "number",
+                "minimum": -1,
+                "maximum": 1
+              },
+              "preview": {
+                "type": "string",
+                "maxLength": 2048
+              },
+              "start": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "end": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            }
+          }
+        },
+        "nextCursor": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1024
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "limited": {
+          "type": "boolean"
+        },
+        "issues": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        }
+      }
+    },
+    "RetrievalExplorerClientRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["args"],
+      "properties": {
+        "args": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "prefixItems": [
+            {
+              "$ref": "#/$defs/RetrievalExplorerRequest"
+            }
+          ],
+          "items": false
+        }
+      }
+    },
     "PaperRef": {
       "$ref": "search.schema.json#/$defs/PortableItemRef"
     },

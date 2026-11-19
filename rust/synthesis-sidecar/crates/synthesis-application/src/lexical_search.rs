@@ -1,7 +1,8 @@
 //! Stateless, bounded lexical matching shared by Synthesis search applications.
 //!
 //! Query coverage counts distinct query units. Whitespace-delimited text uses
-//! lexical tokens; selected unspaced scripts use scalar units. Ranges are
+//! word tokens, Han runs use adjacent pairs, and isolated Han characters
+//! remain searchable. Ranges are
 //! UTF-16 half-open offsets into the original source.
 
 use std::cmp::Ordering;
@@ -16,6 +17,7 @@ pub const MAX_SOURCE_BYTES: usize = 262_144;
 pub struct LexicalQuery {
     units: Vec<String>,
     phrase: String,
+    tag_literal: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -52,7 +54,14 @@ impl LexicalQuery {
             .iter()
             .map(|mapped| mapped.value)
             .collect();
-        Ok(Self { units, phrase })
+        Ok(Self {
+            units,
+            phrase,
+            tag_literal: query
+                .trim()
+                .contains(':')
+                .then(|| query.trim().to_lowercase()),
+        })
     }
 
     pub fn match_text(&self, source: &str) -> Option<LexicalMatch> {
@@ -127,6 +136,33 @@ impl LexicalQuery {
             phrase,
             ranges: merged,
         })
+    }
+
+    /// Keep original UTF-16 offsets when excluding namespaces from plain tag queries.
+    pub fn searchable_tags(&self, source: &str) -> String {
+        source
+            .split('\n')
+            .map(|tag| {
+                if let Some(literal) = &self.tag_literal {
+                    return if tag.to_lowercase() == *literal {
+                        tag.to_owned()
+                    } else {
+                        " ".repeat(tag.encode_utf16().count())
+                    };
+                }
+                match tag.split_once(':') {
+                    Some((namespace, value)) => {
+                        " ".repeat(namespace.encode_utf16().count() + 1) + value
+                    }
+                    None => tag.to_owned(),
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    pub fn match_tags(&self, source: &str) -> Option<LexicalMatch> {
+        self.match_text(&self.searchable_tags(source))
     }
 
     /// Return normalized query units that actually occur in this source.
@@ -207,11 +243,30 @@ fn normalize_with_offsets(source: &str) -> Vec<MappedChar> {
 }
 
 fn lexical_units(text: &[MappedChar]) -> Vec<String> {
+    let is_han =
+        |ch: char| matches!(ch as u32, 0x3400..=0x9fff | 0xf900..=0xfaff | 0x20000..=0x323af);
     let mut units = BTreeSet::new();
     let mut token = String::new();
     let mut index = 0;
     while index < text.len() {
         let mapped = text[index];
+        if is_han(mapped.value) {
+            if !token.is_empty() {
+                units.insert(std::mem::take(&mut token));
+            }
+            let start = index;
+            while index < text.len() && is_han(text[index].value) {
+                index += 1;
+            }
+            if index == start + 1 {
+                units.insert(mapped.value.to_string());
+            } else {
+                for pair in text[start..index].windows(2) {
+                    units.insert(pair.iter().map(|ch| ch.value).collect());
+                }
+            }
+            continue;
+        }
         if is_unspaced_script_letter(mapped.value) {
             if !token.is_empty() {
                 units.insert(std::mem::take(&mut token));
@@ -372,14 +427,41 @@ mod tests {
     }
 
     #[test]
-    fn unspaced_scripts_match_by_scalar_and_phrase_is_contiguous() {
+    fn han_pairs_preserve_contiguous_phrase_ranges() {
         let query = LexicalQuery::new("東京大学").expect("valid query");
         let matched = query
             .match_text("京都東京大学院")
             .expect("CJK partial match");
-        assert_eq!(matched.coverage, 4);
+        assert_eq!(matched.coverage, 3);
         assert!(matched.phrase);
         assert_eq!(matched.ranges, vec![TextRange { start: 2, end: 6 }]);
+    }
+
+    #[test]
+    fn unspaced_scripts_require_contiguous_fragments_and_allow_single_scalars() {
+        let fragment = LexicalQuery::new("東京大学").expect("valid query");
+        assert_eq!(fragment.match_text("東の京、大と学"), None);
+
+        let scalar = LexicalQuery::new("京").expect("valid query");
+        let matched = scalar
+            .match_text("東の京、大と学")
+            .expect("single scalar match");
+        assert_eq!(matched.coverage, 1);
+        assert_eq!(matched.ranges, vec![TextRange { start: 2, end: 3 }]);
+    }
+
+    #[test]
+    fn tag_namespace_alone_is_not_searchable() {
+        let tags = "topic:trolley\nmethod:TBM";
+        assert!(
+            LexicalQuery::new("zzzz nonexistent topic qqq")
+                .unwrap()
+                .match_tags(tags)
+                .is_none()
+        );
+        for query in ["topic:trolley", "trolley", "TBM"] {
+            assert!(LexicalQuery::new(query).unwrap().match_tags(tags).is_some());
+        }
     }
 
     #[test]

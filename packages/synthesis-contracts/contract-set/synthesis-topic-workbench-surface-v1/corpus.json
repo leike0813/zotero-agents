@@ -61,6 +61,12 @@
       "cases": ["clean", "reopen", "invalid_args", "oversized", "expired"]
     },
     {
+      "id": "client.exploreRetrievalIndex",
+      "access": "read",
+      "introducedAfterBaseline": true,
+      "cases": ["missing", "page", "invalid_args", "oversized", "expired"]
+    },
+    {
       "id": "client.recommendSimilarPapers",
       "access": "read",
       "introducedAfterBaseline": true,

@@ -16,6 +16,7 @@
 
 import { h, render } from "preact";
 import { HomeRegion } from "./components/HomeRegion";
+import { RetrievalExplorer } from "./components/RetrievalExplorer";
 import { TopicsRegion } from "./components/TopicsRegion";
 import { ConceptsRegion } from "./components/ConceptsRegion";
 import { TagsRegion } from "./components/TagsRegion";
@@ -461,6 +462,9 @@ export function createSynthesisWorkbenchChromeRenderer(
       }
       let content;
       switch (business?.surface) {
+        case "retrieval":
+          content = h(RetrievalExplorer, { ...common, ...business.selection });
+          break;
         case "home":
           content = h(HomeRegion, { ...common, selection: business.selection });
           break;

@@ -130,6 +130,7 @@ function isWorkbenchSurfaceName(
 }
 
 const WORKBENCH_TABS: readonly SynthesisWorkbenchTab[] = [
+  "retrieval",
   "overview",
   "artifacts",
   "registry",
@@ -347,7 +348,12 @@ export function synthesisWorkbenchOperationKey(
 }
 
 function shouldTrackLocalPendingAction(command: string): boolean {
-  return command !== "openTopicArtifact";
+  return ![
+    "openTopicArtifact",
+    "retrievalSemanticSearch",
+    "retrievalBrowseIndex",
+    "retrievalReadFragments",
+  ].includes(command);
 }
 
 function normalizeSurfaceRequestId(value: unknown): number | undefined {
@@ -875,6 +881,7 @@ export function createSynthesisWorkbenchController(
     const nextSnapshot = stripI18n(
       payload || null,
     ) as SynthesisWorkbenchPageSnapshot | null;
+    const previous = state.snapshot;
     state.snapshot = nextSnapshot;
     clearResolvedLocalPending(state.snapshot);
     if (!state.snapshot) {
@@ -882,7 +889,23 @@ export function createSynthesisWorkbenchController(
       return;
     }
     const nextChromeSignature = chromeSignature();
-    if (i18nChanged) {
+    const retrievalSignature = (snapshot: SynthesisWorkbenchPageSnapshot) =>
+      stableRegionSignature([
+        snapshot.retrieval,
+        Object.entries(snapshot.retrievalExplorer ?? {}).map(([op, slot]) => [
+          op,
+          slot.owner,
+          slot.requestId,
+          slot.status,
+          slot.error,
+        ]),
+        snapshot.actions.inFlight.map((op) => op.key),
+      ]);
+    const retrievalChanged =
+      state.snapshot.selectedTab === "retrieval" &&
+      (previous?.selectedTab !== "retrieval" ||
+        retrievalSignature(previous) !== retrievalSignature(state.snapshot));
+    if (i18nChanged || retrievalChanged) {
       state.lastChromeSignature = nextChromeSignature;
       renderCurrentPanel();
       return;
@@ -1027,7 +1050,7 @@ export function createSynthesisWorkbenchController(
       payload || null,
     ) as SynthesisWorkbenchPageSnapshot | null;
     state.snapshot = nextSnapshot;
-    if (nextSnapshot) {
+    if (nextSnapshot && nextSnapshot.selectedTab !== "retrieval") {
       markSurfaceRuntime(
         synthesisWorkbenchSurfaceForTab(nextSnapshot.selectedTab),
         "ready",
@@ -1254,7 +1277,10 @@ export function createSynthesisWorkbenchController(
         state.snapshot = { ...state.snapshot, selectedTab: tab };
         if (tab !== "graph") graphGeneration = undefined;
         const surface = synthesisWorkbenchSurfaceForTab(tab);
-        if (surfaceRuntime(surface)?.status !== "ready") {
+        if (
+          tab !== "retrieval" &&
+          surfaceRuntime(surface)?.status !== "ready"
+        ) {
           markSurfaceRuntime(surface, "loading");
         }
       }

@@ -8,7 +8,7 @@
     "workerOperationRoster": "../../../../rust/synthesis-sidecar/crates/synthesis-protocol/src/lib.rs"
   },
   "expected": {
-    "crossProcessCapabilities": 146,
+    "crossProcessCapabilities": 147,
     "deterministicWorkerOperations": 15
   },
   "documents": [
@@ -1263,6 +1263,14 @@
       "domain": "retrieval",
       "requestSchemaRef": "schemas/retrieval.schema.json#/$defs/CleanupRetrievalIndexRequest",
       "resultSchemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/GetPublicMaintenanceOperationResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/sidecarError"
+    },
+    {
+      "capability": "client.exploreRetrievalIndex",
+      "direction": "host-to-sidecar",
+      "domain": "retrieval",
+      "requestSchemaRef": "schemas/retrieval.schema.json#/$defs/RetrievalExplorerClientRequest",
+      "resultSchemaRef": "schemas/retrieval.schema.json#/$defs/RetrievalExplorerResult",
       "errorSchemaRef": "schemas/common.schema.json#/$defs/sidecarError"
     },
     {

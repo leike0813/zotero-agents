@@ -15,6 +15,8 @@ import {
   rebuildSynthesisEvidenceSearchResult,
   rebuildSynthesisProtocolDto,
   rebuildSynthesisRetrievalState,
+  rebuildSynthesisRetrievalExplorerResult,
+  type SynthesisRetrievalExplorerRequest,
   rebuildSynthesisPaperSimilarityResult,
   type SynthesisRetrievalMaintenanceRequest,
   type SynthesisPaperSimilarityRequest,
@@ -328,6 +330,12 @@ export function createNativeSynthesisRetrievalPort(options?: {
   return {
     getState: () =>
       call("client.getRetrievalState", [], rebuildSynthesisRetrievalState),
+    explore: (request: SynthesisRetrievalExplorerRequest) =>
+      call(
+        "client.exploreRetrievalIndex",
+        [request],
+        rebuildSynthesisRetrievalExplorerResult,
+      ),
     build: (request: SynthesisRetrievalMaintenanceRequest) =>
       maintain("client.buildRetrievalIndex", request),
     rebuild: (request: SynthesisRetrievalMaintenanceRequest) =>

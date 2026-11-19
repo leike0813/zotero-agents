@@ -211,6 +211,7 @@
         "method": "lexical",
         "coverage": {
           "kind": "topic",
+          "vector": { "status": "complete" },
           "sections": [
             {
               "section": "comparison_matrix",
@@ -498,6 +499,7 @@
       "admitted": true,
       "value": {
         "kind": "library",
+        "vector": { "status": "unavailable", "reason": "embedding_disabled" },
         "sources": {
           "metadata": {
             "status": "complete",
@@ -1278,6 +1280,7 @@
       "valid": true,
       "value": {
         "kind": "topic",
+        "vector": { "status": "limited", "reason": "source_changed" },
         "sections": [
           {
             "section": "summary",
@@ -1384,6 +1387,7 @@
         "method": "lexical",
         "coverage": {
           "kind": "topic",
+          "vector": { "status": "unavailable", "reason": "embedding_disabled" },
           "sections": [
             {
               "section": "topic",

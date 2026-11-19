@@ -2,6 +2,157 @@
   "schema": "synthesis-sidecar-protocol-corpus.v1",
   "cases": [
     {
+      "id": "explorer-search",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/RetrievalExplorerClientRequest",
+      "valid": true,
+      "admitted": true,
+      "value": {
+        "args": [
+          {
+            "operation": "search",
+            "target": "paper",
+            "query": "example",
+            "limit": 1
+          }
+        ]
+      }
+    },
+    {
+      "id": "explorer-browse",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/RetrievalExplorerClientRequest",
+      "valid": true,
+      "admitted": true,
+      "value": {
+        "args": [
+          {
+            "operation": "browse",
+            "libraryId": 1,
+            "sourceKind": "metadata",
+            "status": "ready",
+            "publication": "pub",
+            "cursor": "cur",
+            "limit": 5
+          }
+        ]
+      }
+    },
+    {
+      "id": "explorer-fragments",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/RetrievalExplorerClientRequest",
+      "valid": true,
+      "admitted": true,
+      "value": {
+        "args": [
+          {
+            "operation": "fragments",
+            "identity": "1:ITEM1",
+            "publication": "pub",
+            "cursor": "cur",
+            "limit": 1
+          }
+        ]
+      }
+    },
+    {
+      "id": "explorer-empty",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/RetrievalExplorerClientRequest",
+      "valid": false,
+      "admitted": false,
+      "value": {
+        "args": [{ "operation": "search", "target": "topic", "query": "" }]
+      }
+    },
+    {
+      "id": "explorer-result",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/RetrievalExplorerResult",
+      "valid": true,
+      "admitted": true,
+      "value": {
+        "operation": "search",
+        "publication": "pub",
+        "rows": [
+          {
+            "identity": "1:ITEM1",
+            "title": "Example",
+            "itemRef": { "libraryId": 1, "key": "ITEM1" },
+            "topicId": "topic-A",
+            "section": "summary",
+            "sourceKind": "metadata",
+            "status": "ready",
+            "sourceCount": 1,
+            "fragmentCount": 1,
+            "score": 0.7,
+            "preview": "Example",
+            "start": 0,
+            "end": 7
+          }
+        ],
+        "nextCursor": null,
+        "limited": false,
+        "issues": ["source_changed"]
+      }
+    },
+    {
+      "id": "explorer-cursor",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/RetrievalExplorerResult",
+      "valid": true,
+      "admitted": true,
+      "value": {
+        "operation": "search",
+        "publication": "pub",
+        "rows": [
+          {
+            "identity": "1:ITEM1",
+            "title": "Example",
+            "itemRef": { "libraryId": 1, "key": "ITEM1" },
+            "topicId": "topic-A",
+            "section": "summary",
+            "sourceKind": "metadata",
+            "status": "ready",
+            "sourceCount": 1,
+            "fragmentCount": 1,
+            "score": 0.7,
+            "preview": "Example",
+            "start": 0,
+            "end": 7
+          }
+        ],
+        "nextCursor": "next",
+        "limited": false,
+        "issues": ["source_changed"]
+      }
+    },
+    {
+      "id": "explorer-invalid-score",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/RetrievalExplorerResult",
+      "valid": false,
+      "admitted": false,
+      "value": {
+        "operation": "search",
+        "publication": "pub",
+        "rows": [
+          {
+            "identity": "1:ITEM1",
+            "title": "Example",
+            "itemRef": { "libraryId": 1, "key": "ITEM1" },
+            "topicId": "topic-A",
+            "section": "summary",
+            "sourceKind": "metadata",
+            "status": "ready",
+            "sourceCount": 1,
+            "fragmentCount": 1,
+            "score": 2,
+            "preview": "Example",
+            "start": 0,
+            "end": 7
+          }
+        ],
+        "nextCursor": null,
+        "limited": false,
+        "issues": ["source_changed"]
+      }
+    },
+    {
       "id": "retrieval-state-ready",
       "schemaRef": "schemas/retrieval.schema.json#/$defs/RetrievalState",
       "valid": true,

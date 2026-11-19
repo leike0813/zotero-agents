@@ -223,6 +223,25 @@ function alertFeedbackFor(messagePart: string) {
 }
 
 describe("Synthesis tab UI model", function () {
+  it("opens the vector search tab and dispatches its private reads", function () {
+    const { state } = applySynthesisUiAction(createDefaultSynthesisUiState(), {
+      action: "selectTab",
+      payload: { tab: "retrieval" },
+    });
+    assert.equal(state.selectedTab, "retrieval");
+    for (const command of [
+      "retrievalSemanticSearch",
+      "retrievalBrowseIndex",
+      "retrievalReadFragments",
+    ]) {
+      const result = applySynthesisUiAction(state, {
+        action: "hostCommand",
+        payload: { command },
+      });
+      assert.equal(result.hostCommand?.command, command);
+    }
+  });
+
   for (const scenario of [
     {
       surface: "index",

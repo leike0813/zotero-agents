@@ -66,7 +66,7 @@ export function createSynthesisWorkbenchText(
 export function synthesisWorkbenchSurfaceForTab(
   tab: SynthesisWorkbenchTab,
 ): SynthesisWorkbenchSurfaceName {
-  if (tab === "overview") return "home";
+  if (tab === "overview" || tab === "retrieval") return "home";
   if (tab === "artifacts") return "topics";
   if (tab === "registry") return "index";
   if (tab === "reviews") return "review";
@@ -110,6 +110,12 @@ const NAV_TABS: ReadonlyArray<{
     iconClass: "zs-icon-manage-search",
   },
   {
+    tab: "retrieval",
+    labelKey: "synthesis-tab-retrieval",
+    iconName: "search",
+    iconClass: "zs-icon-manage-search",
+  },
+  {
     tab: "tags",
     labelKey: "synthesis-tab-tags",
     iconName: "tags",
@@ -144,6 +150,7 @@ const TAB_TITLE_KEYS: Record<
   overview: "synthesis-tab-home",
   artifacts: "synthesis-tab-topics",
   registry: "synthesis-tab-index",
+  retrieval: "synthesis-tab-retrieval",
   reviews: "synthesis-tab-review",
   tags: "synthesis-tab-tags",
   concepts: "synthesis-tab-concepts",
@@ -692,19 +699,28 @@ export function projectSynthesisWorkbenchPanel(
     selectedTab: snapshot.selectedTab,
     i18n: context.i18n,
     business:
-      context.retainedBusiness ||
-      (context.visibleSurface !== "graph" &&
-      !cachedSnapshot &&
-      (context.surfaceRuntime?.status === "loading" ||
-        context.surfaceRuntime?.status === "failed")
-        ? undefined
-        : projectBusinessSurface(
-            cachedSnapshot
-              ? { ...cachedSnapshot, actions: snapshot.actions }
-              : snapshot,
-            context,
-            t,
-          )),
+      snapshot.selectedTab === "retrieval"
+        ? {
+            surface: "retrieval",
+            selection: {
+              retrieval: snapshot.retrieval,
+              explorer: snapshot.retrievalExplorer,
+              pending: snapshot.actions.inFlight.map((op) => op.key),
+            },
+          }
+        : context.retainedBusiness ||
+          (context.visibleSurface !== "graph" &&
+          !cachedSnapshot &&
+          (context.surfaceRuntime?.status === "loading" ||
+            context.surfaceRuntime?.status === "failed")
+            ? undefined
+            : projectBusinessSurface(
+                cachedSnapshot
+                  ? { ...cachedSnapshot, actions: snapshot.actions }
+                  : snapshot,
+                context,
+                t,
+              )),
     referenceReview: context.referenceReview,
     shell: hosted ? projectShell(snapshot, ui, t) : null,
     // The standalone topic export shell keeps a minimal header with the

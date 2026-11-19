@@ -354,7 +354,7 @@ This command has no separate field-mapping program. Its binding mode is executab
               "type": "boolean"
             },
             "method": {
-              "const": "lexical"
+              "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/SearchMethod"
             },
             "nextCursor": {
               "oneOf": [
@@ -458,7 +458,7 @@ This command has no separate field-mapping program. Its binding mode is executab
 
 ### query: shape-only
 
-Canonical bounded lexical-search request carried intact by --query.
+Scoped search request. Retrieval uses the published vector index when available and reports the executed method.
 
 ```console
 zotero-bridge library item search --query '{"libraryIds":[1],"limit":25,"maxResults":100,"query":"example phrase","sourceKinds":["metadata","fulltext","analysis"]}'
@@ -534,7 +534,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
     "query": {
       "examples": [
         {
-          "description": "Canonical bounded lexical-search request carried intact by --query.",
+          "description": "Scoped search request. Retrieval uses the published vector index when available and reports the executed method.",
           "kind": "shape-only",
           "prerequisites": [
             "Use a non-empty query no longer than 4096 UTF-16 code units; replace example identifiers with libraries and portable item refs valid for the current Zotero profile."
@@ -891,7 +891,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
                 "type": "boolean"
               },
               "method": {
-                "const": "lexical"
+                "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/SearchMethod"
               },
               "nextCursor": {
                 "oneOf": [

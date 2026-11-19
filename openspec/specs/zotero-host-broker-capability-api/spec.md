@@ -260,13 +260,13 @@ Strict-JSON validation SHALL reject non-finite numbers, excessive nesting, exces
 - **AND** it does not expose a `query` field for that criterion
 
 ### Requirement: Broker SHALL own lexical Library item search
-`library.searchItems` SHALL own bounded, source-aware lexical retrieval for regular Zotero library items. Its result SHALL contain `results`, `status` (`completed`, `limited`, or `unavailable`), actual `method` (`lexical`), `coverage`, structured `issues`, `nextCursor`, `hasMore`, and `total`; `total` SHALL be null unless the complete match count is accurate, and no public score SHALL be returned.
+`library.searchItems` SHALL own bounded, source-aware lexical and published-index retrieval for regular Zotero library items. Its result SHALL contain `results`, `status` (`completed`, `limited`, or `unavailable`), actual `method` (`lexical`, `vector`, or `hybrid`), `coverage`, structured `issues`, `nextCursor`, `hasMore`, and `total`; `total` SHALL be null unless the complete match count is accurate, and no public score SHALL be returned.
 
 Each result SHALL have the C2 shared envelope `SynthesisSearchResult<LibraryItemSearchHit>`. `LibraryItemSearchHit` SHALL be `{item: RegularItemSummaryDto, matches: Array<{source: SynthesisEvidenceSource, sourceVersion: string, location: SynthesisEvidenceLocation, matchedTerms: string[], phraseMatch: boolean}>}`. Coverage SHALL use C2's `SynthesisSearchCoverage` shape, with `kind: "library"` and a `sources` record keyed by source kind whose values contain `status` and `sourcesScanned`. Each issue SHALL use C2's closed `SynthesisSearchIssue` shape: `{code, sourceKind, affectedCount}`, where `code` is one of `source_unavailable`, `source_changed`, `source_read_failed`, `invalid_source`, `scan_budget_exhausted`, `passage_budget_exhausted`, `result_budget_exhausted`, or `vector_unavailable`, and `sourceKind` is a source kind or null. The Broker SHALL NOT add score or local path fields.
 
 #### Scenario: Search request is bounded and valid
 - **WHEN** a caller supplies a non-empty string query with omitted or valid `limit` and `maxResults`
-- **THEN** the Broker applies defaults of 25 and 100, caps of 100 and 500, and returns lexical method metadata with relevance-ordered item results
+- **THEN** the Broker applies defaults of 25 and 100, caps of 100 and 500, and returns actual method metadata with relevance-ordered item results
 
 #### Scenario: Search query is invalid
 - **WHEN** query is absent, empty, or whitespace-only, or either bound exceeds its maximum
@@ -279,6 +279,11 @@ Each result SHALL have the C2 shared envelope `SynthesisSearchResult<LibraryItem
 #### Scenario: Search has no executable source
 - **WHEN** the request has a non-empty supported source scope but the lexical execution owner is unavailable
 - **THEN** status is `unavailable` rather than a completed empty result
+
+#### Scenario: A semantic-only Library item crosses the bridge
+
+- **WHEN** a scoped, verified item is recalled solely from the published index
+- **THEN** the Broker, Host Bridge and MCP expose the same item and source location, admit an empty matched-term list and report the actual search method
 
 ### Requirement: Library search scope SHALL be explicit and intersecting
 Library search SHALL resolve omitted `libraryIds` from a supplied collection's Library, or otherwise from the one captured current Library; reject an explicitly empty library list; require explicit disambiguation when no collection is supplied and the current Library is ambiguous; and intersect every supplied library, item, collection, tag, and item-type constraint. `sourceKinds` SHALL select `metadata`, `fulltext`, and/or `analysis`, default to all three, and treat an empty list as an empty source scope.

@@ -2320,7 +2320,7 @@
     },
     "library.search_items": {
       "category": "library",
-      "summary": "Search regular Zotero library items with bounded lexical evidence retrieval.",
+      "summary": "Search regular Zotero library items using lexical evidence and the published vector index when available. Inspect method, coverage and issues for this query.",
       "inputSchema": {
         "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/EvidenceSearchRequest"
       },
@@ -2380,7 +2380,9 @@
               "coverage": {
                 "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/LibrarySearchCoverage"
               },
-              "method": { "const": "lexical" },
+              "method": {
+                "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/SearchMethod"
+              },
               "nextCursor": {
                 "oneOf": [
                   { "type": "string", "minLength": 1, "maxLength": 4096 },
@@ -5974,7 +5976,7 @@
     },
     "synthesis.search_evidence": {
       "category": "library",
-      "summary": "Search current Zotero Library evidence with verified source passages.",
+      "summary": "Search current Zotero library evidence using lexical and available vector retrieval. Returns verified source passages and query coverage.",
       "inputSchema": {
         "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/EvidenceSearchRequest"
       },
@@ -5995,7 +5997,7 @@
     },
     "topics.search": {
       "category": "topics",
-      "summary": "Search canonical Synthesis topic content with bounded lexical retrieval.",
+      "summary": "Search canonical Synthesis topic content using lexical and available vector retrieval. Returns matched sections and query coverage.",
       "inputSchema": {
         "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/TopicSearchRequest"
       },

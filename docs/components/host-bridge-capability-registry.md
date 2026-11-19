@@ -141,7 +141,7 @@ field-independent matching under Zotero SQLite `NOCASE` semantics. Empty or
 whitespace-only values omit the predicate; wildcard characters remain literal.
 Their pages preserve stable identity ordering and opaque continuation.
 `library.search_items` keeps the existing capability name and accepts the C2
-bounded lexical search request, including portable Library scope, source kinds,
+automatic search request, including portable Library scope, source kinds,
 page bounds, and opaque continuation. Its handler calls
 `ZoteroHostCapabilityBroker.library.searchItems` directly and returns the
 shared search envelope (`results`, `status`, `method`, `coverage`, `issues`,
@@ -160,7 +160,7 @@ shared bounded Topic search request — a required `query`, optional canonical
 handler calls `SynthesisClient.topics.search`, so the Synthesis Topic
 application stays the search owner. Bridge holds no local ranking and never
 searches `topics.list` results. The result is the shared search envelope with
-`method: lexical` and `coverage: { kind: "topic", sections: [...] }`; each
+the executed `method` and section coverage. The optional `coverage.vector` describes the published index scope independently of lexical scan bounds; each
 result is one Topic with its identity, matched canonical sections, and concise
 match reasons. No relevance score, local path, or inferred freshness is
 exposed. An invalid request is rejected by the capability contract before the

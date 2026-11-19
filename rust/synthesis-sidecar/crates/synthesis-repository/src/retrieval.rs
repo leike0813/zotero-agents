@@ -142,6 +142,60 @@ fn placeholders(count: usize) -> String {
 }
 
 impl Repository {
+    pub fn browse_retrieval_items(
+        &self,
+        publication: &str,
+        library: Option<u64>,
+        kind: Option<&str>,
+        status: Option<&str>,
+        after: &str,
+        limit: usize,
+    ) -> Result<Vec<serde_json::Value>, String> {
+        let mut stmt = self.connection()?.prepare(
+            "WITH matched AS (
+               SELECT item_identity, library_id, min(json_extract(source_json,'$.topicId')) topic,
+                 count(*) groups_count, CASE
+                   WHEN max(status='failed') THEN 'failed'
+                   WHEN max(status='missing') THEN 'missing'
+                   WHEN max(status='suspended') THEN 'suspended'
+                   ELSE 'ready' END status
+               FROM synt_retrieval_group WHERE publication_id=?1 AND item_identity>?5
+                 AND (?2 IS NULL OR library_id=?2) AND (?3 IS NULL OR json_extract(source_json,'$.kind')=?3)
+                 AND (?4 IS NULL OR status=?4) GROUP BY item_identity ORDER BY item_identity LIMIT ?6)
+             SELECT item_identity,topic,groups_count,status,(SELECT count(*) FROM synt_retrieval_fragment f
+               JOIN synt_retrieval_group g ON g.publication_id=f.publication_id AND g.group_id=f.group_id
+               WHERE f.publication_id=?1 AND f.item_identity=matched.item_identity
+                 AND (?3 IS NULL OR json_extract(g.source_json,'$.kind')=?3) AND (?4 IS NULL OR g.status=?4)),
+                 coalesce(nullif(substr(t.title,1,2048),''),topic,item_identity)
+             FROM matched LEFT JOIN synt_topic_application_state t ON t.topic_id=matched.topic ORDER BY item_identity").map_err(map_sqlite_error)?;
+        stmt.query_map(rusqlite::params![publication,library.map(|id|id as i64),kind,status,after,limit as i64], |r| {
+            let identity: String = r.get(0)?;
+            let topic: Option<String> = r.get(1)?;
+            let mut row = serde_json::json!({"identity":identity,"title":r.get::<_,String>(5)?,
+                "sourceCount":r.get::<_,i64>(2)?,"status":r.get::<_,String>(3)?,"fragmentCount":r.get::<_,i64>(4)?});
+            if let Some(topic)=topic {row["topicId"]=topic.into();}
+            Ok(row)
+        }).map_err(map_sqlite_error)?.collect::<Result<Vec<_>,_>>().map_err(map_sqlite_error)
+    }
+
+    pub fn browse_retrieval_fragments(
+        &self,
+        publication: &str,
+        identity: &str,
+        after: &str,
+        limit: usize,
+    ) -> Result<Vec<(String, String, String, i64, i64)>, String> {
+        let mut stmt=self.connection()?.prepare("SELECT fragment_id,source_json,source_version,range_start,range_end
+            FROM synt_retrieval_fragment WHERE publication_id=?1 AND item_identity=?2 AND fragment_id>?3
+            ORDER BY fragment_id LIMIT ?4").map_err(map_sqlite_error)?;
+        stmt.query_map(
+            rusqlite::params![publication, identity, after, limit as i64],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+        )
+        .map_err(map_sqlite_error)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(map_sqlite_error)
+    }
     pub fn get_retrieval_state(&self) -> Result<Option<RetrievalStateRecord>, String> {
         self.connection()?
             .query_row(

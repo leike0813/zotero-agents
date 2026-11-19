@@ -568,6 +568,10 @@ fn is_service_failure(code: &str) -> bool {
     matches!(
         code,
         "retrieval_unavailable"
+            | "retrieval_index_missing"
+            | "retrieval_index_paused"
+            | "embedding_disabled"
+            | "embedding_service_unavailable"
             | "embedding_response_invalid"
             | "service_unavailable"
             | "operation_timeout"

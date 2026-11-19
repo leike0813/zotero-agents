@@ -12,6 +12,67 @@ export const SYNTHESIS_RETRIEVAL_SCHEMA_ID =
 export const SYNTHESIS_RETRIEVAL_DEFAULT_LIMIT = 25;
 export const SYNTHESIS_RETRIEVAL_MAX_RESULTS = 100;
 
+type ExplorerSourceKind = SynthesisSearchSourceKind | "topic";
+type ExplorerStatus = "ready" | "failed" | "missing" | "suspended";
+export type SynthesisRetrievalExplorerRequest =
+  | {
+      operation: "search";
+      query: string;
+      target: "paper" | "topic";
+      limit?: number;
+    }
+  | {
+      operation: "browse";
+      publication?: string;
+      cursor?: string;
+      libraryId?: number;
+      sourceKind?: ExplorerSourceKind;
+      status?: ExplorerStatus;
+      limit?: number;
+    }
+  | {
+      operation: "fragments";
+      publication: string;
+      identity: string;
+      cursor?: string;
+      limit?: number;
+    };
+
+export type SynthesisRetrievalExplorerResult = {
+  operation: SynthesisRetrievalExplorerRequest["operation"];
+  publication: string;
+  rows: Array<{
+    identity: string;
+    title: string;
+    itemRef?: SynthesisPortableItemRef;
+    topicId?: string;
+    section?: string;
+    sourceKind?: ExplorerSourceKind;
+    status?: ExplorerStatus;
+    sourceCount?: number;
+    fragmentCount?: number;
+    score?: number;
+    preview?: string;
+    start?: number;
+    end?: number;
+  }>;
+  nextCursor: string | null;
+  limited: boolean;
+  issues: string[];
+};
+
+export function rebuildSynthesisRetrievalExplorerRequest(
+  value: unknown,
+): SynthesisRetrievalExplorerRequest {
+  return rebuildRetrievalDto("RetrievalExplorerRequest", value);
+}
+
+export function rebuildSynthesisRetrievalExplorerResult(
+  value: unknown,
+): SynthesisRetrievalExplorerResult {
+  return rebuildRetrievalDto("RetrievalExplorerResult", value, "result");
+}
+
 /** Encoding identity binds vectors to a model, actual dimension, prefixes and Host options. */
 export type SynthesisEncodingIdentity = {
   modelId: string;

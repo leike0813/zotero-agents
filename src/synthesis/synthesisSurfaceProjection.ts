@@ -38,6 +38,14 @@ import type {
 } from "./synthesisWorkbenchPanelModel";
 
 export type SynthesisBusinessSurface =
+  | {
+      surface: "retrieval";
+      selection: {
+        retrieval: SynthesisWorkbenchPageSnapshot["retrieval"];
+        explorer: SynthesisWorkbenchPageSnapshot["retrievalExplorer"];
+        pending: string[];
+      };
+    }
   | { surface: "home"; selection: SynthesisWorkbenchHomeSelection }
   | { surface: "topics"; selection: SynthesisWorkbenchTopicsSelection }
   | { surface: "concepts"; selection: SynthesisWorkbenchConceptsSelection }
