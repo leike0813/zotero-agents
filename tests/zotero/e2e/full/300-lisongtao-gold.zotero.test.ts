@@ -1,15 +1,21 @@
 import { assert } from "chai";
 import { config } from "../../../../package.json";
+import { SYNTHESIS_EVIDENCE_SOURCE_MAX_UTF16 } from "../../../../packages/synthesis-contracts/src/search";
 import {
   listSidecarDiscoveries,
   readSystemE2ESidecarConnection,
   waitUntil as waitUntilBounded,
 } from "../../../../scripts/system-e2e/healthGate";
-import { createNativeSynthesisClientComposition } from "../../../../src/modules/synthesisClient/nativeComposition";
+import {
+  createNativeSynthesisClientComposition,
+  createNativeSynthesisRetrievalPort,
+} from "../../../../src/modules/synthesisClient/nativeComposition";
 import { createDefaultSynthesisUiState } from "../../../../src/modules/synthesis/uiModel";
+import { createZoteroSynthesisHostReadPort } from "../../../../src/modules/synthesis/libraryAdapter";
 import { toSynthesisWorkbenchReadState } from "../../../../src/modules/synthesisClient/workbenchUiAdapter";
 import type { SynthesisWorkbenchSidecarStatus } from "../../../../src/shared/synthesisWorkbenchWireContract";
 import { renderPayloadBlock } from "../../../../src/modules/zoteroHost/notePayloadCodec";
+import { managedArtifactContent } from "../../../../src/modules/zoteroHost/zoteroManagedNotes";
 import {
   getConfiguredContentFeedUrls,
   getContentPackageStatus,
@@ -31,6 +37,7 @@ import { createWorkflowHostApi } from "../../../../src/workflows/hostApi";
 import { loadWorkflowManifests } from "../../../../src/workflows/loader";
 import { executeApplyResult } from "../../../../src/workflows/runtime";
 import gold from "../../../fixtures/zotero-e2e/lisongtao-v1.json";
+import { syntheticTopicApplyRequest } from "../../../fixtures/synthesisSyntheticDatasets";
 import {
   readDiagnosticsEnv,
   writeDiagnosticsText,
@@ -359,6 +366,10 @@ describe("Synthesis E2E gold library", function () {
       setPref("contentDevFeedMirrorUrl", primary.url);
     }
     setPref("contentFeedChannel", channel);
+    if (readDiagnosticsEnv("ZOTERO_E2E_GOLD_ID")) {
+      const current = (await getContentPackageStatus()).installed?.package;
+      if (current?.channel === channel && current.version === version) return;
+    }
     const installed = await installContentPackageFromFeed({
       channel: channel as "stable" | "beta" | "dev",
     });
@@ -403,6 +414,9 @@ describe("Synthesis E2E gold library", function () {
         auth: { type: "none" as const },
       };
       const items: Zotero.Item[] = [];
+      let topicClient: NativeSidecarComposition | undefined;
+      let topicId: string | undefined;
+      const useGold = Boolean(readDiagnosticsEnv("ZOTERO_E2E_GOLD_ID"));
       const mainWindow = Zotero.getMainWindow() as _ZoteroTypes.MainWindow;
       const plugin = (Zotero as any)[config.addonInstance];
       let preferences: Window | undefined;
@@ -475,11 +489,11 @@ describe("Synthesis E2E gold library", function () {
             note.libraryID = paper.libraryID;
             note.parentItemID = paper.id;
             note.setNote(
-              `<div data-zs-note-kind="digest">${renderPayloadBlock({
-                payloadType: "digest-markdown",
-                payload: "# 分析内容\n\n分析来源检索标记：土壤湿度变化机制。",
-                payloadFormat: "text",
-              })}</div>`,
+              managedArtifactContent(
+                "digest",
+                "分析内容",
+                "# 分析内容\n\n分析来源检索标记：土壤湿度变化机制。",
+              ).content,
             );
             await note.saveTx();
             items.push(note);
@@ -545,35 +559,138 @@ describe("Synthesis E2E gold library", function () {
         preferences.close();
         preferences = undefined;
         const first = await openExplorer();
+        const ready = await waitUntil(async () =>
+          (await listSidecarDiscoveries()).find(
+            ({ discovery }) => discovery.lifecycleState === "ready",
+          ),
+        );
+        const connectionInfo = await readSystemE2ESidecarConnection(ready);
+        topicClient = createNativeSynthesisClientComposition({
+          getReadyConnection: () => connectionInfo,
+        });
+        const retrieval = createNativeSynthesisRetrievalPort({
+          getReadyConnection: () => connectionInfo,
+        });
+        const previousPublication = (await retrieval.getState()).publication;
+        const topicRequest = syntheticTopicApplyRequest({
+          name: "2k",
+          paperRefs: [`${items[0].libraryID}:${items[0].key}`],
+        });
+        const topic = topicRequest.bundle.topic_definition;
+        const applied =
+          await topicClient.client.workflowApply.applyTopicSynthesisResult(
+            topicRequest,
+          );
+        assert.equal(applied.status, "persisted");
+        topicId = topic.id;
         first
           .querySelector<HTMLElement>(".retrieval-settings summary")!
           .click();
-        await waitUntil(() => {
-          const scope = first.querySelector<HTMLElement>(
-            '[data-retrieval-scope="planned"] .retrieval-maintenance-value',
-          )?.textContent;
-          return scope &&
-            /metadata|元数据/i.test(scope) &&
-            /full text|全文/i.test(scope) &&
-            /analysis|分析/i.test(scope) &&
-            /topic|主题/i.test(scope)
-            ? scope
-            : null;
-        });
         const build = await waitUntil(() =>
           first.querySelector<HTMLButtonElement>(
-            '[data-synthesis-command="retrievalBuildIndex"]:enabled',
+            '[data-synthesis-command="retrievalRebuildIndex"]:enabled, [data-synthesis-command="retrievalBuildIndex"]:enabled',
           ),
         );
+        let largeAnalysis:
+          | { identity: string; contentLength: number }
+          | undefined;
+        if (useGold) {
+          const libraryId = Zotero.Libraries.userLibraryID;
+          const host = createZoteroSynthesisHostReadPort({ libraryId });
+          let cursor: string | undefined;
+          do {
+            const page = await host.evidence.listSources({
+              scope: { libraryIds: [libraryId] },
+              sourceKinds: ["analysis"],
+              scanMode: "retrieval",
+              cursor,
+            });
+            assert.isEmpty(page.issues, JSON.stringify(page.issues));
+            const [large] = page.descriptors
+              .filter(
+                (descriptor) =>
+                  descriptor.source.kind === "analysis" &&
+                  descriptor.source.artifactType === "citation-analysis" &&
+                  descriptor.contentLength >
+                    SYNTHESIS_EVIDENCE_SOURCE_MAX_UTF16,
+              )
+              .sort((a, b) => b.contentLength - a.contentLength);
+            if (large) {
+              largeAnalysis = {
+                identity: `${large.itemRef.libraryId}:${large.itemRef.key}`,
+                contentLength: large.contentLength,
+              };
+            }
+            cursor = page.nextCursor ?? undefined;
+          } while (cursor && !largeAnalysis);
+          assert.exists(largeAnalysis, "gold large citation-analysis source");
+        }
+        const buildStarted = Date.now();
         build.click();
         await waitUntilBounded(
-          () =>
-            first.querySelector(
+          async () => {
+            if (
+              first.querySelector(
+                ".retrieval-panel .home-service-task .zs-badge--danger",
+              )
+            ) {
+              const recent = await topicClient!.client.debug.listOperations({
+                limit: 20,
+              });
+              const operation = recent.rows.find(
+                (row) =>
+                  row.status === "failed" &&
+                  /^client\.(?:rebuild|build)RetrievalIndex$/.test(
+                    row.operationType,
+                  ),
+              );
+              const terminal = operation
+                ? await retrieval.getOperation({
+                    operation_id: operation.operationId,
+                  })
+                : null;
+              throw new Error(
+                `index_maintenance_failed:${JSON.stringify(terminal?.receipt?.diagnostics ?? [])}`,
+              );
+            }
+            return first.querySelector(
               '[data-synthesis-command="retrievalUpdateIndex"]:enabled',
-            ),
-          120000,
+            );
+          },
+          useGold ? 600_000 : 120_000,
           "index-publication",
         );
+        const rebuildMs = Date.now() - buildStarted;
+        const currentPublication = await retrieval.getState();
+        assert.equal(currentPublication.status, "ready");
+        assert.isString(currentPublication.publication);
+        assert.notEqual(currentPublication.publication, previousPublication);
+        let highOffset: number | undefined;
+        if (largeAnalysis) {
+          const { publication } = await retrieval.explore({
+            operation: "browse",
+            limit: 1,
+          });
+          let cursor: string | undefined;
+          do {
+            const page = await retrieval.explore({
+              operation: "fragments",
+              publication,
+              identity: largeAnalysis.identity,
+              ...(cursor ? { cursor } : {}),
+              limit: 10,
+            });
+            assert.isEmpty(page.issues, JSON.stringify(page.issues));
+            highOffset = page.rows.find(
+              (row) =>
+                row.sourceKind === "analysis" &&
+                (row.start ?? 0) > SYNTHESIS_EVIDENCE_SOURCE_MAX_UTF16 &&
+                row.preview,
+            )?.start;
+            cursor = page.nextCursor ?? undefined;
+          } while (cursor && highOffset === undefined);
+          assert.isNumber(highOffset, "verified high-offset analysis preview");
+        }
         const publishedScope = await waitUntil(() => {
           const scope = first.querySelector<HTMLElement>(
             '[data-retrieval-scope="published"] .retrieval-maintenance-value',
@@ -595,21 +712,28 @@ describe("Synthesis E2E gold library", function () {
               '[data-zs-role="workspace-frame"]',
             ),
         );
-        const doc = await openExplorer();
-        doc.querySelector<HTMLButtonElement>("#retrieval-browse-tab")!.click();
-        const title = await waitUntilBounded(
-          () =>
-            Array.from(doc.querySelectorAll(".retrieval-item .retrieval-title"))
-              .map((entry) => entry.textContent)
-              .find((value) => value === "城市道路交通流量预测研究"),
-          30000,
-          "published-paper-title",
-        );
-        doc.querySelector<HTMLButtonElement>("#retrieval-search-tab")!.click();
-        const search = doc.querySelector<HTMLInputElement>(
-          ".retrieval-query input",
-        )!;
+        let doc = await openExplorer();
+        const title = "城市道路交通流量预测研究";
+        if (!useGold) {
+          doc
+            .querySelector<HTMLButtonElement>("#retrieval-browse-tab")!
+            .click();
+          await waitUntilBounded(
+            () =>
+              Array.from(
+                doc.querySelectorAll(".retrieval-item .retrieval-title"),
+              ).find((entry) => entry.textContent === title),
+            30_000,
+            "published-paper-title",
+          );
+          doc
+            .querySelector<HTMLButtonElement>("#retrieval-search-tab")!
+            .click();
+        }
         const submitQuery = async (query: string) => {
+          const search = doc.querySelector<HTMLInputElement>(
+            ".retrieval-query input",
+          )!;
           search.value = query;
           const event = doc.createEvent("Event");
           event.initEvent("input", true, false);
@@ -652,23 +776,113 @@ describe("Synthesis E2E gold library", function () {
                 : null;
             },
             65000,
-            "verified-semantic-result",
+            `verified-semantic-result-${sourceKind}`,
           );
           assert.isNotEmpty(excerpt);
         }
+        if (useGold) await submitQuery("台车");
+        const paperResult = await waitUntilBounded(
+          () => {
+            const rows = Array.from(
+              doc.querySelectorAll(".retrieval-result-row"),
+            );
+            const row = useGold
+              ? rows.find((entry) =>
+                  entry
+                    .querySelector(".retrieval-excerpt")
+                    ?.textContent?.includes("台车"),
+                )
+              : rows[0];
+            return row?.querySelector<HTMLButtonElement>(".retrieval-title");
+          },
+          65_000,
+          "paper-result-to-open",
+        );
+        const paperTitle = paperResult.textContent;
+        paperResult.click();
+        await waitUntilBounded(
+          () =>
+            mainWindow.ZoteroPane.getSelectedItems().find(
+              (item) => item.getField("title") === paperTitle,
+            ),
+          30_000,
+          "paper-source-opened",
+        );
+        doc = await openExplorer();
+
         await submitQuery("模拟服务拒绝");
         const diagnostic = await waitUntil(() =>
           doc.querySelector("#retrieval-search-panel [role=alert] code"),
         );
         assert.equal(diagnostic.textContent, "embedding_http_401");
+
+        const target = doc.querySelector<HTMLSelectElement>(
+          "#retrieval-search-panel .retrieval-tools select",
+        )!;
+        target.value = "topic";
+        const changed = doc.createEvent("Event");
+        changed.initEvent("change", true, false);
+        target.dispatchEvent(changed);
+        await submitQuery(topic.definition);
+        const topicResult = await waitUntilBounded(
+          () =>
+            Array.from(
+              doc.querySelectorAll<HTMLButtonElement>(
+                ".retrieval-result-row .retrieval-title",
+              ),
+            ).find((button) => button.textContent === topic.title),
+          65_000,
+          "verified-topic-result",
+        );
+        topicResult.click();
+        await waitUntilBounded(
+          () =>
+            doc
+              .querySelector(".topic-detail .overview-summary-hero")
+              ?.textContent?.includes(topic.definition)
+              ? true
+              : null,
+          30_000,
+          "topic-source-opened",
+        );
+        if (largeAnalysis) {
+          const manifestPath = readDiagnosticsEnv(
+            "ZOTERO_SYSTEM_E2E_MANIFEST_PATH",
+          );
+          assert.isNotEmpty(manifestPath);
+          await writeDiagnosticsText(
+            PathUtils.join(
+              PathUtils.parent(manifestPath),
+              "large-analysis-retrieval.json",
+            ),
+            JSON.stringify(
+              {
+                zoteroVersion: Zotero.version,
+                rebuildMs,
+                contentLength: largeAnalysis.contentLength,
+                verifiedPreviewStart: highOffset,
+                paperOpened: true,
+                topicOpened: true,
+              },
+              null,
+              2,
+            ),
+          );
+        }
       } finally {
         for (const [key, value] of oldPrefs) {
           if (value == null) clearPref(key);
           else setPref(key, value);
         }
         preferences?.close();
-        await eraseSyntheticItems(items);
-        await fixture.cleanup();
+        try {
+          if (topicId)
+            await topicClient?.client.topics.deleteTopicArtifact({ topicId });
+        } finally {
+          await topicClient?.dispose();
+          await eraseSyntheticItems(items);
+          await fixture.cleanup();
+        }
       }
     },
   );

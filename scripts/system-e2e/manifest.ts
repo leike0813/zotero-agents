@@ -489,14 +489,19 @@ export async function startSystemE2EEventSink(
           if (inputs.includes("利用卫星影像评估土壤含水量")) {
             await new Promise((resolve) => setTimeout(resolve, 11_500));
           }
-          const data = inputs.map((text: string, index: number) => ({
-            index,
-            embedding: /交通|车辆/.test(text)
-              ? [1, 0, 0]
-              : /卫星|土壤/.test(text)
-                ? [0, 1, 0]
-                : [0, 0, 1],
-          }));
+          const data = inputs.map((text: string, index: number) => {
+            // Keep the three expected paper sources distinct even for one paper.
+            let embedding = [1, 1, 1];
+            if (text === "城市道路交通流量预测研究") embedding = [1, 0, 0];
+            else if (/全文：通过遥感|利用卫星影像评估土壤含水量/.test(text))
+              embedding = [0, 1, 0];
+            else if (/分析来源检索标记|^土壤湿度变化机制$/.test(text))
+              embedding = [0, 0, 1];
+            else if (text.includes("A governed native-route scale fixture"))
+              embedding = [-1, 0, 1];
+            else if (/台车/.test(text)) embedding = [1, -1, 0];
+            return { index, embedding };
+          });
           response
             .writeHead(200, { "content-type": "application/json" })
             .end(JSON.stringify({ data }));

@@ -490,7 +490,7 @@ function boundedPageLimit(limit: number | undefined) {
   return Math.max(1, Math.min(100, Math.floor(Number(limit) || 50)));
 }
 
-function syntheticTopicApplyRequest(args: {
+export function syntheticTopicApplyRequest(args: {
   name: SyntheticSynthesisBenchmarkDatasetName;
   paperRefs: string[];
 }): SynthesisTopicApplyRequest {

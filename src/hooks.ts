@@ -5,6 +5,7 @@ import {
 } from "./modules/workflowExecution/feedbackSeam";
 import { registerPrefsScripts } from "./modules/preferenceScript";
 import { getPref, setPref } from "./utils/prefs";
+import { isSystemE2ETestRun } from "./modules/systemE2ETestRun";
 import { createZToolkit } from "./utils/ztoolkit";
 import { registerSelectionSampleMenu } from "./modules/workflow/ui/selectionSample";
 import { registerAcpBackendRefreshCacheDiagnosticMenu } from "./modules/acp/diagnostics/acpBackendRefreshCacheDiagnostic";
@@ -623,7 +624,10 @@ export async function promptOfficialWorkflowPackageUpdateOnStartup(args: {
 }
 
 function scheduleOfficialWorkflowPackageUpdateCheck() {
-  if (startupOfficialWorkflowPackageUpdateCheckStarted) {
+  if (
+    startupOfficialWorkflowPackageUpdateCheckStarted ||
+    isSystemE2ETestRun()
+  ) {
     return;
   }
   startupOfficialWorkflowPackageUpdateCheckStarted = true;
