@@ -384,6 +384,7 @@
 - `RetrievalApplication` 持有本机派生向量、来源组、staging 和 publication；直接复用 `RepositoryPort` 的短事务。Host 持有 embedding 网络与加密凭据，source owner 持有当前内容、版本与原始 UTF-16 定位；网络、来源读取和评分在 writer 之外执行。
 - 检索先取当前 hard scope，再从原始 float32 向量以顺序 float64 累加计算 cosine。文献按最佳片段聚合，等词法相关性共享融合贡献；分页冻结实际 method、来源与 publication basis，续页不重新编码。
 - build/rebuild/update/cleanup 复用 public maintenance 的 durable winner、checkpoint 和恢复语义。完整重建发布前暂停语义检索；增量只暂停变化来源组。发布后 cleanup/Discovery 问题独立记录，不能撤销成功 publication；启动和普通读取不 dispatch 索引工作。
+- 修改向量索引的来源扫描、续页或发布时，遵循 [向量检索规格](openspec/specs/synthesis-vector-retrieval/spec.md) 的来源校验和发布契约。
 - Home 配置和论文相似推荐为 Workbench 私有投影；凭据不进入快照。相似材料依次使用 metadata 摘要、已有 structured digest overview、标题弱材料；索引与推荐不生成缺失摘要。Discovery 只产生候选，提交时复核 Topic、来源和用户决策；实际采用由 Topic apply 持有。
 
 # 发布流程硬约束

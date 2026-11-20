@@ -249,7 +249,7 @@ export function createSynthesisReverseHostHandlers(
         exactPayload(
           payload,
           ["scope"],
-          ["sourceKinds", "limit", "cursor"],
+          ["sourceKinds", "scanMode", "limit", "cursor"],
         ) as SynthesisHostEvidenceSourcesRequest,
       ),
     "library.evidence.read": async (payload) =>

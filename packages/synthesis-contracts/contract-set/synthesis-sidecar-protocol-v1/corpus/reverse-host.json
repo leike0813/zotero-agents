@@ -444,6 +444,18 @@
       }
     },
     {
+      "id": "evidence-sources-retrieval-scan",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/EvidenceSourcesRequest",
+      "valid": true,
+      "value": {
+        "scope": { "libraryIds": [1] },
+        "sourceKinds": ["metadata", "fulltext"],
+        "scanMode": "retrieval",
+        "limit": 100,
+        "cursor": "catalog-cursor"
+      }
+    },
+    {
       "id": "evidence-sources-duplicate-kinds-are-accepted",
       "schemaRef": "schemas/reverse-host.schema.json#/$defs/EvidenceSourcesRequest",
       "valid": true,
@@ -922,6 +934,15 @@
           "libraryIds": [1]
         },
         "sourceKinds": ["attachment"]
+      }
+    },
+    {
+      "id": "evidence-sources-request-unknown-scan-mode",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/EvidenceSourcesRequest",
+      "valid": false,
+      "value": {
+        "scope": { "libraryIds": [1] },
+        "scanMode": "unbounded"
       }
     },
     {

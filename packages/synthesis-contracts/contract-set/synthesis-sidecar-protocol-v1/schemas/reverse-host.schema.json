@@ -1359,6 +1359,7 @@
           "maxItems": 3,
           "items": { "$ref": "#/$defs/EvidenceSourceKind" }
         },
+        "scanMode": { "const": "retrieval" },
         "limit": { "type": "integer", "minimum": 1, "maximum": 100 },
         "cursor": { "$ref": "#/$defs/NonEmptyString" }
       }

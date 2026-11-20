@@ -88,7 +88,14 @@ describe("Synthesis evidence production route", function () {
     resetZoteroLibrarySourcePageQueryAdapterForTests();
   });
 
-  it("searches and previews the same published paper through the native explorer and Host broker", async function () {
+  it("rebuilds past eight catalog pages and searches the published paper through the native explorer", async function () {
+    for (let index = 0; index < 8; index += 1) {
+      await nativeFixtureMutations.item.create({
+        itemType: "journalArticle",
+        libraryID: 1,
+        fields: { title: `Other paper ${index + 1}` },
+      });
+    }
     const title = "隧道衬砌台车定位方法";
     const paper = await nativeFixtureMutations.item.create({
       itemType: "journalArticle",
@@ -102,21 +109,31 @@ describe("Synthesis evidence production route", function () {
       queryPrefix: "",
       documentPrefix: "",
     };
+    let addPaperDuringEncoding = false;
     const runtime = await startSynthesisProductionRouteHarness({
       id: "published-explorer-host",
       hostFixture: {
         async handle({ capability, payload }) {
           if (capability === "retrieval.embedding.describe")
             return { enabled: true, identity };
-          if (capability === "retrieval.embedding.encode")
+          if (capability === "retrieval.embedding.encode") {
+            if (addPaperDuringEncoding) {
+              addPaperDuringEncoding = false;
+              await nativeFixtureMutations.item.create({
+                itemType: "journalArticle",
+                libraryID: 1,
+                fields: { title: "Paper added during rebuild" },
+              });
+            }
             return {
               identity,
               vectors: (payload.inputs as string[]).map((text) =>
                 text.includes("台车") ? [1, 0] : [0, 1],
               ),
             };
+          }
           if (capability === "library.evidence.sources")
-            return host.evidence.listSources(payload as never);
+            return host.evidence.listSources({ ...payload, limit: 1 } as never);
           if (capability === "library.evidence.read")
             return host.evidence.readSource(payload as never);
           if (capability === "webdav.describe")
@@ -126,20 +143,21 @@ describe("Synthesis evidence production route", function () {
       },
     });
     try {
-      const op = await runtime.retrieval.build({
+      const request = {
         identity,
         scope: {
           libraryIds: [1],
-          sourceKinds: ["metadata"],
+          sourceKinds: ["metadata"] as ["metadata"],
           includeTopics: false,
         },
-      });
+      };
+      const op = await runtime.retrieval.rebuild(request);
       const done = await waitForSynthesisProductionRouteReceipt({
         operationId: op.operation_id,
         getOperation: (operation_id) =>
           runtime.retrieval.getOperation({ operation_id }),
       });
-      assert.equal(done.status, "completed");
+      assert.equal(done.status, "completed", JSON.stringify(done.receipt));
       const operations = await runtime.client.debug.listOperations({
         limit: 100,
       });
@@ -172,6 +190,29 @@ describe("Synthesis evidence production route", function () {
         );
         assert.equal(found.rows[0]?.preview, title);
       }
+
+      addPaperDuringEncoding = true;
+      const changed = await runtime.retrieval.rebuild({
+        ...request,
+        scope: { ...request.scope, sourceKinds: ["metadata", "analysis"] },
+      });
+      const failed = await waitForSynthesisProductionRouteReceipt({
+        operationId: changed.operation_id,
+        getOperation: (operation_id) =>
+          runtime.retrieval.getOperation({ operation_id }),
+      });
+      assert.isFalse(addPaperDuringEncoding);
+      assert.equal(failed.status, "failed");
+      const receipt = failed.receipt;
+      assert(receipt?.schema === "synthesis.maintenance_receipt.v1");
+      assert.deepInclude(receipt.diagnostics, {
+        code: "source_changed",
+        severity: "error",
+      });
+      const retained = await runtime.retrieval.getState();
+      assert.equal(retained.status, "paused");
+      assert.isString(retained.publication);
+      assert.deepEqual(retained.activeScope, request.scope);
     } finally {
       await runtime.stop();
     }

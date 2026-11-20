@@ -186,6 +186,7 @@ export type SynthesisHostEvidenceScope = {
 export type SynthesisHostEvidenceSourcesRequest = {
   scope: SynthesisLibrarySearchScope;
   sourceKinds?: SynthesisSearchSourceKind[];
+  scanMode?: "retrieval";
   limit?: number;
   cursor?: string;
 };
@@ -610,9 +611,12 @@ export function rebuildSynthesisHostEvidenceSourcesRequest(
   evidenceExact(
     request,
     ["scope"],
-    ["sourceKinds", "limit", "cursor"],
+    ["sourceKinds", "scanMode", "limit", "cursor"],
     "hostEvidenceSourcesRequest",
   );
+  const scanMode = request.scanMode;
+  if (scanMode !== undefined && scanMode !== "retrieval")
+    invalid("hostEvidenceSourcesRequest.scanMode");
   let sourceKinds: SynthesisHostEvidenceSourcesRequest["sourceKinds"];
   if (request.sourceKinds !== undefined) {
     if (
@@ -638,6 +642,7 @@ export function rebuildSynthesisHostEvidenceSourcesRequest(
     ...(sourceKinds !== undefined
       ? { sourceKinds: [...new Set(sourceKinds)] }
       : {}),
+    ...(scanMode !== undefined ? { scanMode } : {}),
     ...(limit !== undefined ? { limit } : {}),
     ...(request.cursor !== undefined
       ? {

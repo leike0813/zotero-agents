@@ -1441,7 +1441,11 @@ impl RetrievalApplication {
         kinds: &[SourceKind],
         checkpoint: &dyn Fn() -> Result<(), String>,
     ) -> Result<(Vec<Value>, Value), String> {
-        let mut input = json!({"scope": {"libraryIds": scope.library_ids}, "limit": 100});
+        let mut input = json!({
+            "scope": {"libraryIds": scope.library_ids},
+            "limit": 100,
+            "scanMode": "retrieval"
+        });
         if !kinds.is_empty() {
             input["sourceKinds"] = json!(kinds);
         }

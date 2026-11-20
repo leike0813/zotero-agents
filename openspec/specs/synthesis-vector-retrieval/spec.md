@@ -229,6 +229,13 @@ Save-and-test SHALL validate, serialize configuration and credential writes, res
 
 Known source changes SHALL suspend only the affected group until a complete compatible replacement publishes. Full rebuild SHALL suspend all semantic retrieval until complete publication; failure or cancellation before publication SHALL retain useful staging and keep semantic retrieval suspended. Expected absence SHALL not block publication, but unreadable existing content or failed encoding SHALL block it.
 
+#### Scenario: Maintenance reads a paged paper catalog
+
+- **WHEN** index maintenance enumerates paper sources
+- **THEN** it SHALL exhaust the bounded Host catalog pages, including empty pages with a continuation cursor, and the Host SHALL bind the retrieval scan mode to its cursor
+- **AND** the sidecar SHALL verify source versions during ingestion and compare a second complete catalog with the initial catalog before publication
+- **AND** changed sources, incomplete scans and source read failures SHALL prevent publication.
+
 #### Scenario: Incremental replacement is incomplete
 
 - **WHEN** one fragment in a changed source group cannot be encoded

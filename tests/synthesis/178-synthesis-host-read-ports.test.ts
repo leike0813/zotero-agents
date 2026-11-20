@@ -1,4 +1,5 @@
 import { assert } from "chai";
+import { rejects } from "node:assert/strict";
 import {
   rebuildSynthesisHostArtifactScanPageResult,
   SYNTHESIS_MARKDOWN_READ_PAGE_UTF16,
@@ -280,14 +281,29 @@ describe("Synthesis Host read capability ports", function () {
       "y".repeat(200_000);
     await writeUtf8(path, content);
     await addMarkdownAttachment(paper, path);
+    const companion = joinPath(directory, "companion.md");
+    await writeUtf8(companion, "Second Markdown source");
+    await addMarkdownAttachment(paper, companion);
     const port = createZoteroSynthesisHostReadPort({ libraryId });
-    const catalog = await port.evidence.listSources({
+    const request = {
       scope: {
         libraryIds: [libraryId],
         itemRefs: [{ libraryId, key: paper.key }],
       },
-      sourceKinds: ["fulltext"],
+      sourceKinds: ["fulltext"] as ["fulltext"],
+      limit: 1,
+    };
+    const catalog = await port.evidence.listSources(request);
+    assert.isString(catalog.nextCursor);
+    const next = await port.evidence.listSources({
+      ...request,
+      cursor: catalog.nextCursor!,
     });
+    assert.lengthOf(next.descriptors, 1);
+    assert.notDeepEqual(
+      next.descriptors[0].source,
+      catalog.descriptors[0].source,
+    );
     const descriptor = catalog.descriptors[0];
     assert.equal(descriptor.contentLength, content.length);
 
@@ -357,7 +373,16 @@ describe("Synthesis Host read capability ports", function () {
     });
     assert.deepEqual(oversizedPage, { outcome: "invalid_source" });
 
+    const beforeChange = await port.evidence.listSources(request);
+    assert.isString(beforeChange.nextCursor);
     await writeUtf8(path, `${content}changed`);
+    await rejects(
+      port.evidence.listSources({
+        ...request,
+        cursor: beforeChange.nextCursor!,
+      }),
+      { code: "conflict" },
+    );
     const stale = await port.evidence.readSource({
       scope: catalog.scope,
       descriptor,
@@ -520,22 +545,30 @@ describe("Synthesis Host read capability ports", function () {
     assert.equal(stale.outcome, "source_changed");
   });
 
-  it("reports more catalog work when the per-call item scan budget is reached", async function () {
+  it("continues sparse catalog batches with the appropriate scan-mode diagnostics", async function () {
     const libraryId = Zotero.Libraries.userLibraryID;
-    const refs = [];
+    const papers = [];
     for (let index = 0; index < 257; index += 1) {
       const paper = await createPaper(
         `B${index.toString(36).toUpperCase().padStart(7, "0")}`,
         `Budget ${index}`,
       );
-      refs.push({ libraryId, key: paper.key });
+      papers.push(paper);
     }
+    const directory = await mkTempDir("synthesis-evidence-sparse-catalog");
+    const path = joinPath(directory, "evidence.md");
+    await writeUtf8(path, "Markdown after the first scan batch");
+    const attachment = await addMarkdownAttachment(papers[256], path);
     const port = createZoteroSynthesisHostReadPort({ libraryId });
-    const first = await port.evidence.listSources({
-      scope: { libraryIds: [libraryId], itemRefs: refs },
-      sourceKinds: ["analysis"],
-      limit: 100,
-    });
+    const explicitScope = {
+      libraryIds: [libraryId],
+      itemRefs: papers.map(({ key }) => ({ libraryId, key })),
+    };
+    const request = {
+      scope: explicitScope,
+      sourceKinds: ["fulltext"] as ["fulltext"],
+    };
+    const first = await port.evidence.listSources(request);
     assert.isTrue(first.hasMore);
     assert.isNotNull(first.nextCursor);
     assert.isTrue(
@@ -545,13 +578,40 @@ describe("Synthesis Host read capability ports", function () {
       ),
     );
     const second = await port.evidence.listSources({
-      scope: { libraryIds: [libraryId], itemRefs: refs },
-      sourceKinds: ["analysis"],
-      limit: 100,
+      ...request,
       cursor: first.nextCursor!,
     });
     assert.isFalse(second.hasMore);
     assert.isNull(second.nextCursor);
+
+    const scan = {
+      ...request,
+      scope: { libraryIds: [libraryId], tag: "host-read" },
+      scanMode: "retrieval" as const,
+    };
+    const empty = await port.evidence.listSources(scan);
+    assert.isEmpty(empty.descriptors);
+    assert.isEmpty(empty.issues);
+    assert.isTrue(empty.hasMore);
+    assert.isString(empty.nextCursor);
+    const terminal = await port.evidence.listSources({
+      ...scan,
+      cursor: empty.nextCursor!,
+    });
+    assert.deepEqual(
+      terminal.descriptors.map((row) => row.source),
+      [{ kind: "fulltext", attachmentRef: { libraryId, key: attachment.key } }],
+    );
+    assert.isFalse(terminal.hasMore);
+    const ordinary = await port.evidence.listSources({
+      scope: scan.scope,
+      sourceKinds: scan.sourceKinds,
+    });
+    assert.isString(ordinary.nextCursor);
+    await rejects(
+      port.evidence.listSources({ ...scan, cursor: ordinary.nextCursor! }),
+      { code: "conflict" },
+    );
   });
 
   it("pages JSON-safe library summaries and resolves finite stable refs", async function () {

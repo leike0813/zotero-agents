@@ -57,7 +57,10 @@ describe("Synthesis reverse Host handlers", function () {
           getItemsByRef: () => result("library.getItemsByRef") as never,
         },
         evidence: {
-          listSources: () => result("library.evidence.listSources") as never,
+          listSources: (request) => {
+            assert.equal(request.scanMode, "retrieval");
+            return result("library.evidence.listSources") as never;
+          },
           readSource: () => result("library.evidence.readSource") as never,
         },
         artifacts: {
@@ -141,7 +144,10 @@ describe("Synthesis reverse Host handlers", function () {
       { locator: "x", expectedHash: "y" },
       {} as never,
     );
-    await handlers["library.evidence.sources"]({ scope: {} }, {} as never);
+    await handlers["library.evidence.sources"](
+      { scope: {}, scanMode: "retrieval" },
+      {} as never,
+    );
     await handlers["library.evidence.read"](
       {
         scope: { libraryIds: [1] },

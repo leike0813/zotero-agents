@@ -18014,7 +18014,7 @@ export function createZoteroHostCapabilityBroker(
     expiresAt: number;
   };
   const evidenceCursors = new Map<string, EvidenceCatalogCursor>();
-  // Bound concurrent catalog state; each cursor independently expires after 60s and 8 rounds.
+  // Bound concurrent catalog state. Each cursor expires after 60s of inactivity.
   const evidenceCursorLimit = 256;
   const searchNow = options?.now ?? Date.now;
   // Real wall-clock budget for one searchItems call. It deliberately reads Date.now
@@ -19003,8 +19003,7 @@ export function createZoteroHostCapabilityBroker(
   const listEvidenceSources = async (
     request: SynthesisHostEvidenceSourcesRequest,
     // Internal callers that revalidate the whole frozen set once (Library search)
-    // opt out of the per-round replay of already emitted descriptors; the public
-    // reverse-host surface keeps the default revalidation.
+    // opt out of the per-round replay of already emitted descriptors.
     internal?: { skipRevalidate?: boolean },
   ): Promise<SynthesisHostEvidenceSourcesResult> => {
     const now = Date.now();
@@ -19026,6 +19025,7 @@ export function createZoteroHostCapabilityBroker(
     const sourceKinds = new Set(
       request.sourceKinds ?? ["metadata", "fulltext", "analysis"],
     );
+    const retrievalScan = request.scanMode === "retrieval";
     const filters = {
       ...scope,
       itemRefs: scope.itemRefs
@@ -19037,6 +19037,7 @@ export function createZoteroHostCapabilityBroker(
     const basis = hashSynthesisContractCanonicalJson({
       scope: filters,
       sourceKinds: [...sourceKinds].sort(),
+      scanMode: request.scanMode,
     });
     let state: EvidenceCatalogCursor = {
       basis,
@@ -19064,7 +19065,7 @@ export function createZoteroHostCapabilityBroker(
         );
       }
       state = previous;
-      if (state.rounds >= 8) {
+      if (!retrievalScan && state.rounds >= 8) {
         throw capabilityError(
           "resource_limited",
           "evidence source catalog round limit reached",
@@ -19075,12 +19076,28 @@ export function createZoteroHostCapabilityBroker(
           },
         );
       }
-      if (!internal?.skipRevalidate) {
+      // Retrieval verifies versions during ingestion and compares both complete scans.
+      if (!retrievalScan && !internal?.skipRevalidate) {
         for (const descriptor of [
           ...state.emitted,
           ...state.pendingDescriptors,
         ]) {
-          const current = await readEvidenceSource({ scope, descriptor });
+          const current = await readEvidenceSource({
+            scope,
+            descriptor,
+            location:
+              descriptor.source.kind === "fulltext" &&
+              descriptor.contentLength > SYNTHESIS_EVIDENCE_SOURCE_MAX_UTF16
+                ? {
+                    unit: "paragraph",
+                    field: null,
+                    range: {
+                      start: 0,
+                      end: SYNTHESIS_MARKDOWN_READ_PAGE_UTF16,
+                    },
+                  }
+                : undefined,
+          });
           if (current.outcome !== "available") {
             throw capabilityError(
               "conflict",
@@ -19243,7 +19260,7 @@ export function createZoteroHostCapabilityBroker(
         }
       }
     }
-    state.emitted.push(...descriptors);
+    if (!retrievalScan) state.emitted.push(...descriptors);
     const pendingItems = scope.itemRefs
       ? state.libraryOffset < scope.libraryIds.length
       : state.fieldOffset < state.pendingDescriptors.length ||
@@ -19251,7 +19268,7 @@ export function createZoteroHostCapabilityBroker(
         Boolean(state.queryCursor) ||
         state.libraryOffset < scope.libraryIds.length;
     const scanBudgetReached = itemsVisited >= 256 && pendingItems;
-    if (scanBudgetReached) {
+    if (scanBudgetReached && !retrievalScan) {
       addEvidenceIssue(sourceIssues, "scan_budget_exhausted", null);
     }
     const hasMore =
