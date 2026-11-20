@@ -211,6 +211,9 @@ import {
   canonicalizeSynthesisContractJson,
   rebuildSynthesisEvidenceSearchRequest,
   SynthesisClientError,
+  SYNTHESIS_EVIDENCE_SOURCE_MAX_UTF16,
+  SYNTHESIS_MARKDOWN_READ_PAGE_UTF16,
+  SYNTHESIS_MARKDOWN_SOURCE_MAX_UTF16,
   sha256SynthesisContractBytes,
   ZOTERO_LIBRARY_SNAPSHOT_BATCH_SIZE_DEFAULT,
   ZOTERO_LIBRARY_SNAPSHOT_BATCH_SIZE_MAX,
@@ -18635,13 +18638,13 @@ export function createZoteroHostCapabilityBroker(
   ): SynthesisHostEvidenceDescriptor | null => {
     const content = metadataValue(item, field);
     if (!content) return null;
-    if (content.length > 262_144) {
+    if (content.length > SYNTHESIS_EVIDENCE_SOURCE_MAX_UTF16) {
       throw capabilityError(
         "resource_limited",
         "metadata evidence source exceeds the limit",
         {
           resource: "characters",
-          limit: 262_144,
+          limit: SYNTHESIS_EVIDENCE_SOURCE_MAX_UTF16,
           observed: content.length,
         },
       );
@@ -18695,7 +18698,7 @@ export function createZoteroHostCapabilityBroker(
     } catch {
       return { outcome: "source_read_failed" as const };
     }
-    if (content.length > 262_144)
+    if (content.length > SYNTHESIS_MARKDOWN_SOURCE_MAX_UTF16)
       return { outcome: "source_read_failed" as const };
     return { outcome: "available" as const, bytes, content };
   };
@@ -18715,13 +18718,13 @@ export function createZoteroHostCapabilityBroker(
     );
     const content = canonicalizeSynthesisContractJson(inspection.payload);
     if (!content) return null;
-    if (content.length > 262_144) {
+    if (content.length > SYNTHESIS_EVIDENCE_SOURCE_MAX_UTF16) {
       throw capabilityError(
         "resource_limited",
         "analysis evidence source exceeds the limit",
         {
           resource: "characters",
-          limit: 262_144,
+          limit: SYNTHESIS_EVIDENCE_SOURCE_MAX_UTF16,
           observed: content.length,
         },
       );
@@ -19351,6 +19354,12 @@ export function createZoteroHostCapabilityBroker(
         range: { start: 0, end: content.length },
       };
     } else if (descriptor.source.kind === "fulltext") {
+      if (
+        descriptor.contentLength > SYNTHESIS_EVIDENCE_SOURCE_MAX_UTF16 &&
+        !request.location
+      ) {
+        return { outcome: "source_read_failed" };
+      }
       let markdown: Awaited<ReturnType<typeof readMarkdownSource>>;
       try {
         markdown = await readMarkdownSource(
@@ -19404,7 +19413,25 @@ export function createZoteroHostCapabilityBroker(
       format !== descriptor.format
     )
       return { outcome: "source_changed" };
-    const location = request.location || fullLocation;
+    let location = request.location || fullLocation;
+    if (
+      descriptor.source.kind === "fulltext" &&
+      content.length > SYNTHESIS_EVIDENCE_SOURCE_MAX_UTF16
+    ) {
+      const { start, end } = location.range;
+      if (end - start > SYNTHESIS_MARKDOWN_READ_PAGE_UTF16)
+        return { outcome: "invalid_source" };
+      if (
+        end < content.length &&
+        end > start &&
+        content.charCodeAt(end - 1) >= 0xd800 &&
+        content.charCodeAt(end - 1) <= 0xdbff &&
+        content.charCodeAt(end) >= 0xdc00 &&
+        content.charCodeAt(end) <= 0xdfff
+      ) {
+        location = { ...location, range: { start, end: end - 1 } };
+      }
+    }
     const span = validateEvidenceSourceLocation(descriptor, content, location);
     if (!span) {
       return { outcome: "invalid_source" };

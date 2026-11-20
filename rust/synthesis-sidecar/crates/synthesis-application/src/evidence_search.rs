@@ -312,6 +312,22 @@ enum TextFormat {
     Markdown,
 }
 
+fn valid_descriptor_content_length(descriptor: &SourceDescriptor) -> bool {
+    let maximum = match (&descriptor.source, descriptor.format) {
+        (EvidenceSource::Fulltext { .. }, TextFormat::Markdown) => MAX_MARKDOWN_FULLTEXT_UTF16,
+        _ => MAX_LEXICAL_SOURCE_UTF16,
+    };
+    descriptor.content_length <= maximum
+}
+
+fn max_location_end(source: &EvidenceSource) -> usize {
+    if matches!(source, EvidenceSource::Fulltext { .. }) {
+        MAX_MARKDOWN_FULLTEXT_UTF16
+    } else {
+        MAX_LEXICAL_SOURCE_UTF16
+    }
+}
+
 impl EvidenceSource {
     fn kind(&self) -> SourceKind {
         match self {
@@ -413,6 +429,8 @@ pub struct EvidenceSearchApplication {
 
 const MAX_SOURCES: usize = 256;
 const MAX_SCAN_BYTES: usize = 4 * 1024 * 1024;
+const MAX_LEXICAL_SOURCE_UTF16: usize = 262_144;
+const MAX_MARKDOWN_FULLTEXT_UTF16: usize = 8 * 1024 * 1024;
 const MAX_PASSAGES: usize = 4096;
 const MAX_PASSAGE_UTF16: usize = 2048;
 const MAX_ROUND_BYTES: usize = 512 * 1024;
@@ -688,6 +706,12 @@ impl EvidenceSearchApplication {
                 continue;
             }
             *counts.entry(kind).or_default() += 1;
+            // Whole-source lexical reads keep their established bound. Larger
+            // Markdown fulltext remains eligible for verified vector passages.
+            if descriptor.content_length > MAX_LEXICAL_SOURCE_UTF16 {
+                add_issue(&mut issues, "scan_budget_exhausted", Some(kind));
+                continue;
+            }
             let read = match self
                 .sources
                 .read_source(json!({"scope":scope,"descriptor":descriptor}))
@@ -1354,7 +1378,7 @@ impl EvidenceSearchApplication {
                     || !descriptor.source.valid(&descriptor.item_ref)
                     || descriptor.source_version.is_empty()
                     || descriptor.source_version.chars().count() > 256
-                    || descriptor.content_length > 262144
+                    || !valid_descriptor_content_length(&descriptor)
                     || current["libraryIds"]
                         .as_array()
                         .is_none_or(|ids| !ids.contains(&json!(descriptor.item_ref.library_id)))
@@ -2236,7 +2260,7 @@ fn valid_context(
         && !version.is_empty()
         && version.chars().count() <= 256
         && location.range.end > location.range.start
-        && location.range.end <= 262144
+        && location.range.end <= max_location_end(source)
         && location.range.end - location.range.start == content.encode_utf16().count()
 }
 /// Strict Rust rebuilding paired with the shared protocol search corpus.
@@ -2412,7 +2436,7 @@ fn validate_library_execution(value: &Value, allow_semantic: bool) -> bool {
             || !descriptor.source.valid(&descriptor.item_ref)
             || descriptor.source_version.is_empty()
             || descriptor.source_version.chars().count() > 256
-            || descriptor.content_length > 262144
+            || !valid_descriptor_content_length(descriptor)
             || !libraries.contains(&json!(descriptor.item_ref.library_id))
     });
     let items_ok = result.results.iter().all(|item| {
@@ -2441,7 +2465,7 @@ fn validate_library_execution(value: &Value, allow_semantic: bool) -> bool {
             matched.source.valid(&item.item_ref)
                 && location_valid
                 && matched.location.range.end > matched.location.range.start
-                && matched.location.range.end <= 262144
+                && matched.location.range.end <= max_location_end(&matched.source)
                 && !matched.source_version.is_empty()
                 && matched.source_version.chars().count() <= 256
                 && (!matches!(result.method, SearchMethod::Lexical)
@@ -2737,6 +2761,48 @@ mod tests {
                 .get("path")
                 .is_none()
         );
+    }
+
+    #[test]
+    fn oversized_markdown_fulltext_is_kept_without_lexical_whole_read() {
+        struct Owner(std::sync::atomic::AtomicUsize);
+        impl EvidenceSourcePort for Owner {
+            fn list_sources(&self, request: Value) -> Result<Value, String> {
+                Ok(json!({"scope":request["scope"],"descriptors":[{
+                    "itemRef":{"libraryId":1,"key":"ITEM0001"},
+                    "source":{"kind":"fulltext","attachmentRef":{"libraryId":1,"key":"FILE0001"}},
+                    "sourceVersion":"v1","format":"markdown","contentLength":300_000
+                }],"nextCursor":null,"hasMore":false,"issues":[]}))
+            }
+            fn read_source(&self, _: Value) -> Result<Value, String> {
+                self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                unreachable!("oversized fulltext must not be whole-read by lexical search")
+            }
+        }
+
+        let owner = Arc::new(Owner(std::sync::atomic::AtomicUsize::new(0)));
+        let application = EvidenceSearchApplication::new(owner.clone());
+        let execution = application
+            .search_library_items(
+                json!({"query":"evidence","libraryIds":[1],"sourceKinds":["fulltext"]}),
+                &|| Ok(()),
+            )
+            .expect("oversized source remains a bounded lexical result");
+
+        assert_eq!(execution["descriptors"].as_array().unwrap().len(), 1);
+        assert_eq!(execution["catalogIssues"], json!([]));
+        assert_eq!(execution["result"]["status"], "limited");
+        assert!(
+            execution["result"]["issues"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|issue| {
+                    issue["code"] == "scan_budget_exhausted" && issue["sourceKind"] == "fulltext"
+                })
+        );
+        assert!(validate_library_lexical_result(&execution));
+        assert_eq!(owner.0.load(std::sync::atomic::Ordering::SeqCst), 0);
     }
 
     #[test]
@@ -3626,5 +3692,86 @@ mod tests {
                 .unwrap(),
             "source_changed"
         );
+    }
+
+    #[test]
+    fn verified_fulltext_vector_evidence_can_reference_a_high_source_offset() {
+        let content = format!("{}evidence", "x".repeat(300_000));
+        let application = EvidenceSearchApplication::new(Arc::new(RangeOwner {
+            content: content.clone(),
+        }));
+        let descriptor = SourceDescriptor {
+            item_ref: ItemRef {
+                library_id: 1,
+                key: "ITEM0001".into(),
+            },
+            source: EvidenceSource::Fulltext {
+                attachment_ref: ItemRef {
+                    library_id: 1,
+                    key: "FILE0001".into(),
+                },
+            },
+            source_version: "v1".into(),
+            format: TextFormat::Markdown,
+            content_length: content.encode_utf16().count(),
+        };
+        let source = json!({"kind":"fulltext","attachmentRef":{"libraryId":1,"key":"FILE0001"}});
+        let location =
+            json!({"unit":"paragraph","field":null,"range":{"start":300_000,"end":300_008}});
+        let fragment = crate::retrieval::ScoredFragment {
+            item_ref: Some(descriptor.item_ref.clone()),
+            topic: None,
+            item_identity: "1:ITEM0001".into(),
+            library_id: 1,
+            group_id: "group".into(),
+            fragment_id: "fragment".into(),
+            source_json: source.to_string(),
+            source_version: "v1".into(),
+            range_start: 300_000,
+            range_end: 300_008,
+            location_json: location.to_string(),
+            score: 0.9,
+        };
+        let verified = application
+            .verify_indexed_hit_library(
+                &json!({"libraryIds":[1]}),
+                &[serde_json::to_value(&descriptor).unwrap()],
+                &fragment,
+            )
+            .expect("high-offset vector evidence is read and verified at its location");
+        assert_eq!(verified.1, location);
+
+        let evidence_result = json!({
+            "results":[{"itemRef":descriptor.item_ref,"content":"evidence",
+                "format":"markdown","source":source,"sourceVersion":"v1",
+                "location":location,"context":[]}],
+            "status":"completed","method":"vector",
+            "coverage":{"kind":"library","sources":{
+                "metadata":{"status":"not_requested","sourcesScanned":0},
+                "fulltext":{"status":"complete","sourcesScanned":1},
+                "analysis":{"status":"not_requested","sourcesScanned":0}
+            }},
+            "issues":[],"nextCursor":null,"hasMore":false,"total":1
+        });
+        assert!(validate_evidence_result(&evidence_result));
+
+        let execution = json!({
+            "result":{
+                "results":[{"itemRef":descriptor.item_ref,"matches":[{
+                    "source":source,"sourceVersion":"v1","location":location,
+                    "matchedTerms":[],"phraseMatch":false
+                }]}],
+                "status":"completed","method":"vector",
+                "coverage":{"kind":"library","sources":{
+                    "metadata":{"status":"not_requested","sourcesScanned":0},
+                    "fulltext":{"status":"complete","sourcesScanned":1},
+                    "analysis":{"status":"not_requested","sourcesScanned":0}
+                }},
+                "issues":[],"nextCursor":null,"hasMore":false,"total":1
+            },
+            "scope":{"libraryIds":[1]},"descriptors":[descriptor],
+            "catalogIssues":[],"catalogLimited":false
+        });
+        assert!(validate_library_retrieval_result(&execution));
     }
 }

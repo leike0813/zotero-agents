@@ -2446,6 +2446,41 @@
       }
     },
     {
+      "id": "long-markdown-read-final-range",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/EvidenceReadRequest",
+      "valid": true,
+      "value": {
+        "scope": { "libraryIds": [1] },
+        "descriptor": {
+          "itemRef": { "libraryId": 1, "key": "SYN00001" },
+          "source": {
+            "kind": "fulltext",
+            "attachmentRef": { "libraryId": 1, "key": "SYN00002" }
+          },
+          "sourceVersion": "v1",
+          "format": "markdown",
+          "contentLength": 8388608
+        },
+        "location": {
+          "unit": "paragraph",
+          "field": null,
+          "range": { "start": 8388605, "end": 8388608 }
+        }
+      }
+    },
+    {
+      "id": "oversized-metadata-descriptor",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/EvidenceDescriptor",
+      "valid": false,
+      "value": {
+        "itemRef": { "libraryId": 1, "key": "SYN00001" },
+        "source": { "kind": "metadata", "field": "title" },
+        "sourceVersion": "v1",
+        "format": "text",
+        "contentLength": 262145
+      }
+    },
+    {
       "id": "evidence-read-analysis-location-positive",
       "schemaRef": "schemas/reverse-host.schema.json#/$defs/EvidenceReadResult",
       "valid": true,

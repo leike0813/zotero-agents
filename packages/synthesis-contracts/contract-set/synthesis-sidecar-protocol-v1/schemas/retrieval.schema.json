@@ -154,6 +154,20 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["libraryIds", "sourceKinds", "includeTopics"],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "includeTopics": { "const": false }
+            }
+          },
+          "then": {
+            "properties": {
+              "sourceKinds": { "minItems": 1 }
+            }
+          }
+        }
+      ],
       "properties": {
         "libraryIds": {
           "type": "array",
@@ -167,7 +181,6 @@
         },
         "sourceKinds": {
           "type": "array",
-          "minItems": 1,
           "maxItems": 3,
           "uniqueItems": true,
           "items": {

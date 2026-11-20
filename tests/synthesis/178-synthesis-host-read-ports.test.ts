@@ -1,6 +1,7 @@
 import { assert } from "chai";
 import {
   rebuildSynthesisHostArtifactScanPageResult,
+  SYNTHESIS_MARKDOWN_READ_PAGE_UTF16,
   type SynthesisHostArtifactDescriptor,
   type SynthesisHostReadPort,
   SynthesisClientError,
@@ -267,6 +268,118 @@ describe("Synthesis Host read capability ports", function () {
     });
     assert.equal(outsideScope.outcome, "source_unavailable");
     assert.deepEqual(attachment.parentItemID, paper.id);
+  });
+
+  it("pages large Markdown by absolute UTF-16 ranges and rejects oversized whole reads", async function () {
+    const libraryId = Zotero.Libraries.userLibraryID;
+    const paper = await createPaper("HOSTMD02", "Paged Markdown evidence");
+    const directory = await mkTempDir("synthesis-evidence-markdown-pages");
+    const path = joinPath(directory, "evidence.md");
+    const content =
+      `${"x".repeat(SYNTHESIS_MARKDOWN_READ_PAGE_UTF16 - 1)}😀` +
+      "y".repeat(200_000);
+    await writeUtf8(path, content);
+    await addMarkdownAttachment(paper, path);
+    const port = createZoteroSynthesisHostReadPort({ libraryId });
+    const catalog = await port.evidence.listSources({
+      scope: {
+        libraryIds: [libraryId],
+        itemRefs: [{ libraryId, key: paper.key }],
+      },
+      sourceKinds: ["fulltext"],
+    });
+    const descriptor = catalog.descriptors[0];
+    assert.equal(descriptor.contentLength, content.length);
+
+    const whole = await port.evidence.readSource({
+      scope: catalog.scope,
+      descriptor,
+    });
+    assert.deepEqual(whole, { outcome: "source_read_failed" });
+
+    const first = await port.evidence.readSource({
+      scope: catalog.scope,
+      descriptor,
+      location: {
+        unit: "paragraph",
+        field: null,
+        range: { start: 0, end: SYNTHESIS_MARKDOWN_READ_PAGE_UTF16 },
+      },
+    });
+    assert.equal(first.outcome, "available");
+    if (first.outcome !== "available") return;
+    assert.equal(
+      first.content,
+      content.slice(0, SYNTHESIS_MARKDOWN_READ_PAGE_UTF16 - 1),
+    );
+    assert.deepEqual(first.location.range, {
+      start: 0,
+      end: SYNTHESIS_MARKDOWN_READ_PAGE_UTF16 - 1,
+    });
+    assert.equal(first.sourceVersion, descriptor.sourceVersion);
+
+    const secondStart = first.location.range.end;
+    const second = await port.evidence.readSource({
+      scope: catalog.scope,
+      descriptor,
+      location: {
+        unit: "paragraph",
+        field: null,
+        range: {
+          start: secondStart,
+          end: secondStart + SYNTHESIS_MARKDOWN_READ_PAGE_UTF16,
+        },
+      },
+    });
+    assert.equal(second.outcome, "available");
+    if (second.outcome !== "available") return;
+    assert.equal(
+      second.content,
+      content.slice(
+        secondStart,
+        secondStart + SYNTHESIS_MARKDOWN_READ_PAGE_UTF16,
+      ),
+    );
+    assert.deepEqual(second.location.range, {
+      start: secondStart,
+      end: secondStart + SYNTHESIS_MARKDOWN_READ_PAGE_UTF16,
+    });
+    assert.equal(second.sourceVersion, descriptor.sourceVersion);
+
+    const oversizedPage = await port.evidence.readSource({
+      scope: catalog.scope,
+      descriptor,
+      location: {
+        unit: "paragraph",
+        field: null,
+        range: { start: 0, end: SYNTHESIS_MARKDOWN_READ_PAGE_UTF16 + 1 },
+      },
+    });
+    assert.deepEqual(oversizedPage, { outcome: "invalid_source" });
+
+    await writeUtf8(path, `${content}changed`);
+    const stale = await port.evidence.readSource({
+      scope: catalog.scope,
+      descriptor,
+      location: {
+        unit: "paragraph",
+        field: null,
+        range: { start: secondStart, end: secondStart + 10 },
+      },
+    });
+    assert.equal(stale.outcome, "source_changed");
+
+    await writeUtf8(path, "x".repeat(8 * 1024 * 1024 + 1));
+    const tooLarge = await port.evidence.readSource({
+      scope: catalog.scope,
+      descriptor,
+      location: {
+        unit: "paragraph",
+        field: null,
+        range: { start: 0, end: 1 },
+      },
+    });
+    assert.deepEqual(tooLarge, { outcome: "source_read_failed" });
   });
 
   it("can verify an indexed title after Zotero evicts the paper from memory", async function () {

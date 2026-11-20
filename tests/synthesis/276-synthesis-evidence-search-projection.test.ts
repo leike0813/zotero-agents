@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import Ajv2020 from "ajv/dist/2020";
+import { rebuildSynthesisHostEvidenceReadRequest } from "../../packages/synthesis-contracts/src/hostRead";
 import { describe, it } from "mocha";
 import {
   rebuildSynthesisEvidenceSearchRequest,
@@ -51,6 +52,46 @@ describe("Synthesis search Unicode request bounds", function () {
     assert.equal(rebuilt.results[0].content, content);
     assert.equal(rebuilt.results[0].location.range.end, content.length);
   });
+  it("round-trips evidence beyond the first 262144 units of a Markdown attachment", function () {
+    const itemRef = { libraryId: 1, key: "PAPER001" };
+    const source = {
+      kind: "fulltext",
+      attachmentRef: { libraryId: 1, key: "FILE0001" },
+    };
+    const location = {
+      unit: "paragraph",
+      field: null,
+      range: { start: 300000, end: 300003 },
+    };
+    const request = {
+      scope: { libraryIds: [1] },
+      descriptor: {
+        itemRef,
+        source,
+        sourceVersion: "v1",
+        format: "markdown",
+        contentLength: 300003,
+      },
+      location,
+    };
+    assert.deepEqual(rebuildSynthesisHostEvidenceReadRequest(request), request);
+    const found = rebuildSynthesisEvidenceSearchResult({
+      ...result,
+      results: [
+        {
+          itemRef,
+          source,
+          sourceVersion: "v1",
+          format: "markdown",
+          location,
+          content: "证据。",
+          context: [],
+        },
+      ],
+    });
+    assert.deepEqual(found.results[0].location, location);
+  });
+
   it("uses the schema character bounds for both search producers", function () {
     const query = "😀".repeat(4096);
     for (const rebuild of [

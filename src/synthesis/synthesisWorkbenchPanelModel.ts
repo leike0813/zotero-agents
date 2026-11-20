@@ -107,7 +107,7 @@ const NAV_TABS: ReadonlyArray<{
     tab: "registry",
     labelKey: "synthesis-tab-index",
     iconName: "index",
-    iconClass: "zs-icon-inventory-2",
+    iconClass: "zs-icon-format-list-bulleted",
   },
   {
     tab: "retrieval",

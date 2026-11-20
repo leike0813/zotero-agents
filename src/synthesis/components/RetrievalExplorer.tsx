@@ -323,6 +323,15 @@ export function RetrievalExplorer({
             )}
           </div>
         </div>
+        <button
+          type="button"
+          class="secondary zs-icon-btn retrieval-preferences"
+          aria-label={t("synthesis-home-settings")}
+          title={t("synthesis-home-settings")}
+          onClick={() => onAction("hostCommand", { command: "openPreferences" })}
+        >
+          <span class="zs-icon zs-icon-settings-applications" aria-hidden="true" />
+        </button>
         <details
           class="retrieval-settings"
           ref={settings}

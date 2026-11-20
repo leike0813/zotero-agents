@@ -78,12 +78,11 @@ Focused Topics, and unrelated Workbench regions retain their DOM identities.
 
 ### Embedding Preferences
 
-New configurations select **My Library** and **Include topic sections** by
-default. Existing saved scopes reopen as saved, including topic-only scopes.
-The **My Library** checkbox adds or removes the personal library while keeping
-other saved library selections. To build a literature-only index, select the
-library, clear **Include topic sections**, save, and start maintenance in
-Synthesis Home.
+Select metadata, Markdown full text, analysis, and Topic sections in embedding
+preferences. Paper sources use the current personal library. To index only
+Topics, clear the three paper sources. The Workbench shows the published scope
+and the changes that the next explicit rebuild will apply. Opening the Workbench
+also resolves saved paper selections against the current personal library.
 
 The embedding editor uses native Zotero `menulist` controls and their `command`
 events. Items are added to each `menupopup` before assigning the selected value;
@@ -306,9 +305,11 @@ Zotero Library item notifications are UI read-model invalidations, not sidecar s
 
 ### Vector search
 
-The Vector search tab follows Index and opens on Semantic search. Submit a paper
-or Topic query to read ranked, verified excerpts. The minimum similarity filter
-applies locally. When a ranked source has changed, the verifier can use up to
+The Vector search tab follows Index and opens on Semantic search. Its page header
+has an independent Preferences button; Index details and maintenance remain in
+their own disclosure. Submit a paper or Topic query to read ranked, verified
+excerpts. The minimum similarity filter applies locally. When a ranked source
+has changed, the verifier can use up to
 25 further candidates to fill the page. The view reports incomplete verification,
 an empty index scope, service failures and results hidden by the filter separately.
 When a request fails, the notice includes a selectable diagnostic code.

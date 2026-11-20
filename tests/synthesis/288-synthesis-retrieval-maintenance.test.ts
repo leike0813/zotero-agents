@@ -159,6 +159,31 @@ describe("Synthesis retrieval maintenance", function () {
     assert.notInclude(root.textContent, "Pending index");
   });
 
+  it("shows only Topics as published for a legacy scope with paper kinds but no library", function () {
+    const { root } = renderMaintenance(
+      makeRetrieval({
+        publication: "topic-publication",
+        activeScope: {
+          libraryIds: [],
+          sourceKinds: ["metadata"],
+          includeTopics: true,
+        },
+        pendingScope: {
+          libraryIds: [1],
+          sourceKinds: ["metadata"],
+          includeTopics: true,
+        },
+      }),
+    );
+    const published = root.querySelector('[data-retrieval-scope="published"]')!;
+    assert.include(published.textContent, "Topics");
+    assert.notInclude(published.textContent, "Metadata");
+    assert.include(
+      root.querySelector(".retrieval-maintenance-changes")!.textContent,
+      "Research Library",
+    );
+  });
+
   it("shows only changed scope settings as pending after publication", function () {
     const { root } = renderMaintenance(
       makeRetrieval({

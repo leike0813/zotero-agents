@@ -1258,6 +1258,15 @@
         "key": { "$ref": "#/$defs/ItemKey" }
       }
     },
+    "FulltextEvidenceSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "attachmentRef"],
+      "properties": {
+        "kind": { "const": "fulltext" },
+        "attachmentRef": { "$ref": "#/$defs/EvidenceItemRef" }
+      }
+    },
     "EvidenceSource": {
       "oneOf": [
         {
@@ -1278,15 +1287,7 @@
             }
           }
         },
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["kind", "attachmentRef"],
-          "properties": {
-            "kind": { "const": "fulltext" },
-            "attachmentRef": { "$ref": "#/$defs/EvidenceItemRef" }
-          }
-        },
+        { "$ref": "#/$defs/FulltextEvidenceSource" },
         {
           "type": "object",
           "additionalProperties": false,
@@ -1400,8 +1401,8 @@
           "additionalProperties": false,
           "required": ["start", "end"],
           "properties": {
-            "start": { "type": "integer", "minimum": 0, "maximum": 262144 },
-            "end": { "type": "integer", "minimum": 1, "maximum": 262144 }
+            "start": { "type": "integer", "minimum": 0, "maximum": 8388607 },
+            "end": { "type": "integer", "minimum": 1, "maximum": 8388608 }
           }
         }
       }
@@ -1421,8 +1422,18 @@
         "source": { "$ref": "#/$defs/EvidenceSource" },
         "sourceVersion": { "type": "string", "minLength": 1, "maxLength": 256 },
         "format": { "enum": ["text", "markdown"] },
-        "contentLength": { "type": "integer", "minimum": 0, "maximum": 262144 }
-      }
+        "contentLength": { "type": "integer", "minimum": 0, "maximum": 8388608 }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "contentLength": { "minimum": 262145 } } },
+          "then": {
+            "properties": {
+              "source": { "$ref": "#/$defs/FulltextEvidenceSource" }
+            }
+          }
+        }
+      ]
     },
     "EvidenceIssue": {
       "type": "object",

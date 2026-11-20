@@ -606,6 +606,39 @@
       }
     },
     {
+      "id": "retrieval-scope-topic-only",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/RetrievalScope",
+      "valid": true,
+      "admitted": true,
+      "value": {
+        "libraryIds": [],
+        "sourceKinds": [],
+        "includeTopics": true
+      }
+    },
+    {
+      "id": "retrieval-scope-legacy-empty-library-with-sources-and-topics",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/RetrievalScope",
+      "valid": true,
+      "admitted": true,
+      "value": {
+        "libraryIds": [],
+        "sourceKinds": ["metadata", "analysis"],
+        "includeTopics": true
+      }
+    },
+    {
+      "id": "retrieval-scope-rejects-no-selected-source",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/RetrievalScope",
+      "valid": false,
+      "admitted": false,
+      "value": {
+        "libraryIds": [],
+        "sourceKinds": [],
+        "includeTopics": false
+      }
+    },
+    {
       "id": "retrieval-scope-rejects-unknown-source-kind",
       "schemaRef": "schemas/retrieval.schema.json#/$defs/RetrievalScope",
       "valid": false,

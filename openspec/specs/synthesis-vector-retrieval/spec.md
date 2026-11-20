@@ -10,6 +10,12 @@ Provides optional semantic retrieval over existing Zotero material and canonical
 
 Retrieval SHALL index metadata, existing Markdown, canonical digest/analysis and canonical Topic sections only. It SHALL preserve portable identity, current source version, source kind and original UTF-16 ranges. It SHALL NOT generate missing artifacts or parse raw PDFs to fill coverage gaps.
 
+#### Scenario: Workbench resolves selected paper sources
+
+- **WHEN** the user selects one or more paper source kinds or opens a saved selection with those kinds
+- **THEN** the next build or rebuild targets the current Zotero personal library. The published scope remains visible until promotion.
+- **AND** selecting only Topics builds canonical Topic sections without enumerating Library items.
+
 #### Scenario: Material is missing or excluded
 
 - **WHEN** a source is absent or is an ordinary note, annotation, conversation or raw PDF
@@ -19,6 +25,12 @@ Retrieval SHALL index metadata, existing Markdown, canonical digest/analysis and
 
 - **WHEN** a fragment contains supplementary Unicode characters
 - **THEN** its half-open UTF-16 range resolves to the original source text without splitting a surrogate pair
+
+#### Scenario: A Markdown attachment exceeds the single-read budget
+
+- **WHEN** a supported UTF-8 Markdown attachment within the 8 MiB file limit exceeds 262144 UTF-16 units
+- **THEN** retrieval reads consecutive ranges of at most 65536 UTF-16 units and verifies their identity, version and complete coverage before indexing the source
+- **AND** a changed version, a gap or a read failure prevents publication; verified hits retain absolute ranges into the original attachment.
 
 ### Requirement: Embedding SHALL remain Host-owned
 
@@ -312,3 +324,25 @@ The Workbench SHALL provide a Vector search tab after Index, with separate indic
 - **WHEN** a publication exists
 - **THEN** the view shows the published scope once and identifies only changed scope settings and encoding identity as taking effect after rebuild
 - **AND** source coverage and maintenance progress are displayed separately from configuration changes
+
+#### Scenario: Complete a slow semantic search
+
+- **WHEN** query encoding and scoring finish within their 30-second deadline
+- **THEN** the explorer SHALL allow up to 60 seconds for the operation including source verification
+
+#### Scenario: Diagnose a failed query
+
+- **WHEN** the search request fails
+- **THEN** the Workbench SHALL distinguish timeouts, query encoding failures and invalid requests or responses, with a general service message for other causes
+- **AND** the error notice SHALL include a selectable diagnostic identifier from bounded structured error fields, using a generic code when needed and excluding free-form error messages
+- **AND** the notice SHALL be distinct from a completed search with no matches
+
+#### Scenario: Locate search in the collapsed sidebar
+
+- **WHEN** the Workbench displays its navigation
+- **THEN** Index SHALL use a directory-list icon and Vector search SHALL retain the search icon
+
+#### Scenario: Configure vector search from the Workbench
+
+- **WHEN** the user opens Vector search and activates its preferences button
+- **THEN** the Workbench opens the plugin preferences through the existing host action.

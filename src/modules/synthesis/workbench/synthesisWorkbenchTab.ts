@@ -63,6 +63,7 @@ import {
   createSynthesisEmbeddingSettingsPort,
   getSynthesisEmbeddingConnectionIdentity,
   getSynthesisEmbeddingPrefsConfig,
+  personalRetrievalScope,
   submitSynthesisEmbeddingSettings,
   type SynthesisEmbeddingPrefsStatus,
 } from "../synthesisEmbeddingPrefs";
@@ -1630,7 +1631,9 @@ function retrievalMaintenanceRequest(
   }
   return {
     identity: identity as SynthesisRetrievalMaintenanceRequest["identity"],
-    scope: scope as SynthesisRetrievalMaintenanceRequest["scope"],
+    scope: personalRetrievalScope(
+      scope as SynthesisRetrievalMaintenanceRequest["scope"],
+    ),
   };
 }
 
@@ -5577,13 +5580,11 @@ function handleAction(
   ) {
     const command = result.hostCommand.command;
     const commandArgs = commandArgsFromPayload(envelope.payload);
-    const request = retrievalMaintenanceRequest(commandArgs);
-    if (!request) {
-      void sendChrome(runtime, { refreshFromService: false });
-      return;
-    }
-    runWorkbenchCommandOnce(runtime, command, {}, () =>
-      runRetrievalMaintenance(
+    runWorkbenchCommandOnce(runtime, command, {}, async () => {
+      const request = retrievalMaintenanceRequest(commandArgs);
+      if (!request)
+        throw new Error("Select an index scope and embedding model.");
+      await runRetrievalMaintenance(
         runtime,
         command === "retrievalBuildIndex"
           ? "build"
@@ -5591,8 +5592,8 @@ function handleAction(
             ? "rebuild"
             : "update",
         request,
-      ),
-    );
+      );
+    });
     return;
   }
   if (

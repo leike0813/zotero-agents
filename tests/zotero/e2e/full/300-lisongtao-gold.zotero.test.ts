@@ -371,7 +371,7 @@ describe("Synthesis E2E gold library", function () {
   systemE2ECase(
     "retrieval-semantic-search-01",
     undefined,
-    "retrieval-semantic-search-01 searches synthetic Chinese papers by title and semantic paraphrase in the real Workbench",
+    "retrieval-semantic-search-01 builds every selected retrieval source from real preferences and searches synthetic Chinese papers",
     async function () {
       const embeddingEndpoint = readDiagnosticsEnv(
         "ZOTERO_SYSTEM_E2E_EVENT_URL",
@@ -405,6 +405,7 @@ describe("Synthesis E2E gold library", function () {
       const items: Zotero.Item[] = [];
       const mainWindow = Zotero.getMainWindow() as _ZoteroTypes.MainWindow;
       const plugin = (Zotero as any)[config.addonInstance];
+      let preferences: Window | undefined;
       const openExplorer = async () => {
         await plugin.hooks.onPrefsEvent("openSynthesisWorkbench", {
           window: mainWindow,
@@ -469,27 +470,96 @@ describe("Synthesis E2E gold library", function () {
             title: `synthetic-paper-${paperIndex}.md`,
             contentType: "text/markdown",
           });
+          if (paperIndex === 1) {
+            const note = new Zotero.Item("note");
+            note.libraryID = paper.libraryID;
+            note.parentItemID = paper.id;
+            note.setNote(
+              `<div data-zs-note-kind="digest">${renderPayloadBlock({
+                payloadType: "digest-markdown",
+                payload: "# 分析内容\n\n分析来源检索标记：土壤湿度变化机制。",
+                payloadFormat: "text",
+              })}</div>`,
+            );
+            await note.saveTx();
+            items.push(note);
+          }
         }
         const status = saveSynthesisEmbeddingPrefs({
           enabled: true,
           connections: [connection],
           primaryConnectionId: connection.id,
           fallbackConnectionIds: [],
-          pendingScope: {
-            libraryIds: [Zotero.Libraries.userLibraryID],
-            sourceKinds: ["metadata", "fulltext"],
-            includeTopics: false,
-          },
         });
         assert.isTrue(status.ok);
         const verified = await testSynthesisEmbeddingConnection({
           connectionId: connection.id,
         });
         assert.isTrue(verified.ok, JSON.stringify(verified.diagnostics));
+        preferences = (Zotero.Utilities.Internal as any).openPreferences(
+          `zotero-prefpane-${config.addonRef}`,
+        ) as Window;
+        const preferenceControl = <T extends Element>(suffix: string) => {
+          const control = preferences!.document.getElementById(
+            `zotero-prefpane-${config.addonRef}-retrieval-${suffix}`,
+          ) as T | null;
+          assert.isOk(control, `retrieval preference missing: ${suffix}`);
+          return control!;
+        };
+        const selectedSources = [
+          "source-metadata",
+          "source-fulltext",
+          "source-analysis",
+          "include-topics",
+        ];
+        for (const suffix of selectedSources) {
+          await waitUntil(() =>
+            preferences!.document.getElementById(
+              `zotero-prefpane-${config.addonRef}-retrieval-${suffix}`,
+            ),
+          );
+          const checkbox = preferenceControl<HTMLInputElement>(suffix);
+          checkbox.checked = true;
+          checkbox.dispatchEvent(
+            new preferences!.Event("change", { bubbles: true }),
+          );
+        }
+        preferenceControl<XUL.Button>("save").doCommand();
+        await waitUntil(() => {
+          const scope = JSON.parse(
+            String(getPref("synthesisEmbeddingPendingScopeJson") || "null"),
+          );
+          return scope?.sourceKinds?.length === 3 && scope.includeTopics
+            ? scope
+            : null;
+        });
+        const savedScope = JSON.parse(
+          String(getPref("synthesisEmbeddingPendingScopeJson")),
+        );
+        assert.deepEqual(savedScope.sourceKinds, [
+          "metadata",
+          "fulltext",
+          "analysis",
+        ]);
+        assert.isTrue(savedScope.includeTopics);
+        preferences.close();
+        preferences = undefined;
         const first = await openExplorer();
         first
           .querySelector<HTMLElement>(".retrieval-settings summary")!
           .click();
+        await waitUntil(() => {
+          const scope = first.querySelector<HTMLElement>(
+            '[data-retrieval-scope="planned"] .retrieval-maintenance-value',
+          )?.textContent;
+          return scope &&
+            /metadata|元数据/i.test(scope) &&
+            /full text|全文/i.test(scope) &&
+            /analysis|分析/i.test(scope) &&
+            /topic|主题/i.test(scope)
+            ? scope
+            : null;
+        });
         const build = await waitUntil(() =>
           first.querySelector<HTMLButtonElement>(
             '[data-synthesis-command="retrievalBuildIndex"]:enabled',
@@ -504,6 +574,19 @@ describe("Synthesis E2E gold library", function () {
           120000,
           "index-publication",
         );
+        const publishedScope = await waitUntil(() => {
+          const scope = first.querySelector<HTMLElement>(
+            '[data-retrieval-scope="published"] .retrieval-maintenance-value',
+          )?.textContent;
+          return scope &&
+            /metadata|元数据/i.test(scope) &&
+            /full text|全文/i.test(scope) &&
+            /analysis|分析/i.test(scope) &&
+            /topic|主题/i.test(scope)
+            ? scope
+            : null;
+        });
+        assert.isNotEmpty(publishedScope);
         await (mainWindow as any).Zotero_Tabs.close("zotero-skills-workspace");
         await waitUntil(
           () =>
@@ -538,10 +621,15 @@ describe("Synthesis E2E gold library", function () {
           );
           submit.click();
         };
-        for (const [query, expected] of [
-          [title, title],
-          ["利用卫星影像评估土壤含水量", "卫星遥感与土壤水分估算研究"],
-        ]) {
+        for (const [query, expected, sourceKind] of [
+          [title, title, "metadata"],
+          [
+            "利用卫星影像评估土壤含水量",
+            "卫星遥感与土壤水分估算研究",
+            "fulltext",
+          ],
+          ["土壤湿度变化机制", "卫星遥感与土壤水分估算研究", "analysis"],
+        ] as const) {
           await submitQuery(query);
           const excerpt = await waitUntilBounded(
             () => {
@@ -551,8 +639,15 @@ describe("Synthesis E2E gold library", function () {
               if (error)
                 throw new Error("semantic_search_failed: " + error.textContent);
               const row = doc.querySelector(".retrieval-result-row");
+              const source =
+                row?.querySelector(".retrieval-source")?.textContent || "";
+              const sourcePattern = {
+                metadata: /metadata|元数据/i,
+                fulltext: /full text|全文/i,
+                analysis: /analysis|分析/i,
+              }[sourceKind];
               return row?.querySelector(".retrieval-title")?.textContent ===
-                expected
+                expected && sourcePattern.test(source)
                 ? row.querySelector(".retrieval-excerpt")?.textContent
                 : null;
             },
@@ -571,6 +666,7 @@ describe("Synthesis E2E gold library", function () {
           if (value == null) clearPref(key);
           else setPref(key, value);
         }
+        preferences?.close();
         await eraseSyntheticItems(items);
         await fixture.cleanup();
       }

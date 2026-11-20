@@ -1,5 +1,9 @@
 import { rebuildSynthesisProtocolDto } from "./protocolSchema.js";
 import {
+  SYNTHESIS_MARKDOWN_SOURCE_MAX_UTF16,
+  SYNTHESIS_EVIDENCE_SOURCE_MAX_UTF16,
+} from "./search.js";
+import {
   SynthesisClientError,
   assertSynthesisExactFields,
   toSynthesisJsonObject,
@@ -497,9 +501,13 @@ function rebuildEvidenceLocation(
   const start = nonNegativeInteger(
     range.start,
     `${location}.range.start`,
-    262_144,
+    SYNTHESIS_MARKDOWN_SOURCE_MAX_UTF16,
   );
-  const end = positiveInteger(range.end, `${location}.range.end`, 262_144);
+  const end = positiveInteger(
+    range.end,
+    `${location}.range.end`,
+    SYNTHESIS_MARKDOWN_SOURCE_MAX_UTF16,
+  );
   if (end <= start) invalid(`${location}.range`);
   if (
     source.unit === "analysis_field" &&
@@ -535,9 +543,10 @@ function rebuildEvidenceDescriptor(
     descriptor.sourceVersion.length > 256
   )
     invalid(`${location}.sourceVersion`);
+  const source = rebuildEvidenceSource(descriptor.source, `${location}.source`);
   return {
     itemRef: evidenceRef(descriptor.itemRef, `${location}.itemRef`),
-    source: rebuildEvidenceSource(descriptor.source, `${location}.source`),
+    source,
     sourceVersion: stringValue(
       descriptor.sourceVersion,
       `${location}.sourceVersion`,
@@ -547,7 +556,9 @@ function rebuildEvidenceDescriptor(
     contentLength: nonNegativeInteger(
       descriptor.contentLength,
       `${location}.contentLength`,
-      262_144,
+      source.kind === "fulltext"
+        ? SYNTHESIS_MARKDOWN_SOURCE_MAX_UTF16
+        : SYNTHESIS_EVIDENCE_SOURCE_MAX_UTF16,
     ),
   };
 }

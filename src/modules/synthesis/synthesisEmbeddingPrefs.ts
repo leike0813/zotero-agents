@@ -223,7 +223,9 @@ async function persistSynthesisEmbeddingSettings(
   }
   if (input.pendingScope) {
     try {
-      rebuildSynthesisRetrievalScope(input.pendingScope);
+      personalRetrievalScope(
+        rebuildSynthesisRetrievalScope(input.pendingScope),
+      );
     } catch {
       return {
         ...selectionFailure([
@@ -396,11 +398,35 @@ function readSelection(): {
   };
 }
 
+export function personalRetrievalScope(
+  selection: Pick<SynthesisRetrievalScope, "sourceKinds" | "includeTopics">,
+): SynthesisRetrievalScope {
+  const { sourceKinds, includeTopics } = selection;
+  if (!sourceKinds.length && !includeTopics)
+    throw new Error("Select at least one index source.");
+  const libraryId = Zotero.Libraries?.userLibraryID;
+  if (sourceKinds.length && !(Number.isSafeInteger(libraryId) && libraryId > 0))
+    throw new Error(
+      "Personal library unavailable. Retry when Zotero is ready.",
+    );
+  return rebuildSynthesisRetrievalScope({
+    libraryIds: sourceKinds.length ? [libraryId] : [],
+    sourceKinds,
+    includeTopics,
+  });
+}
+
 function readPendingScope(): SynthesisRetrievalScope | null {
   const parsed = parseJson(getPref(PENDING_SCOPE_PREF));
-  if (parsed === undefined) return null;
   try {
-    return rebuildSynthesisRetrievalScope(parsed);
+    return personalRetrievalScope(
+      parsed === undefined
+        ? {
+            sourceKinds: ["metadata", "fulltext", "analysis"],
+            includeTopics: true,
+          }
+        : rebuildSynthesisRetrievalScope(parsed),
+    );
   } catch {
     return null;
   }
@@ -509,7 +535,9 @@ export function saveSynthesisEmbeddingPrefs(
       pendingScope = null;
     } else {
       try {
-        pendingScope = rebuildSynthesisRetrievalScope(input.pendingScope);
+        pendingScope = personalRetrievalScope(
+          rebuildSynthesisRetrievalScope(input.pendingScope),
+        );
       } catch {
         return selectionFailure([
           diagnostic(

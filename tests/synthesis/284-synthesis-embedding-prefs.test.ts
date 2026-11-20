@@ -62,9 +62,60 @@ describe("Synthesis embedding preferences", function () {
 
   beforeEach(resetEmbeddingPrefs);
 
-  it("saves and tests a selected draft without making it primary or resetting its library scope", async function () {
+  it("defaults a new index to all four sources in the current personal library", function () {
+    assert.deepEqual(getSynthesisEmbeddingPrefsStatus().pendingScope, {
+      libraryIds: [Zotero.Libraries.userLibraryID],
+      sourceKinds: ["metadata", "fulltext", "analysis"],
+      includeTopics: true,
+    });
+  });
+
+  it("retains the saved scope when a paper selection cannot resolve its personal library", function () {
+    const libraries = Zotero.Libraries;
+    const previousId = libraries.userLibraryID;
+    const saved = JSON.stringify({
+      libraryIds: [previousId],
+      sourceKinds: ["metadata"],
+      includeTopics: true,
+    });
+    setPref("synthesisEmbeddingPendingScopeJson", saved);
+    try {
+      libraries.userLibraryID = 0;
+      const result = saveSynthesisEmbeddingPrefs({
+        pendingScope: {
+          libraryIds: [42],
+          sourceKinds: ["fulltext"],
+          includeTopics: true,
+        },
+      });
+      assert.isFalse(result.ok);
+      assert.equal(getPref("synthesisEmbeddingPendingScopeJson"), saved);
+    } finally {
+      libraries.userLibraryID = previousId;
+    }
+  });
+
+  for (const libraryIds of [[], [7, 42]]) {
+    it(`recovers saved paper sources from library scope [${libraryIds}] without resaving`, function () {
+      setPref(
+        "synthesisEmbeddingPendingScopeJson",
+        JSON.stringify({
+          libraryIds,
+          sourceKinds: ["analysis"],
+          includeTopics: true,
+        }),
+      );
+      assert.deepEqual(getSynthesisEmbeddingPrefsStatus().pendingScope, {
+        libraryIds: [Zotero.Libraries.userLibraryID],
+        sourceKinds: ["analysis"],
+        includeTopics: true,
+      });
+    });
+  }
+
+  it("saves and tests a selected draft without making it primary or resetting its personal library scope", async function () {
     const scope = {
-      libraryIds: [3],
+      libraryIds: [Zotero.Libraries.userLibraryID],
       sourceKinds: ["metadata" as const],
       includeTopics: false,
     };

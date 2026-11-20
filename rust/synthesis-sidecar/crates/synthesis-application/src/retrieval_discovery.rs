@@ -120,7 +120,12 @@ impl RetrievalApplication {
                     let read = match descriptor {
                         Some(descriptor) => {
                             match serde_json::from_value::<DescriptorWire>(descriptor.clone()) {
-                                Ok(wire) => self.read_source(&resolved_scope, &descriptor, &wire),
+                                Ok(wire) => self.read_source(
+                                    &resolved_scope,
+                                    &descriptor,
+                                    &wire,
+                                    checkpoint,
+                                ),
                                 Err(_) => Err("invalid_source".to_owned()),
                             }
                         }

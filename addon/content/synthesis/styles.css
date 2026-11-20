@@ -697,6 +697,10 @@ body.retrieval-workbench-open {
   margin-inline-start: auto;
 }
 
+.retrieval-preferences {
+  flex: 0 0 auto;
+}
+
 .retrieval-settings > summary,
 .retrieval-filter > summary {
   cursor: pointer;

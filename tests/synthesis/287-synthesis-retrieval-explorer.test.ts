@@ -72,6 +72,17 @@ describe("Vector search Workbench", function () {
     const panels = root.querySelectorAll<HTMLElement>("[role=tabpanel]");
     return { root, show, tabs, input, panels, requests };
   }
+  it("opens preferences independently from index maintenance", async () => {
+    const { root, requests } = mount({ search: slot("search") });
+    const button = root.querySelector<HTMLButtonElement>(
+      '.retrieval-header button[aria-label="Preferences"]',
+    );
+    assert.ok(button);
+    assert.ok(root.querySelector(".retrieval-settings"));
+    button!.click();
+    await flush();
+    assert.deepInclude(requests, { command: "openPreferences" });
+  });
   it("switches tabs from the keyboard and preserves the query, reading position and expanded row", async () => {
     const { root, tabs, input, panels, requests } = mount({
       search: slot("search"),

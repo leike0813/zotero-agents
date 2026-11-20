@@ -6,6 +6,9 @@ export const SYNTHESIS_SEARCH_SCHEMA_ID =
   "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json";
 
 export type SynthesisSearchSourceKind = "metadata" | "fulltext" | "analysis";
+export const SYNTHESIS_MARKDOWN_SOURCE_MAX_UTF16 = 8 * 1024 * 1024;
+export const SYNTHESIS_EVIDENCE_SOURCE_MAX_UTF16 = 262_144;
+export const SYNTHESIS_MARKDOWN_READ_PAGE_UTF16 = 65_536;
 export type SynthesisSearchStatus = "completed" | "limited" | "unavailable";
 export type SynthesisSearchMethod = "lexical" | "vector" | "hybrid";
 export type SynthesisSearchWorkStatus =
@@ -265,7 +268,11 @@ function assertEvidenceText(
   value: SynthesisEvidenceContext,
   libraryId?: number,
 ) {
-  assertTextRange(value.location.range, value.content.length);
+  assertTextRange(
+    value.location.range,
+    value.content.length,
+    value.source.kind,
+  );
   if (
     (value.source.kind === "metadata" &&
       (value.location.unit !== "field" ||
@@ -299,10 +306,17 @@ function assertEvidenceText(
   }
 }
 
-function assertTextRange(range: SynthesisTextRange, contentLength: number) {
+function assertTextRange(
+  range: SynthesisTextRange,
+  contentLength: number,
+  kind: SynthesisSearchSourceKind,
+) {
   if (
     range.start >= range.end ||
-    range.end > 262144 ||
+    range.end >
+      (kind === "fulltext"
+        ? SYNTHESIS_MARKDOWN_SOURCE_MAX_UTF16
+        : SYNTHESIS_EVIDENCE_SOURCE_MAX_UTF16) ||
     range.end - range.start !== contentLength
   ) {
     throw new SynthesisClientError(

@@ -989,7 +989,6 @@ function createPrefsWindow(args?: {
         sourceMetadata: embeddingControl("source-metadata")!,
         sourceFulltext: embeddingControl("source-fulltext")!,
         sourceAnalysis: embeddingControl("source-analysis")!,
-        includeMyLibrary: embeddingControl("include-my-library")!,
         includeTopics: embeddingControl("include-topics")!,
         save: embeddingControl("save", "button")!,
         saveTest: embeddingControl("save-test", "button")!,
@@ -4913,7 +4912,7 @@ describe("gui: workflow context menu", function () {
     assert.notInclude(controls.status.textContent, "Connection OK");
   });
 
-  it("defaults embedding scope to My Library and topics and preserves saved library membership", async function () {
+  it("uses personal library for paper sources when saving new or legacy embedding scopes", async function () {
     const previousLibraryId = Zotero.Libraries.userLibraryID;
     Zotero.Libraries.userLibraryID = 42;
     let status: any = {
@@ -4957,7 +4956,6 @@ describe("gui: workflow context menu", function () {
     };
     try {
       const first = await open();
-      assert.isTrue(first.embeddingPreferences!.includeMyLibrary.checked);
       await save(first);
       assert.deepInclude(status.pendingScope, {
         libraryIds: [42],
@@ -4973,11 +4971,10 @@ describe("gui: workflow context menu", function () {
           includeTopics: true,
         },
       };
-      const topicOnly = await open();
-      assert.isFalse(topicOnly.embeddingPreferences!.includeMyLibrary.checked);
-      await save(topicOnly);
-      assert.deepEqual(status.pendingScope.libraryIds, []);
-      topicOnly.dispatchWindowEvent("unload");
+      const legacy = await open();
+      await save(legacy);
+      assert.deepEqual(status.pendingScope.libraryIds, [42]);
+      legacy.dispatchWindowEvent("unload");
 
       status = {
         ...status,
@@ -4985,24 +4982,26 @@ describe("gui: workflow context menu", function () {
       };
       const reopened = await open();
       const controls = reopened.embeddingPreferences!;
-      assert.isTrue(controls.includeMyLibrary.checked);
-      controls.includeMyLibrary.checked = false;
-      controls.includeMyLibrary.dispatch("change");
-      await save(reopened);
-      assert.deepEqual(status.pendingScope, {
-        libraryIds: [7],
-        sourceKinds: ["metadata"],
-        includeTopics: true,
-      });
-      controls.includeMyLibrary.checked = true;
-      controls.includeMyLibrary.dispatch("change");
       controls.includeTopics.checked = false;
       controls.includeTopics.dispatch("change");
       await save(reopened);
       assert.deepEqual(status.pendingScope, {
-        libraryIds: [7, 42],
+        libraryIds: [42],
         sourceKinds: ["metadata"],
         includeTopics: false,
+      });
+      controls.sourceMetadata.checked = false;
+      controls.sourceMetadata.dispatch("change");
+      await save(reopened);
+      assert.deepEqual(status.pendingScope.sourceKinds, ["metadata"]);
+      assert.isNotEmpty(controls.status.textContent);
+      controls.includeTopics.checked = true;
+      controls.includeTopics.dispatch("change");
+      await save(reopened);
+      assert.deepEqual(status.pendingScope, {
+        libraryIds: [],
+        sourceKinds: [],
+        includeTopics: true,
       });
       reopened.dispatchWindowEvent("unload");
     } finally {
@@ -5259,7 +5258,9 @@ describe("gui: workflow context menu", function () {
     );
     assert.equal(connectionSave.data.credential, "new-secret");
     assert.equal(connectionSave.data.enabled, true);
-    assert.deepEqual(connectionSave.data.pendingScope.libraryIds, [42]);
+    assert.deepEqual(connectionSave.data.pendingScope.libraryIds, [
+      Zotero.Libraries.userLibraryID,
+    ]);
     assert.equal(connectionSave.data.test, undefined);
     for (const key of ["primaryConnectionId", "fallbackConnectionIds"]) {
       assert.notProperty(connectionSave.data, key);

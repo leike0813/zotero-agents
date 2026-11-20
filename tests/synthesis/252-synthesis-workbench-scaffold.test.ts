@@ -491,6 +491,11 @@ describe("synthesis workbench scaffold (src/synthesis)", function () {
     ]);
     assert.notInclude(tabs, "reader");
     assert.ok(buttons[0].classList.contains("active"), "home tab is active");
+    assert.include(
+      shell!.querySelector<HTMLButtonElement>('[data-synthesis-tab="registry"]')!
+        .querySelector(".zs-icon")!.className,
+      "zs-icon-format-list-bulleted",
+    );
   });
 
   for (const sidebarExpanded of [false, true]) {

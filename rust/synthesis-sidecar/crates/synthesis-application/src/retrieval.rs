@@ -49,6 +49,9 @@ const RETRIEVAL_MAX_MODEL_ID_CHARS: usize = 512;
 const RETRIEVAL_MAX_PREFIX_CHARS: usize = 256;
 const RETRIEVAL_MAX_OPTIONS_KEY_CHARS: usize = 128;
 const RETRIEVAL_MAX_MODEL_BYTES: usize = 262_144;
+const RETRIEVAL_SOURCE_READ_PAGE_UTF16: usize = 65_536;
+const RETRIEVAL_PAGED_MARKDOWN_THRESHOLD_UTF16: usize = 262_144;
+const RETRIEVAL_MAX_MARKDOWN_UTF16: usize = 8 * 1024 * 1024;
 const RETRIEVAL_QUERY_LIFETIME_MS: u64 = 30_000;
 const RETRIEVAL_BUILD_LIFETIME_MS: u64 = 60_000;
 
@@ -142,9 +145,8 @@ impl RetrievalScope {
                 .iter()
                 .any(|id| *id == 0 || *id > 9_007_199_254_740_991)
             || !self.library_ids.iter().all(|id| libraries.insert(*id))
-            // `sourceKinds` is a closed, nonempty set: an empty array is a
-            // malformed request, never an implicit "all kinds".
-            || self.source_kinds.is_empty()
+            // An empty evidence set is valid only when Topics are selected.
+            || (self.source_kinds.is_empty() && !self.include_topics)
             || self.source_kinds.len() > 3
             || !self.source_kinds.iter().all(|kind| kinds.insert(*kind))
         {
@@ -1042,7 +1044,7 @@ impl RetrievalApplication {
         let mut failure_code = None;
         let mut changed = false;
 
-        if !request.scope.library_ids.is_empty() {
+        if !request.scope.library_ids.is_empty() && !request.scope.source_kinds.is_empty() {
             let kinds = request.scope.evidence_kinds();
             let (descriptors, resolved_scope) = self.catalog(&request.scope, &kinds, checkpoint)?;
             let catalog_basis = hash(&json!(&descriptors));
@@ -1095,7 +1097,8 @@ impl RetrievalApplication {
                                 }))
                         })?;
                         if complete {
-                            if let Err(code) = self.read_source(&resolved_scope, &descriptor, &wire)
+                            if let Err(code) =
+                                self.read_source(&resolved_scope, &descriptor, &wire, checkpoint)
                             {
                                 self.repository.with_writer(|repository| {
                                     repository
@@ -1221,7 +1224,7 @@ impl RetrievalApplication {
             status: "ready".into(),
         };
         self.put_group(&group, "suspended")?;
-        let content = match self.read_source(scope, descriptor, wire) {
+        let content = match self.read_source(scope, descriptor, wire, checkpoint) {
             Ok(content) => content,
             Err(code) => {
                 self.put_group(&group, "failed")?;
@@ -1268,7 +1271,7 @@ impl RetrievalApplication {
                 });
             }
         }
-        match self.read_source(scope, descriptor, wire) {
+        match self.read_source(scope, descriptor, wire, checkpoint) {
             Ok(current) if current == content => {}
             Ok(_) => {
                 self.put_group(&group, "failed")?;
@@ -1512,9 +1515,16 @@ impl RetrievalApplication {
         scope: &Value,
         descriptor: &Value,
         wire: &DescriptorWire,
+        checkpoint: &dyn Fn() -> Result<(), String>,
     ) -> Result<String, String> {
         if !wire.valid() || !valid_item_ref(&wire.item_ref) {
             return Err("invalid_source".into());
+        }
+        if wire.format == "markdown"
+            && wire.source["kind"] == "fulltext"
+            && wire.content_length > RETRIEVAL_PAGED_MARKDOWN_THRESHOLD_UTF16
+        {
+            return self.read_markdown_pages(scope, descriptor, wire, checkpoint);
         }
         let read = self
             .sources
@@ -1554,6 +1564,154 @@ impl RetrievalApplication {
             return Err("source_changed".into());
         }
         Ok(content.to_owned())
+    }
+
+    pub(crate) fn read_source_range(
+        &self,
+        scope: &Value,
+        descriptor: &Value,
+        wire: &DescriptorWire,
+        location: &Value,
+        checkpoint: &dyn Fn() -> Result<(), String>,
+    ) -> Result<String, String> {
+        if !wire.valid() || !valid_item_ref(&wire.item_ref) {
+            return Err("invalid_source".into());
+        }
+        let range = &location["range"];
+        let start = range
+            .get("start")
+            .and_then(Value::as_u64)
+            .ok_or_else(|| "invalid_source".to_owned())? as usize;
+        let end = range
+            .get("end")
+            .and_then(Value::as_u64)
+            .ok_or_else(|| "invalid_source".to_owned())? as usize;
+        if end <= start || end > wire.content_length || end - start > RETRIEVAL_MAX_FRAGMENT_UTF16 {
+            return Err("invalid_source".into());
+        }
+        checkpoint()?;
+        let read = self
+            .sources
+            .read_source(json!({"scope":scope,"descriptor":descriptor,"location":location}))
+            .map_err(|code| match code.as_str() {
+                "operation_timeout" => "operation_timeout".to_owned(),
+                _ => "source_read_failed".to_owned(),
+            })?;
+        match read.get("outcome").and_then(Value::as_str) {
+            Some("available") => {}
+            Some("source_changed") => return Err("source_changed".into()),
+            Some("source_unavailable") => return Err("source_unavailable".into()),
+            _ => return Err("source_read_failed".into()),
+        }
+        let object = read
+            .as_object()
+            .ok_or_else(|| "invalid_source".to_owned())?;
+        if object.len() != 7
+            || read["itemRef"] != descriptor["itemRef"]
+            || read["source"] != descriptor["source"]
+            || read["format"] != descriptor["format"]
+            || read["sourceVersion"] != descriptor["sourceVersion"]
+            || read["location"] != *location
+        {
+            return Err("source_changed".into());
+        }
+        let content = read
+            .get("content")
+            .and_then(Value::as_str)
+            .ok_or_else(|| "invalid_source".to_owned())?;
+        if content.encode_utf16().count() != end - start {
+            return Err("source_changed".into());
+        }
+        Ok(content.to_owned())
+    }
+
+    fn read_markdown_pages(
+        &self,
+        scope: &Value,
+        descriptor: &Value,
+        wire: &DescriptorWire,
+        checkpoint: &dyn Fn() -> Result<(), String>,
+    ) -> Result<String, String> {
+        let (unit, field) = if wire.source["kind"] == "analysis" {
+            ("analysis_field", json!("content"))
+        } else {
+            ("paragraph", Value::Null)
+        };
+        let mut content = String::new();
+        let mut start = 0usize;
+        let mut expect_pair_at_start = false;
+        while start < wire.content_length {
+            checkpoint()?;
+            let requested_end = (start + RETRIEVAL_SOURCE_READ_PAGE_UTF16).min(wire.content_length);
+            let location = json!({
+                "unit":unit,"field":field,
+                "range":{"start":start,"end":requested_end}
+            });
+            let read = self
+                .sources
+                .read_source(json!({"scope":scope,"descriptor":descriptor,"location":location}))
+                .map_err(|code| match code.as_str() {
+                    "operation_timeout" => "operation_timeout".to_owned(),
+                    _ => "source_read_failed".to_owned(),
+                })?;
+            match read.get("outcome").and_then(Value::as_str) {
+                Some("available") => {}
+                Some("source_changed") => return Err("source_changed".into()),
+                Some("source_unavailable") => return Err("source_unavailable".into()),
+                _ => return Err("source_read_failed".into()),
+            }
+            let object = read
+                .as_object()
+                .ok_or_else(|| "invalid_source".to_owned())?;
+            if object.len() != 7
+                || read["itemRef"] != descriptor["itemRef"]
+                || read["source"] != descriptor["source"]
+                || read["format"] != descriptor["format"]
+                || read["sourceVersion"] != descriptor["sourceVersion"]
+                || read["location"]["unit"] != unit
+                || read["location"]["field"] != field
+            {
+                return Err("source_changed".into());
+            }
+            let range = &read["location"]["range"];
+            let actual_start = range
+                .get("start")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| "invalid_source".to_owned())?
+                as usize;
+            let end = range
+                .get("end")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| "invalid_source".to_owned())? as usize;
+            if actual_start != start
+                || end <= start
+                || end > requested_end
+                || requested_end - end > 1
+            {
+                return Err("source_changed".into());
+            }
+            let page = read["content"]
+                .as_str()
+                .ok_or_else(|| "invalid_source".to_owned())?;
+            if page.encode_utf16().count() != end - start {
+                return Err("source_changed".into());
+            }
+            if expect_pair_at_start
+                && page
+                    .chars()
+                    .next()
+                    .is_none_or(|character| character.len_utf16() != 2)
+            {
+                return Err("source_changed".into());
+            }
+            expect_pair_at_start = requested_end - end == 1;
+            content.push_str(page);
+            start = end;
+        }
+        if content.encode_utf16().count() != wire.content_length {
+            return Err("source_changed".into());
+        }
+        Ok(content)
     }
 
     fn encode_documents(
@@ -1694,9 +1852,14 @@ pub(crate) struct DescriptorWire {
 
 impl DescriptorWire {
     fn valid(&self) -> bool {
+        let max_content_length = if self.format == "markdown" {
+            RETRIEVAL_MAX_MARKDOWN_UTF16
+        } else {
+            RETRIEVAL_MAX_MODEL_BYTES
+        };
         !self.source_version.is_empty()
             && self.source_version.encode_utf16().count() <= 256
-            && self.content_length <= RETRIEVAL_MAX_MODEL_BYTES
+            && self.content_length <= max_content_length
             && self.source_valid()
             && matches!(self.format.as_str(), Some("text" | "markdown"))
     }
@@ -2138,6 +2301,23 @@ mod tests {
         }
     }
 
+    #[test]
+    fn only_markdown_descriptors_extend_to_eight_million_utf16_units() {
+        let descriptor = |format: &str, content_length: usize| {
+            serde_json::from_value::<DescriptorWire>(json!({
+                "itemRef":{"libraryId":1,"key":"ITEM0001"},
+                "source":{"kind":"fulltext","attachmentRef":{"libraryId":1,"key":"FILE0001"}},
+                "sourceVersion":"v1","format":format,"contentLength":content_length
+            }))
+            .unwrap()
+        };
+
+        assert!(descriptor("markdown", RETRIEVAL_MAX_MARKDOWN_UTF16).valid());
+        assert!(!descriptor("markdown", RETRIEVAL_MAX_MARKDOWN_UTF16 + 1).valid());
+        assert!(descriptor("text", RETRIEVAL_MAX_MODEL_BYTES).valid());
+        assert!(!descriptor("text", RETRIEVAL_MAX_MODEL_BYTES + 1).valid());
+    }
+
     fn scope() -> RetrievalScope {
         RetrievalScope {
             library_ids: vec![1],
@@ -2148,6 +2328,66 @@ mod tests {
 
     struct FakeSources {
         rows: Vec<(Value, String)>,
+    }
+
+    struct PagedMarkdownSources {
+        content: String,
+        reads: std::sync::atomic::AtomicUsize,
+        ranges: Mutex<Vec<(usize, usize, usize)>>,
+        changed_read: Option<usize>,
+    }
+
+    impl EvidenceSourcePort for PagedMarkdownSources {
+        fn list_sources(&self, request: Value) -> Result<Value, String> {
+            Ok(json!({
+                "scope":request["scope"],
+                "descriptors":[{
+                    "itemRef":{"libraryId":1,"key":"ITEM0001"},
+                    "source":{"kind":"fulltext","attachmentRef":{"libraryId":1,"key":"FILE0001"}},
+                    "sourceVersion":"version-1","format":"markdown",
+                    "contentLength":self.content.encode_utf16().count()
+                }],
+                "issues":[],"hasMore":false,"nextCursor":null
+            }))
+        }
+
+        fn read_source(&self, request: Value) -> Result<Value, String> {
+            let read_number = self.reads.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+            let descriptor = &request["descriptor"];
+            let units = self.content.encode_utf16().collect::<Vec<_>>();
+            let location = if let Some(location) = request.get("location") {
+                let start = location["range"]["start"].as_u64().unwrap() as usize;
+                let requested_end = location["range"]["end"].as_u64().unwrap() as usize;
+                let mut end = requested_end;
+                if end < units.len()
+                    && (0xd800..=0xdbff).contains(&units[end - 1])
+                    && (0xdc00..=0xdfff).contains(&units[end])
+                {
+                    end -= 1;
+                }
+                let content = String::from_utf16(&units[start..end]).unwrap();
+                self.ranges
+                    .lock()
+                    .unwrap()
+                    .push((start, requested_end, end));
+                return Ok(json!({
+                    "outcome":"available","itemRef":descriptor["itemRef"],
+                    "content":content,"format":descriptor["format"],
+                    "source":descriptor["source"],
+                    "sourceVersion":if self.changed_read == Some(read_number) {"version-changed"} else {"version-1"},
+                    "location":{"unit":"paragraph","field":null,"range":{"start":start,"end":end}}
+                }));
+            } else {
+                json!({"unit":"paragraph","field":null,
+                    "range":{"start":0,"end":units.len()}})
+            };
+            Ok(json!({
+                "outcome":"available","itemRef":descriptor["itemRef"],
+                "content":self.content,"format":descriptor["format"],
+                "source":descriptor["source"],"sourceVersion":"version-1",
+                "location":location
+            }))
+        }
     }
 
     impl EvidenceSourcePort for FakeSources {
@@ -2175,6 +2415,20 @@ mod tests {
             else {
                 return Ok(json!({"outcome": "source_unavailable"}));
             };
+            let (content, location) = if let Some(location) = request.get("location") {
+                let start = location["range"]["start"].as_u64().unwrap() as usize;
+                let end = location["range"]["end"].as_u64().unwrap() as usize;
+                let units = content.encode_utf16().collect::<Vec<_>>();
+                (
+                    String::from_utf16(&units[start..end]).unwrap(),
+                    location.clone(),
+                )
+            } else {
+                (
+                    content.clone(),
+                    json!({"range":{"start":0,"end":content.encode_utf16().count()}}),
+                )
+            };
             Ok(json!({
                 "outcome": "available",
                 "itemRef": stored["itemRef"].clone(),
@@ -2182,7 +2436,7 @@ mod tests {
                 "format": stored["format"].clone(),
                 "source": stored["source"].clone(),
                 "sourceVersion": stored["sourceVersion"].clone(),
-                "location": {"range": {"start": 0, "end": content.encode_utf16().count()}},
+                "location": location,
             }))
         }
     }
@@ -3008,6 +3262,210 @@ mod tests {
                 .unwrap_err(),
             "retrieval_scope_mismatch"
         );
+    }
+
+    #[test]
+    fn topic_only_scope_can_be_published_and_reused() {
+        let fixture = fixture("topic-only-scope", vec![]);
+        let request = json!({
+            "identity":identity(4),
+            "scope":{"libraryIds":[],"sourceKinds":[],"includeTopics":true}
+        });
+
+        assert_eq!(
+            fixture
+                .application
+                .build(request.clone(), RetrievalBuildMode::Full, &checkpoint())
+                .unwrap()["status"],
+            "promoted"
+        );
+        assert_eq!(
+            fixture.application.state().unwrap()["activeScope"],
+            request["scope"]
+        );
+        assert_eq!(
+            fixture.application.update(request, &checkpoint()).unwrap()["status"],
+            "unchanged"
+        );
+    }
+
+    #[test]
+    fn topic_only_scope_with_libraries_does_not_enumerate_evidence_sources() {
+        struct ListingCounter(std::sync::Arc<std::sync::atomic::AtomicUsize>);
+        impl EvidenceSourcePort for ListingCounter {
+            fn list_sources(&self, request: Value) -> Result<Value, String> {
+                self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                Ok(json!({
+                    "scope":request["scope"],"descriptors":[],"issues":[],
+                    "hasMore":false,"nextCursor":null
+                }))
+            }
+
+            fn read_source(&self, _request: Value) -> Result<Value, String> {
+                unreachable!()
+            }
+        }
+
+        let mut fixture = fixture("topic-only-no-evidence", vec![]);
+        let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        fixture.application.sources = std::sync::Arc::new(ListingCounter(calls.clone()));
+        let request = json!({
+            "identity":identity(4),
+            "scope":{"libraryIds":[1],"sourceKinds":[],"includeTopics":true}
+        });
+
+        fixture
+            .application
+            .build(request, RetrievalBuildMode::Full, &checkpoint())
+            .unwrap();
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn long_markdown_is_read_in_contiguous_bounded_pages_before_publication() {
+        let content = format!("{}😀{}", "x".repeat(65_535), "x".repeat(196_609));
+        let source = std::sync::Arc::new(PagedMarkdownSources {
+            content: content.clone(),
+            reads: std::sync::atomic::AtomicUsize::new(0),
+            ranges: Mutex::new(Vec::new()),
+            changed_read: None,
+        });
+        let mut fixture = fixture("paged-markdown", vec![]);
+        fixture.application.sources = source.clone();
+        let request = json!({
+            "identity":identity(4),
+            "scope":{"libraryIds":[1],"sourceKinds":["fulltext"],"includeTopics":false}
+        });
+
+        assert_eq!(
+            fixture
+                .application
+                .build(request, RetrievalBuildMode::Full, &checkpoint())
+                .unwrap()["status"],
+            "promoted"
+        );
+        assert_eq!(fixture.application.state().unwrap()["status"], "ready");
+        let ranges = source.ranges.lock().unwrap();
+        assert!(ranges.len() >= 8);
+        let page_count = ranges
+            .iter()
+            .position(|(_, _, end)| *end == content.encode_utf16().count())
+            .unwrap()
+            + 1;
+        for pass in ranges.chunks(page_count) {
+            assert_eq!(pass.first().unwrap().0, 0);
+            assert_eq!(pass.last().unwrap().2, content.encode_utf16().count());
+            for (index, (start, requested_end, end)) in pass.iter().enumerate() {
+                assert!(requested_end - start <= 65_536);
+                assert!(*end > *start && *end <= *requested_end);
+                if index > 0 {
+                    assert_eq!(*start, pass[index - 1].2);
+                }
+            }
+        }
+        assert_eq!(ranges[0].1 - ranges[0].2, 1);
+        assert!(
+            ranges[0..page_count]
+                .iter()
+                .any(|(start, _, _)| *start == 65_535)
+        );
+
+        drop(ranges);
+        source.ranges.lock().unwrap().clear();
+        source.reads.store(0, std::sync::atomic::Ordering::SeqCst);
+        let publication = fixture.application.state().unwrap()["activePublicationId"].clone();
+        let preview = fixture
+            .application
+            .explore(
+                json!({"operation":"fragments","identity":"1:ITEM0001","publication":publication,"limit":1}),
+                &checkpoint(),
+            )
+            .unwrap();
+        assert_eq!(preview["rows"].as_array().unwrap().len(), 1);
+        let ranges = source.ranges.lock().unwrap();
+        assert_eq!(ranges.len(), 1);
+        assert!(ranges[0].1 - ranges[0].0 <= RETRIEVAL_MAX_FRAGMENT_UTF16);
+        assert_eq!(source.reads.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn markdown_at_or_below_262144_utf16_keeps_whole_source_read() {
+        let source = std::sync::Arc::new(PagedMarkdownSources {
+            content: "x".repeat(65_537),
+            reads: std::sync::atomic::AtomicUsize::new(0),
+            ranges: Mutex::new(Vec::new()),
+            changed_read: None,
+        });
+        let mut fixture = fixture("markdown-whole-read-boundary", vec![]);
+        fixture.application.sources = source.clone();
+        let request = json!({
+            "identity":identity(4),
+            "scope":{"libraryIds":[1],"sourceKinds":["fulltext"],"includeTopics":false}
+        });
+
+        assert_eq!(
+            fixture
+                .application
+                .build(request, RetrievalBuildMode::Full, &checkpoint())
+                .unwrap()["status"],
+            "promoted"
+        );
+        assert_eq!(source.reads.load(std::sync::atomic::Ordering::SeqCst), 2);
+        assert!(source.ranges.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn long_markdown_page_version_change_never_publishes_partial_fragments() {
+        let content = "x".repeat(262_146);
+        let source = std::sync::Arc::new(PagedMarkdownSources {
+            content,
+            reads: std::sync::atomic::AtomicUsize::new(0),
+            ranges: Mutex::new(Vec::new()),
+            changed_read: Some(2),
+        });
+        let mut fixture = fixture("paged-markdown-changed", vec![]);
+        fixture.application.sources = source;
+        let request = json!({
+            "identity":identity(4),
+            "scope":{"libraryIds":[1],"sourceKinds":["fulltext"],"includeTopics":false}
+        });
+
+        assert_eq!(
+            fixture
+                .application
+                .build(request, RetrievalBuildMode::Full, &checkpoint())
+                .unwrap_err(),
+            "source_changed"
+        );
+        let state = fixture.application.state().unwrap();
+        assert_eq!(state["status"], "paused");
+        assert_eq!(state["publication"], Value::Null);
+    }
+
+    #[test]
+    fn long_markdown_over_eight_million_utf16_units_is_rejected_before_reading() {
+        let source = std::sync::Arc::new(PagedMarkdownSources {
+            content: String::new(),
+            reads: std::sync::atomic::AtomicUsize::new(0),
+            ranges: Mutex::new(Vec::new()),
+            changed_read: None,
+        });
+        let mut fixture = fixture("paged-markdown-over-limit", vec![]);
+        fixture.application.sources = source.clone();
+        let mut request = json!({
+            "identity":identity(4),
+            "scope":{"libraryIds":[1],"sourceKinds":["fulltext"],"includeTopics":false}
+        });
+        request["scope"]["sourceKinds"] = json!(["metadata"]);
+        let mut descriptor = descriptor("ITEM0001", "title", "v1", 1);
+        descriptor["format"] = json!("markdown");
+        descriptor["source"] =
+            json!({"kind":"fulltext","attachmentRef":{"libraryId":1,"key":"FILE0001"}});
+        descriptor["contentLength"] = json!(RETRIEVAL_MAX_MARKDOWN_UTF16 + 1);
+
+        // The invalid descriptor is rejected by the same admission validator used before any read.
+        assert!(!parse_request::<DescriptorWire>(descriptor).unwrap().valid());
+        assert_eq!(source.reads.load(std::sync::atomic::Ordering::SeqCst), 0);
     }
 
     #[test]

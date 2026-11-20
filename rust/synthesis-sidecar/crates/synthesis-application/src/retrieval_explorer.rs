@@ -39,6 +39,7 @@ impl RetrievalApplication {
         version: &str,
         start: i64,
         end: i64,
+        checkpoint: &dyn Fn() -> Result<(), String>,
     ) -> Result<Value, String> {
         let mut row = json!({"identity":identity,"title":identity,"sourceKind":source["kind"],"start":start,"end":end});
         if source["kind"] == "topic" {
@@ -56,12 +57,22 @@ impl RetrievalApplication {
                 return Err("source_changed".into());
             }
             let wire = parse_request(descriptor.clone())?;
-            let text = self.read_source(&scope, &descriptor, &wire)?;
+            let (unit, field) = match source["kind"].as_str() {
+                Some("metadata") => (
+                    "field",
+                    source["field"].as_str().ok_or("invalid_source")?.into(),
+                ),
+                Some("analysis") => ("analysis_field", json!("content")),
+                Some("fulltext") => ("paragraph", Value::Null),
+                _ => return Err("invalid_source".into()),
+            };
+            let location = json!({"unit":unit,"field":field,"range":{"start":start,"end":end}});
+            let text = self.read_source_range(&scope, &descriptor, &wire, &location, checkpoint)?;
             row["itemRef"] = json!(item);
             if let Some(field) = source["field"].as_str() {
                 row["section"] = json!(field);
             }
-            row["preview"] = excerpt(&text, start, end)?.into();
+            row["preview"] = text.clone().into();
             if source["field"] == "title" {
                 row["title"] = text.chars().take(1024).collect::<String>().into();
             }
@@ -161,6 +172,7 @@ impl RetrievalApplication {
                         &hit.source_version,
                         hit.range_start,
                         hit.range_end,
+                        checkpoint,
                     ) {
                         Ok(mut row) => {
                             row["score"] = json!(hit.score);
@@ -215,7 +227,8 @@ impl RetrievalApplication {
                 for (_, source, version, start, end) in page {
                     checkpoint()?;
                     let source = serde_json::from_str(&source).map_err(|_| "invalid_source")?;
-                    match self.explorer_preview(identity, &source, &version, start, end) {
+                    match self.explorer_preview(identity, &source, &version, start, end, checkpoint)
+                    {
                         Ok(row) => rows.push(row),
                         Err(code)
                             if matches!(

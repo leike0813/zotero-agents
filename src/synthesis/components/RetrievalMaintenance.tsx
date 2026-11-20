@@ -63,7 +63,9 @@ function scopeText(
   if (!scope) return t("synthesis-retrieval-none");
   const parts = [
     ...libraryLabels(scope, libraryNames, t),
-    ...sortedSourceKinds(scope).map((kind) => sourceKindLabel(kind, t)),
+    ...(scope.libraryIds.length
+      ? sortedSourceKinds(scope).map((kind) => sourceKindLabel(kind, t))
+      : []),
     ...(scope.includeTopics ? [t("synthesis-explorer-topic")] : []),
   ];
   return parts.length ? parts.join(" · ") : t("synthesis-retrieval-none");

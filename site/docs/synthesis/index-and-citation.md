@@ -2,7 +2,7 @@
 
 ## Index Surface
 
-On the Synthesis Workbench → Index page, you can manage the Canonical Reference Index. The Index surface contains **two sub-views**:
+On the Synthesis Workbench → Index page, you can manage the Canonical Reference Index. The Index sidebar uses a bulleted-list icon. The Index surface contains **two sub-views**:
 
 ### Registry View
 

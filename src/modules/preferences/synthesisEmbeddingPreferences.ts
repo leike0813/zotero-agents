@@ -6,7 +6,10 @@ import type {
   SynthesisRetrievalScope,
 } from "../../../packages/synthesis-contracts/src";
 import { getStringOrFallback } from "../../utils/locale";
-import type { SynthesisEmbeddingPrefsStatus } from "../synthesis/synthesisEmbeddingPrefs";
+import {
+  personalRetrievalScope,
+  type SynthesisEmbeddingPrefsStatus,
+} from "../synthesis/synthesisEmbeddingPrefs";
 import type { SynthesisEmbeddingPreset } from "../synthesis/synthesisEmbeddingProvider";
 import {
   getSynthesisEmbeddingEncodingOptionsKey,
@@ -108,8 +111,6 @@ export function bindSynthesisEmbeddingPreferences(window: Window) {
   const sourceMetadata = query<HTMLInputElement>("source-metadata");
   const sourceFulltext = query<HTMLInputElement>("source-fulltext");
   const sourceAnalysis = query<HTMLInputElement>("source-analysis");
-  const includeMyLibrary = query<HTMLInputElement>("include-my-library");
-  const myLibraryLabel = query<HTMLElement>("my-library-label");
   const includeTopics = query<HTMLInputElement>("include-topics");
   const saveTestButton = query<XUL.Button>("save-test");
   const statusText = query<HTMLElement>("status");
@@ -122,12 +123,6 @@ export function bindSynthesisEmbeddingPreferences(window: Window) {
   let selectedId = "";
   let primaryId: string | null = null;
   let fallbackIds: string[] = [];
-  const userLibraryId = Number(Zotero.Libraries?.userLibraryID);
-  const myLibraryId =
-    Number.isSafeInteger(userLibraryId) && userLibraryId > 0
-      ? userLibraryId
-      : null;
-  let libraryIds = new Set(myLibraryId === null ? [] : [myLibraryId]);
   let revision = 0;
   let discoveryRevision = -1;
   let inspectRevision = -1;
@@ -529,11 +524,6 @@ export function bindSynthesisEmbeddingPreferences(window: Window) {
   ]);
   let includeTopicsState = true;
   const renderScopeState = () => {
-    if (includeMyLibrary) {
-      includeMyLibrary.checked =
-        myLibraryId !== null && libraryIds.has(myLibraryId);
-      includeMyLibrary.disabled = myLibraryId === null;
-    }
     if (sourceMetadata)
       sourceMetadata.checked = sourceKindsState.has("metadata");
     if (sourceFulltext)
@@ -593,9 +583,6 @@ export function bindSynthesisEmbeddingPreferences(window: Window) {
       (id) => drafts.has(id) && id !== primaryId,
     );
     if (enabled) enabled.checked = status.enabled === true;
-    if (status.pendingScope) {
-      libraryIds = new Set(status.pendingScope.libraryIds);
-    }
     sourceKindsState.clear();
     for (const kind of status.pendingScope?.sourceKinds || [
       "metadata",
@@ -739,13 +726,13 @@ export function bindSynthesisEmbeddingPreferences(window: Window) {
     return connection;
   };
 
-  const pendingScope = (): SynthesisRetrievalScope => ({
-    libraryIds: [...libraryIds],
-    sourceKinds: (["metadata", "fulltext", "analysis"] as const).filter(
-      (kind) => sourceKindsState.has(kind),
-    ),
-    includeTopics: includeTopics?.checked !== false,
-  });
+  const pendingScope = (): SynthesisRetrievalScope =>
+    personalRetrievalScope({
+      sourceKinds: (["metadata", "fulltext", "analysis"] as const).filter(
+        (kind) => sourceKindsState.has(kind),
+      ),
+      includeTopics: includeTopics?.checked !== false,
+    });
 
   const setSaveBusy = (owner: string, busy: boolean) => {
     if (current()?.id !== owner) return;
@@ -756,7 +743,9 @@ export function bindSynthesisEmbeddingPreferences(window: Window) {
     const draft = current();
     if (!draft || savingOwners.has(draft.id)) return;
     let connection: SynthesisRetrievalConnection;
+    let scope: SynthesisRetrievalScope;
     try {
+      scope = pendingScope();
       connection = buildConnection();
     } catch (error) {
       setStatus(String((error as Error)?.message || error));
@@ -772,7 +761,7 @@ export function bindSynthesisEmbeddingPreferences(window: Window) {
         connection,
         ...(typedCredential ? { credential: typedCredential } : {}),
         enabled: enabled?.checked === true,
-        pendingScope: pendingScope(),
+        pendingScope: scope,
         ...(test ? { test: true } : {}),
       })) as HookResult;
       if (disposed || selectedId !== owner || revision !== atRevision) return;
@@ -1305,16 +1294,6 @@ export function bindSynthesisEmbeddingPreferences(window: Window) {
       setStatus("");
     });
   }
-  if (myLibraryLabel) {
-    myLibraryLabel.textContent =
-      Zotero.getString?.("pane.collections.library") || "My Library";
-  }
-  listen(includeMyLibrary, "change", () => {
-    if (!includeMyLibrary || myLibraryId === null) return;
-    if (includeMyLibrary.checked) libraryIds.add(myLibraryId);
-    else libraryIds.delete(myLibraryId);
-    setStatus("");
-  });
   listen(includeTopics, "change", () => {
     includeTopicsState = includeTopics?.checked !== false;
     setStatus("");
