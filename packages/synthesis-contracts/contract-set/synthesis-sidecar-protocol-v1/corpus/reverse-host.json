@@ -2502,6 +2502,46 @@
       }
     },
     {
+      "id": "large-analysis-evidence-read-request",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/EvidenceReadRequest",
+      "valid": true,
+      "value": {
+        "scope": { "libraryIds": [1] },
+        "descriptor": {
+          "itemRef": { "libraryId": 1, "key": "SYN00001" },
+          "source": {
+            "kind": "analysis",
+            "artifactType": "citation-analysis",
+            "noteRef": { "libraryId": 1, "key": "SYN00002" }
+          },
+          "sourceVersion": "v1",
+          "format": "text",
+          "contentLength": 1048576
+        },
+        "location": {
+          "unit": "analysis_field",
+          "field": "$",
+          "range": { "start": 983040, "end": 1048576 }
+        }
+      }
+    },
+    {
+      "id": "oversized-analysis-descriptor",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/EvidenceDescriptor",
+      "valid": false,
+      "value": {
+        "itemRef": { "libraryId": 1, "key": "SYN00001" },
+        "source": {
+          "kind": "analysis",
+          "artifactType": "citation-analysis",
+          "noteRef": { "libraryId": 1, "key": "SYN00002" }
+        },
+        "sourceVersion": "v1",
+        "format": "text",
+        "contentLength": 1048577
+      }
+    },
+    {
       "id": "evidence-read-analysis-location-positive",
       "schemaRef": "schemas/reverse-host.schema.json#/$defs/EvidenceReadResult",
       "valid": true,

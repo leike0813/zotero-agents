@@ -196,6 +196,9 @@ pub trait EvidenceSourcePort: Send + Sync {
         let mut targeted = scope.clone();
         targeted["itemRefs"] = json!([item]);
         let mut request = json!({"scope":targeted,"limit":100,"sourceKinds":[source["kind"]]});
+        if source["kind"] == "analysis" {
+            request["scanMode"] = json!("retrieval");
+        }
         let mut cursors = BTreeSet::new();
         loop {
             let page = self.list_sources(request.clone())?;
@@ -321,10 +324,10 @@ fn valid_descriptor_content_length(descriptor: &SourceDescriptor) -> bool {
 }
 
 fn max_location_end(source: &EvidenceSource) -> usize {
-    if matches!(source, EvidenceSource::Fulltext { .. }) {
-        MAX_MARKDOWN_FULLTEXT_UTF16
-    } else {
-        MAX_LEXICAL_SOURCE_UTF16
+    match source {
+        EvidenceSource::Fulltext { .. } => MAX_MARKDOWN_FULLTEXT_UTF16,
+        EvidenceSource::Analysis { .. } => MAX_ANALYSIS_UTF16,
+        EvidenceSource::Metadata { .. } => MAX_LEXICAL_SOURCE_UTF16,
     }
 }
 
@@ -429,8 +432,9 @@ pub struct EvidenceSearchApplication {
 
 const MAX_SOURCES: usize = 256;
 const MAX_SCAN_BYTES: usize = 4 * 1024 * 1024;
-const MAX_LEXICAL_SOURCE_UTF16: usize = 262_144;
-const MAX_MARKDOWN_FULLTEXT_UTF16: usize = 8 * 1024 * 1024;
+pub(crate) const MAX_LEXICAL_SOURCE_UTF16: usize = 262_144;
+pub(crate) const MAX_ANALYSIS_UTF16: usize = 1024 * 1024;
+pub(crate) const MAX_MARKDOWN_FULLTEXT_UTF16: usize = 8 * 1024 * 1024;
 const MAX_PASSAGES: usize = 4096;
 const MAX_PASSAGE_UTF16: usize = 2048;
 const MAX_ROUND_BYTES: usize = 512 * 1024;

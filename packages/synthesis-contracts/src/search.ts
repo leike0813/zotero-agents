@@ -8,6 +8,7 @@ export const SYNTHESIS_SEARCH_SCHEMA_ID =
 export type SynthesisSearchSourceKind = "metadata" | "fulltext" | "analysis";
 export const SYNTHESIS_MARKDOWN_SOURCE_MAX_UTF16 = 8 * 1024 * 1024;
 export const SYNTHESIS_EVIDENCE_SOURCE_MAX_UTF16 = 262_144;
+export const SYNTHESIS_ANALYSIS_SOURCE_MAX_UTF16 = 1_048_576;
 export const SYNTHESIS_MARKDOWN_READ_PAGE_UTF16 = 65_536;
 export type SynthesisSearchStatus = "completed" | "limited" | "unavailable";
 export type SynthesisSearchMethod = "lexical" | "vector" | "hybrid";
@@ -316,7 +317,9 @@ function assertTextRange(
     range.end >
       (kind === "fulltext"
         ? SYNTHESIS_MARKDOWN_SOURCE_MAX_UTF16
-        : SYNTHESIS_EVIDENCE_SOURCE_MAX_UTF16) ||
+        : kind === "analysis"
+          ? SYNTHESIS_ANALYSIS_SOURCE_MAX_UTF16
+          : SYNTHESIS_EVIDENCE_SOURCE_MAX_UTF16) ||
     range.end - range.start !== contentLength
   ) {
     throw new SynthesisClientError(

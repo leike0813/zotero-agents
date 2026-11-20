@@ -102,12 +102,34 @@ describe("Synthesis evidence production route", function () {
       libraryID: 1,
       fields: { title },
     });
-    const digest = "独立分析来源核验";
+    const analysisNeedle = "独立分析来源核验";
     await nativeFixtureMutations.note.create({
       parent: paper,
-      content: managedArtifactContent("digest", "Digest", digest).content,
+      content: managedArtifactContent("references", "References", {
+        schema: "source_reference_artifact.v1",
+        references: Array.from({ length: 5 }, (_, index) => ({
+          sourceReferenceId: `source-reference-${index}`,
+          extraction: {
+            raw: "x".repeat(60_000) + (index === 4 ? analysisNeedle : ""),
+            confidence: 1,
+          },
+          bibliography: {
+            title: `Reference ${index}`,
+            authors: [],
+            year: null,
+          },
+          matching: {},
+        })),
+      }).content,
     });
     const host = createZoteroSynthesisHostReadPort({ libraryId: 1 });
+    const catalog = await host.evidence.listSources({
+      scope: { libraryIds: [1], itemRefs: [{ libraryId: 1, key: paper.key }] },
+      sourceKinds: ["analysis"],
+      scanMode: "retrieval",
+    });
+    assert.isEmpty(catalog.issues, JSON.stringify(catalog.issues));
+    assert.isAbove(catalog.descriptors[0]?.contentLength ?? 0, 262_144);
     const identity = {
       modelId: "route-fixture",
       dimensions: 3,
@@ -135,7 +157,7 @@ describe("Synthesis evidence production route", function () {
               vectors: (payload.inputs as string[]).map((text) =>
                 text.includes("台车")
                   ? [1, 0, 0]
-                  : text.includes(digest)
+                  : text.includes(analysisNeedle)
                     ? [0, 1, 0]
                     : [0, 0, 1],
               ),
@@ -177,21 +199,33 @@ describe("Synthesis evidence production route", function () {
       const page = await runtime.retrieval.explore({ operation: "browse" });
       const row = page.rows.find((entry) => entry.itemRef?.key === paper.key);
       assert.exists(row);
-      const fragments = await runtime.retrieval.explore({
-        operation: "fragments",
-        publication: page.publication,
-        identity: row!.identity,
-      });
-      assert.include(
-        fragments.rows.map((entry) => entry.preview),
-        title,
-      );
-      assert.isTrue(
-        fragments.rows.some(
-          (entry) =>
-            entry.sourceKind === "analysis" && entry.preview?.includes(digest),
-        ),
-      );
+      let cursor: string | undefined;
+      let titlePreview = false;
+      let analysisPreview = false;
+      do {
+        const fragments = await runtime.retrieval.explore({
+          operation: "fragments",
+          publication: page.publication,
+          identity: row!.identity,
+          ...(cursor ? { cursor } : {}),
+          limit: 100,
+        });
+        assert.isEmpty(fragments.issues);
+        for (const entry of fragments.rows) {
+          titlePreview ||= entry.preview === title;
+          if (
+            entry.sourceKind === "analysis" &&
+            entry.preview?.includes(analysisNeedle)
+          ) {
+            assert.isAbove(entry.start ?? 0, 262_144);
+            assert.deepEqual(entry.itemRef, { libraryId: 1, key: paper.key });
+            analysisPreview = true;
+          }
+        }
+        cursor = fragments.nextCursor ?? undefined;
+      } while (cursor && !(titlePreview && analysisPreview));
+      assert.isTrue(titlePreview);
+      assert.isTrue(analysisPreview);
       for (const query of [title, "如何为台车定位"]) {
         const found = await runtime.retrieval.explore({
           operation: "search",
@@ -208,10 +242,15 @@ describe("Synthesis evidence production route", function () {
       const analysis = await runtime.retrieval.explore({
         operation: "search",
         target: "paper",
-        query: digest,
+        query: analysisNeedle,
       });
       assert.equal(analysis.rows[0]?.sourceKind, "analysis");
-      assert.include(analysis.rows[0]?.preview || "", digest);
+      assert.deepEqual(analysis.rows[0]?.itemRef, {
+        libraryId: 1,
+        key: paper.key,
+      });
+      assert.isAbove(analysis.rows[0]?.start ?? 0, 262_144);
+      assert.include(analysis.rows[0]?.preview || "", analysisNeedle);
 
       addPaperDuringEncoding = true;
       const changed = await runtime.retrieval.rebuild({

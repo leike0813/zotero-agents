@@ -2,6 +2,8 @@ import { rebuildSynthesisProtocolDto } from "./protocolSchema.js";
 import {
   SYNTHESIS_MARKDOWN_SOURCE_MAX_UTF16,
   SYNTHESIS_EVIDENCE_SOURCE_MAX_UTF16,
+  SYNTHESIS_ANALYSIS_SOURCE_MAX_UTF16,
+  SYNTHESIS_MARKDOWN_READ_PAGE_UTF16,
 } from "./search.js";
 import {
   SynthesisClientError,
@@ -529,6 +531,7 @@ function rebuildEvidenceLocation(
 function rebuildEvidenceDescriptor(
   value: unknown,
   location: string,
+  allowLargeAnalysis = false,
 ): SynthesisHostEvidenceDescriptor {
   const descriptor = evidenceObject(value, location);
   evidenceExact(
@@ -559,7 +562,11 @@ function rebuildEvidenceDescriptor(
       `${location}.contentLength`,
       source.kind === "fulltext"
         ? SYNTHESIS_MARKDOWN_SOURCE_MAX_UTF16
-        : SYNTHESIS_EVIDENCE_SOURCE_MAX_UTF16,
+        : source.kind === "analysis"
+          ? allowLargeAnalysis
+            ? SYNTHESIS_ANALYSIS_SOURCE_MAX_UTF16
+            : SYNTHESIS_EVIDENCE_SOURCE_MAX_UTF16
+          : SYNTHESIS_EVIDENCE_SOURCE_MAX_UTF16,
     ),
   };
 }
@@ -682,6 +689,7 @@ export function rebuildSynthesisHostEvidenceSourcesResult(
       rebuildEvidenceDescriptor(
         descriptor,
         `hostEvidenceSourcesResult.descriptors[${index}]`,
+        true,
       ),
     ),
     nextCursor:
@@ -710,24 +718,47 @@ export function rebuildSynthesisHostEvidenceReadRequest(
     ["location"],
     "hostEvidenceReadRequest",
   );
+  const locationDto =
+    request.location === undefined
+      ? undefined
+      : rebuildEvidenceLocation(
+          request.location,
+          "hostEvidenceReadRequest.location",
+        );
+  const descriptor = rebuildEvidenceDescriptor(
+    request.descriptor,
+    "hostEvidenceReadRequest.descriptor",
+    Boolean(locationDto),
+  );
+  if (
+    descriptor.contentLength > SYNTHESIS_EVIDENCE_SOURCE_MAX_UTF16 &&
+    !locationDto
+  )
+    invalid("hostEvidenceReadRequest.location");
+  if (
+    descriptor.source.kind === "analysis" &&
+    locationDto &&
+    locationDto.range.end > SYNTHESIS_ANALYSIS_SOURCE_MAX_UTF16
+  )
+    invalid("hostEvidenceReadRequest.location.range");
+  if (
+    descriptor.source.kind === "analysis" &&
+    descriptor.contentLength > SYNTHESIS_EVIDENCE_SOURCE_MAX_UTF16 &&
+    locationDto &&
+    (locationDto.unit !== "analysis_field" ||
+      locationDto.field !== "$" ||
+      locationDto.range.end - locationDto.range.start >
+        SYNTHESIS_MARKDOWN_READ_PAGE_UTF16)
+  )
+    invalid("hostEvidenceReadRequest.location");
   return {
     scope: rebuildEvidenceScope(
       request.scope,
       "hostEvidenceReadRequest.scope",
       true,
     ) as SynthesisHostEvidenceScope,
-    descriptor: rebuildEvidenceDescriptor(
-      request.descriptor,
-      "hostEvidenceReadRequest.descriptor",
-    ),
-    ...(request.location !== undefined
-      ? {
-          location: rebuildEvidenceLocation(
-            request.location,
-            "hostEvidenceReadRequest.location",
-          ),
-        }
-      : {}),
+    descriptor,
+    ...(locationDto ? { location: locationDto } : {}),
   };
 }
 

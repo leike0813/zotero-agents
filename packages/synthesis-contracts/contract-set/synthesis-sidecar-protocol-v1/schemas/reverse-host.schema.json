@@ -1267,6 +1267,23 @@
         "attachmentRef": { "$ref": "#/$defs/EvidenceItemRef" }
       }
     },
+    "AnalysisEvidenceSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "artifactType", "noteRef"],
+      "properties": {
+        "kind": { "const": "analysis" },
+        "artifactType": {
+          "enum": [
+            "digest",
+            "references",
+            "citation-analysis",
+            "literature-score"
+          ]
+        },
+        "noteRef": { "$ref": "#/$defs/EvidenceItemRef" }
+      }
+    },
     "EvidenceSource": {
       "oneOf": [
         {
@@ -1288,23 +1305,7 @@
           }
         },
         { "$ref": "#/$defs/FulltextEvidenceSource" },
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["kind", "artifactType", "noteRef"],
-          "properties": {
-            "kind": { "const": "analysis" },
-            "artifactType": {
-              "enum": [
-                "digest",
-                "references",
-                "citation-analysis",
-                "literature-score"
-              ]
-            },
-            "noteRef": { "$ref": "#/$defs/EvidenceItemRef" }
-          }
-        }
+        { "$ref": "#/$defs/AnalysisEvidenceSource" }
       ]
     },
     "EvidenceScope": {
@@ -1429,9 +1430,20 @@
         {
           "if": { "properties": { "contentLength": { "minimum": 262145 } } },
           "then": {
-            "properties": {
-              "source": { "$ref": "#/$defs/FulltextEvidenceSource" }
-            }
+            "anyOf": [
+              {
+                "properties": {
+                  "source": { "$ref": "#/$defs/FulltextEvidenceSource" }
+                }
+              },
+              {
+                "properties": {
+                  "source": { "$ref": "#/$defs/AnalysisEvidenceSource" },
+                  "format": { "const": "text" },
+                  "contentLength": { "maximum": 1048576 }
+                }
+              }
+            ]
           }
         }
       ]

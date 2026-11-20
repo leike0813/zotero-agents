@@ -211,6 +211,7 @@ import {
   canonicalizeSynthesisContractJson,
   rebuildSynthesisEvidenceSearchRequest,
   SynthesisClientError,
+  SYNTHESIS_ANALYSIS_SOURCE_MAX_UTF16,
   SYNTHESIS_EVIDENCE_SOURCE_MAX_UTF16,
   SYNTHESIS_MARKDOWN_READ_PAGE_UTF16,
   SYNTHESIS_MARKDOWN_SOURCE_MAX_UTF16,
@@ -18705,6 +18706,7 @@ export function createZoteroHostCapabilityBroker(
   const readCanonicalAnalysis = async (
     parentRef: ZoteroHostItemRefInput,
     artifactType: (typeof artifactKinds)[number],
+    maximum = SYNTHESIS_EVIDENCE_SOURCE_MAX_UTF16,
   ): Promise<{
     descriptor: SynthesisHostEvidenceDescriptor;
     content: string;
@@ -18718,13 +18720,13 @@ export function createZoteroHostCapabilityBroker(
     );
     const content = canonicalizeSynthesisContractJson(inspection.payload);
     if (!content) return null;
-    if (content.length > SYNTHESIS_EVIDENCE_SOURCE_MAX_UTF16) {
+    if (content.length > maximum) {
       throw capabilityError(
         "resource_limited",
         "analysis evidence source exceeds the limit",
         {
           resource: "characters",
-          limit: SYNTHESIS_EVIDENCE_SOURCE_MAX_UTF16,
+          limit: maximum,
           observed: content.length,
         },
       );
@@ -18959,6 +18961,7 @@ export function createZoteroHostCapabilityBroker(
     item: Zotero.Item,
     sourceKinds: Set<string>,
     issues: SynthesisHostEvidenceSourcesResult["issues"],
+    retrievalScan = false,
   ): Promise<SynthesisHostEvidenceDescriptor[]> => {
     const facts = await withZoteroHostSlice(undefined, () => ({
       ref: canonicalItemRef(item),
@@ -18991,7 +18994,13 @@ export function createZoteroHostCapabilityBroker(
     if (sourceKinds.has("analysis")) {
       for (const artifactType of artifactKinds) {
         try {
-          const current = await readCanonicalAnalysis(facts.ref, artifactType);
+          const current = await readCanonicalAnalysis(
+            facts.ref,
+            artifactType,
+            retrievalScan
+              ? SYNTHESIS_ANALYSIS_SOURCE_MAX_UTF16
+              : SYNTHESIS_EVIDENCE_SOURCE_MAX_UTF16,
+          );
           if (current) descriptors.push(current.descriptor);
         } catch {
           addEvidenceIssue(issues, "source_read_failed", "analysis");
@@ -19169,6 +19178,7 @@ export function createZoteroHostCapabilityBroker(
             item!,
             sourceKinds,
             sourceIssues,
+            retrievalScan,
           );
         }
         for (
@@ -19236,6 +19246,7 @@ export function createZoteroHostCapabilityBroker(
           item,
           sourceKinds,
           sourceIssues,
+          retrievalScan,
         );
       }
       for (
@@ -19402,6 +19413,9 @@ export function createZoteroHostCapabilityBroker(
         analysis = await readCanonicalAnalysis(
           descriptor.itemRef,
           descriptor.source.artifactType,
+          descriptor.contentLength > SYNTHESIS_EVIDENCE_SOURCE_MAX_UTF16
+            ? SYNTHESIS_ANALYSIS_SOURCE_MAX_UTF16
+            : SYNTHESIS_EVIDENCE_SOURCE_MAX_UTF16,
         );
       } catch {
         return { outcome: "source_read_failed" };
@@ -19432,9 +19446,16 @@ export function createZoteroHostCapabilityBroker(
       return { outcome: "source_changed" };
     let location = request.location || fullLocation;
     if (
-      descriptor.source.kind === "fulltext" &&
+      (descriptor.source.kind === "fulltext" ||
+        descriptor.source.kind === "analysis") &&
       content.length > SYNTHESIS_EVIDENCE_SOURCE_MAX_UTF16
     ) {
+      if (!request.location) return { outcome: "source_read_failed" };
+      if (
+        descriptor.source.kind === "analysis" &&
+        (location.unit !== "analysis_field" || location.field !== "$")
+      )
+        return { outcome: "invalid_source" };
       const { start, end } = location.range;
       if (end - start > SYNTHESIS_MARKDOWN_READ_PAGE_UTF16)
         return { outcome: "invalid_source" };

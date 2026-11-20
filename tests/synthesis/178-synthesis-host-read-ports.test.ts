@@ -1,5 +1,6 @@
 import { assert } from "chai";
 import { rejects } from "node:assert/strict";
+import { canonicalizeSynthesisContractJson } from "../../packages/synthesis-contracts/src/canonicalJson";
 import {
   rebuildSynthesisHostArtifactScanPageResult,
   SYNTHESIS_MARKDOWN_READ_PAGE_UTF16,
@@ -543,6 +544,153 @@ describe("Synthesis Host read capability ports", function () {
       descriptor,
     });
     assert.equal(stale.outcome, "source_changed");
+  });
+
+  it("pages large canonical analysis only in retrieval mode", async function () {
+    const libraryId = Zotero.Libraries.userLibraryID;
+    const shortPaper = await createPaper("HOSTAN03", "Short analysis evidence");
+    const shortNote = new Zotero.Item("note");
+    shortNote.libraryID = libraryId;
+    shortNote.parentItemID = shortPaper.id;
+    shortNote.setField("title", "References");
+    shortNote.setNote(
+      managedArtifactContent("references", "References", {
+        schema: "source_reference_artifact.v1",
+        references: Array.from({ length: 2 }, (_, index) => ({
+          ...referencesArtifact("short").references[0],
+          sourceReferenceId: `short-${index}`,
+          extraction: { raw: "x".repeat(40_000), confidence: 1 },
+        })),
+      }).content,
+    );
+    await shortNote.saveTx();
+    const shortPort = createZoteroSynthesisHostReadPort({ libraryId });
+    const shortCatalog = await shortPort.evidence.listSources({
+      scope: {
+        libraryIds: [libraryId],
+        itemRefs: [{ libraryId, key: shortPaper.key }],
+      },
+      sourceKinds: ["analysis"],
+    });
+    const shortRead = await shortPort.evidence.readSource({
+      scope: shortCatalog.scope,
+      descriptor: shortCatalog.descriptors[0],
+    });
+    assert.equal(shortRead.outcome, "available");
+
+    const paper = await createPaper("HOSTAN02", "Large analysis evidence");
+    const payload = {
+      schema: "source_reference_artifact.v1",
+      references: Array.from({ length: 5 }, (_, index) => ({
+        ...referencesArtifact("large").references[0],
+        sourceReferenceId: `large-${index}`,
+        extraction: {
+          raw: `${"x".repeat(59_998)}${index === 4 ? "😀" : "xx"}`,
+          confidence: 1,
+        },
+      })),
+    };
+    const note = new Zotero.Item("note");
+    note.libraryID = libraryId;
+    note.parentItemID = paper.id;
+    note.setField("title", "References");
+    note.setNote(
+      managedArtifactContent("references", "References", payload).content,
+    );
+    await note.saveTx();
+    const port = createZoteroSynthesisHostReadPort({ libraryId });
+    const scope = {
+      libraryIds: [libraryId],
+      itemRefs: [{ libraryId, key: paper.key }],
+    };
+    const lexical = await port.evidence.listSources({
+      scope,
+      sourceKinds: ["analysis"],
+    });
+    assert.isEmpty(lexical.descriptors);
+    const retrieval = await port.evidence.listSources({
+      scope,
+      sourceKinds: ["analysis"],
+      scanMode: "retrieval",
+    });
+    assert.equal(retrieval.descriptors.length, 1, JSON.stringify(retrieval));
+    const descriptor = retrieval.descriptors[0];
+    assert.isAbove(descriptor.contentLength, 262_144);
+    const unbounded = await port.evidence.readSource({
+      scope: retrieval.scope,
+      descriptor,
+    });
+    assert.equal(unbounded.outcome, "source_read_failed");
+    const start = 270_000;
+    const page = await port.evidence.readSource({
+      scope: retrieval.scope,
+      descriptor,
+      location: {
+        unit: "analysis_field",
+        field: "$",
+        range: { start, end: start + 8 },
+      },
+    });
+    assert.equal(page.outcome, "available");
+    if (page.outcome === "available") {
+      assert.equal(page.location.range.end, start + 8);
+      assert.equal(page.content, "xxxxxxxx");
+    }
+    const canonicalContent = canonicalizeSynthesisContractJson(payload)!;
+    const emojiOffset = canonicalContent.lastIndexOf("😀");
+    const splitSurrogate = await port.evidence.readSource({
+      scope: retrieval.scope,
+      descriptor,
+      location: {
+        unit: "analysis_field",
+        field: "$",
+        range: { start: emojiOffset - 3, end: emojiOffset + 1 },
+      },
+    });
+    assert.equal(splitSurrogate.outcome, "available");
+    if (splitSurrogate.outcome === "available") {
+      assert.equal(splitSurrogate.location.range.end, emojiOffset);
+      assert.equal(
+        splitSurrogate.content,
+        canonicalContent.slice(emojiOffset - 3, emojiOffset),
+      );
+    }
+    const oversized = await port.evidence.readSource({
+      scope: retrieval.scope,
+      descriptor,
+      location: {
+        unit: "analysis_field",
+        field: "$",
+        range: { start: 0, end: 65_537 },
+      },
+    });
+    assert.equal(oversized.outcome, "invalid_source");
+    const changedPayload = {
+      ...payload,
+      references: payload.references.map((reference, index) =>
+        index === 0
+          ? {
+              ...reference,
+              extraction: { ...reference.extraction, raw: "changed" },
+            }
+          : reference,
+      ),
+    };
+    note.setNote(
+      managedArtifactContent("references", "References", changedPayload)
+        .content,
+    );
+    await note.saveTx();
+    const staleRange = await port.evidence.readSource({
+      scope: retrieval.scope,
+      descriptor,
+      location: {
+        unit: "analysis_field",
+        field: "$",
+        range: { start, end: start + 8 },
+      },
+    });
+    assert.equal(staleRange.outcome, "source_changed");
   });
 
   it("continues sparse catalog batches with the appropriate scan-mode diagnostics", async function () {
