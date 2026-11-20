@@ -3348,6 +3348,7 @@ function scheduleActiveSurfaceRefresh(
 async function sendTopicDetail(
   runtime: SynthesisWorkbenchRuntime,
   topicId: string,
+  section?: string,
 ) {
   if (!runtime?.frameWindow) {
     return;
@@ -3374,7 +3375,7 @@ async function sendTopicDetail(
   }
   const result = applySynthesisUiAction(runtime.state, {
     action: "showArtifactReader",
-    payload: { topicId },
+    payload: { topicId, section },
   });
   runtime.state = result.state;
   await sendSurface(runtime, "reader", {
@@ -5387,7 +5388,9 @@ function handleAction(
   if (result.hostCommand?.command === "openTopicArtifact") {
     const commandArgs = commandArgsFromPayload(envelope.payload);
     const topicId = String(commandArgs.topicId || "").trim();
-    void sendTopicDetail(runtime, topicId).catch((error) =>
+    const section =
+      typeof commandArgs.section === "string" ? commandArgs.section : undefined;
+    void sendTopicDetail(runtime, topicId, section).catch((error) =>
       reportWorkbenchError(error, runtime.window),
     );
     return;

@@ -1094,6 +1094,7 @@ export function createSynthesisWorkbenchController(
         ...state.snapshot,
         selectedTab: "reader",
         reader: {
+          ...state.snapshot.reader,
           topicId,
           previousTab: state.snapshot.reader?.previousTab || "artifacts",
         },

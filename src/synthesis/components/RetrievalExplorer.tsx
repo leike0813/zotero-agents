@@ -114,10 +114,9 @@ export function RetrievalExplorer({
               },
             });
           else if (row.topicId)
-            onAction("showArtifactReader", {
-              topicId: row.topicId,
-              previousTab: "retrieval",
-              section: row.section,
+            onAction("hostCommand", {
+              command: "openTopicArtifact",
+              args: { topicId: row.topicId, section: row.section },
             });
         }}
       >
