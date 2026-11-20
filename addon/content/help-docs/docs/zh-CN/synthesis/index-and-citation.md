@@ -2,7 +2,7 @@
 
 ## Index 表面
 
-在 Synthesis Workbench → Index 页面，可以管理 Canonical Reference Index。Index 表面包含 **两个子视图**：
+在 Synthesis Workbench → Index 页面，可以管理 Canonical Reference Index。侧栏中的 Index 使用项目符号列表图标。Index 表面包含 **两个子视图**：
 
 ### 注册表视图（Registry View）
 
