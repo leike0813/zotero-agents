@@ -11,8 +11,9 @@
 
 ## 3. 集成构建与真实库验收
 
-- [ ] 3.1 按构建预检同步当前源码的七平台 sidecar，构建开发 XPI 并校验包内七个平台及运行时身份。保留构建运行和包校验记录。
-  - Host Bridge、ACP、内置资源和 Content Package 已通过预检。七平台 bundle 待同步到本次源码指纹。
+- [x] 3.1 按构建预检同步当前源码的七平台 sidecar，构建开发 XPI 并校验包内七个平台及运行时身份。保留构建运行和包校验记录。
+  - `dev` 源码 `7c60b1b06099214c402213aefa46470ab7ba229f` 的[七平台预构建](https://github.com/leike0813/zotero-agents/actions/runs/44696523473)成功，本地同步和源码指纹校验通过。不可变产物提交为 `7f49872bb8faec195686be7c1e0427d5108a2ed2`。
+  - `npm run build`、帮助文档检查和 XPI 内七平台运行时校验通过。开发包为 `artifacts/zotero-agents-large-analysis-7c60b1b06.xpi`，SHA-256 为 `4a3d6d10475f0db5619f97be9035b2937c43972f5178fe265331468781410bbe`。本次构建暂无匹配的正式发布验证收据。
 - [x] 3.2 复用 `npm run test:zotero:e2e` 和当前源码构建的 sidecar，在关闭 Zotero 后取得的真实库隔离副本上用本地测试嵌入服务执行四来源重建。验证新索引完整发布，核实长分析在索引中的可读高位预览，并在 Workbench 分别搜索和打开论文与主题。记录去标识化结果和耗时。验收通过后在 `fix-workbench-retrieval-source-coverage` 关联该收据并完成其待办。
   - Windows Zotero 10.0.2 的 `retrieval-semantic-search-01` 通过。新索引发布 3,815 个来源组和 89,180 个片段，耗时 361,394 ms。最长样本 721,621 个 UTF-16 单元，预览起点 263,543。去标识化收据位于 `artifacts/test-diagnostics/system-e2e/b597f4a2-d198-4fca-8c62-6140cb00da4c/large-analysis-retrieval.json`。
   - 合跑时基础用例收到完整版本号，缺少终态。改用主版本参数 `10` 后单独补跑通过，记录位于 `artifacts/test-diagnostics/system-e2e/72256d2f-6632-4b5d-911f-323723a88a62/run-manifest.json`。
