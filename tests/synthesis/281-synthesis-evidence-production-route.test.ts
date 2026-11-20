@@ -102,10 +102,15 @@ describe("Synthesis evidence production route", function () {
       libraryID: 1,
       fields: { title },
     });
+    const digest = "独立分析来源核验";
+    await nativeFixtureMutations.note.create({
+      parent: paper,
+      content: managedArtifactContent("digest", "Digest", digest).content,
+    });
     const host = createZoteroSynthesisHostReadPort({ libraryId: 1 });
     const identity = {
       modelId: "route-fixture",
-      dimensions: 2,
+      dimensions: 3,
       queryPrefix: "",
       documentPrefix: "",
     };
@@ -128,7 +133,11 @@ describe("Synthesis evidence production route", function () {
             return {
               identity,
               vectors: (payload.inputs as string[]).map((text) =>
-                text.includes("台车") ? [1, 0] : [0, 1],
+                text.includes("台车")
+                  ? [1, 0, 0]
+                  : text.includes(digest)
+                    ? [0, 1, 0]
+                    : [0, 0, 1],
               ),
             };
           }
@@ -147,7 +156,7 @@ describe("Synthesis evidence production route", function () {
         identity,
         scope: {
           libraryIds: [1],
-          sourceKinds: ["metadata"] as ["metadata"],
+          sourceKinds: ["metadata", "analysis"] as ["metadata", "analysis"],
           includeTopics: false,
         },
       };
@@ -177,6 +186,12 @@ describe("Synthesis evidence production route", function () {
         fragments.rows.map((entry) => entry.preview),
         title,
       );
+      assert.isTrue(
+        fragments.rows.some(
+          (entry) =>
+            entry.sourceKind === "analysis" && entry.preview?.includes(digest),
+        ),
+      );
       for (const query of [title, "如何为台车定位"]) {
         const found = await runtime.retrieval.explore({
           operation: "search",
@@ -190,11 +205,18 @@ describe("Synthesis evidence production route", function () {
         );
         assert.equal(found.rows[0]?.preview, title);
       }
+      const analysis = await runtime.retrieval.explore({
+        operation: "search",
+        target: "paper",
+        query: digest,
+      });
+      assert.equal(analysis.rows[0]?.sourceKind, "analysis");
+      assert.include(analysis.rows[0]?.preview || "", digest);
 
       addPaperDuringEncoding = true;
       const changed = await runtime.retrieval.rebuild({
         ...request,
-        scope: { ...request.scope, sourceKinds: ["metadata", "analysis"] },
+        scope: { ...request.scope, sourceKinds: ["metadata"] },
       });
       const failed = await waitForSynthesisProductionRouteReceipt({
         operationId: changed.operation_id,

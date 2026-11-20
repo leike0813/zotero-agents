@@ -62,7 +62,7 @@ impl RetrievalApplication {
                     "field",
                     source["field"].as_str().ok_or("invalid_source")?.into(),
                 ),
-                Some("analysis") => ("analysis_field", json!("content")),
+                Some("analysis") => ("analysis_field", json!(ANALYSIS_ROOT_FIELD)),
                 Some("fulltext") => ("paragraph", Value::Null),
                 _ => return Err("invalid_source".into()),
             };

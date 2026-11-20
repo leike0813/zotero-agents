@@ -1223,8 +1223,7 @@ impl EvidenceSearchApplication {
             .ok_or_else(|| "invalid_source".to_owned())?;
         let source: Value =
             serde_json::from_str(&fragment.source_json).map_err(|_| "invalid_source".to_owned())?;
-        let location: Value = serde_json::from_str(&fragment.location_json)
-            .map_err(|_| "invalid_source".to_owned())?;
+        let location = fragment.evidence_location()?;
         let descriptor = descriptors
             .iter()
             .find(|descriptor| {
@@ -1682,8 +1681,7 @@ impl EvidenceSearchApplication {
             .ok_or_else(|| "invalid_source".to_owned())?;
         let source: Value =
             serde_json::from_str(&fragment.source_json).map_err(|_| "invalid_source".to_owned())?;
-        let location: Value = serde_json::from_str(&fragment.location_json)
-            .map_err(|_| "invalid_source".to_owned())?;
+        let location = fragment.evidence_location()?;
         let descriptor = descriptors
             .iter()
             .find(|descriptor| {

@@ -50,6 +50,7 @@ const RETRIEVAL_MAX_PREFIX_CHARS: usize = 256;
 const RETRIEVAL_MAX_OPTIONS_KEY_CHARS: usize = 128;
 const RETRIEVAL_MAX_MODEL_BYTES: usize = 262_144;
 const RETRIEVAL_SOURCE_READ_PAGE_UTF16: usize = 65_536;
+const ANALYSIS_ROOT_FIELD: &str = "$";
 const RETRIEVAL_PAGED_MARKDOWN_THRESHOLD_UTF16: usize = 262_144;
 const RETRIEVAL_MAX_MARKDOWN_UTF16: usize = 8 * 1024 * 1024;
 const RETRIEVAL_QUERY_LIFETIME_MS: u64 = 30_000;
@@ -178,6 +179,17 @@ pub struct ScoredFragment {
     pub range_end: i64,
     pub location_json: String,
     pub score: f32,
+}
+
+impl ScoredFragment {
+    pub(crate) fn evidence_location(&self) -> Result<Value, String> {
+        let mut location: Value =
+            serde_json::from_str(&self.location_json).map_err(|_| "invalid_source")?;
+        if location["unit"] == "analysis_field" && location["field"] == "content" {
+            location["field"] = ANALYSIS_ROOT_FIELD.into();
+        }
+        Ok(location)
+    }
 }
 
 /// Canonical Topic section reference. Topics are not Zotero items, so query
@@ -1636,11 +1648,6 @@ impl RetrievalApplication {
         wire: &DescriptorWire,
         checkpoint: &dyn Fn() -> Result<(), String>,
     ) -> Result<String, String> {
-        let (unit, field) = if wire.source["kind"] == "analysis" {
-            ("analysis_field", json!("content"))
-        } else {
-            ("paragraph", Value::Null)
-        };
         let mut content = String::new();
         let mut start = 0usize;
         let mut expect_pair_at_start = false;
@@ -1648,7 +1655,7 @@ impl RetrievalApplication {
             checkpoint()?;
             let requested_end = (start + RETRIEVAL_SOURCE_READ_PAGE_UTF16).min(wire.content_length);
             let location = json!({
-                "unit":unit,"field":field,
+                "unit":"paragraph","field":null,
                 "range":{"start":start,"end":requested_end}
             });
             let read = self
@@ -1672,8 +1679,8 @@ impl RetrievalApplication {
                 || read["source"] != descriptor["source"]
                 || read["format"] != descriptor["format"]
                 || read["sourceVersion"] != descriptor["sourceVersion"]
-                || read["location"]["unit"] != unit
-                || read["location"]["field"] != field
+                || read["location"]["unit"] != location["unit"]
+                || read["location"]["field"] != location["field"]
             {
                 return Err("source_changed".into());
             }
@@ -2109,7 +2116,12 @@ pub fn split_fragments(content: &str, source: &Value) -> Vec<FragmentUnit> {
         }
         "analysis" => {
             for (start, end, _) in paragraph_ranges(content) {
-                units.push((start, end, "analysis_field", Some("content".to_owned())));
+                units.push((
+                    start,
+                    end,
+                    "analysis_field",
+                    Some(ANALYSIS_ROOT_FIELD.to_owned()),
+                ));
             }
         }
         "topic" => {
