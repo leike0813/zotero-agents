@@ -11,6 +11,7 @@ import {
   type SynthesisSidecarObservationEvent,
 } from "../../../../packages/synthesis-contracts/src";
 import { timingSafeEqualString } from "../../../utils/timingSafeEqual";
+import type { CancellationSignal } from "../../../utils/wait";
 import {
   createSynthesisSidecarTraceContext,
   recordSynthesisSidecarTraceEvent,
@@ -20,6 +21,7 @@ type HandlerContext = {
   requestId: string;
   operationId: string;
   deadlineAtMs: number;
+  signal?: CancellationSignal;
 };
 
 export type SynthesisReverseHostHandler<
@@ -51,6 +53,7 @@ type BrokerOptions = {
 type DispatchInput = {
   authorizationToken: string;
   call: unknown;
+  signal?: CancellationSignal;
 };
 
 type EffectResult = {
@@ -108,7 +111,10 @@ export function createSynthesisReverseHostBroker(options: BrokerOptions) {
     Promise<SynthesisReverseHostResult<SynthesisReverseHostCapability>>
   >();
 
-  async function execute(call: SynthesisReverseHostCall) {
+  async function execute(
+    call: SynthesisReverseHostCall,
+    signal?: CancellationSignal,
+  ) {
     const startedAt = options.now();
     const trace = createSynthesisSidecarTraceContext({ parent: call.trace });
     const record = (
@@ -139,6 +145,7 @@ export function createSynthesisReverseHostBroker(options: BrokerOptions) {
           requestId: call.requestId,
           operationId: call.operationId,
           deadlineAtMs: call.deadlineAtMs,
+          ...(signal ? { signal } : {}),
         }),
         call.payload,
       );
@@ -229,7 +236,7 @@ export function createSynthesisReverseHostBroker(options: BrokerOptions) {
       failure("unavailable", "reverse_host_disconnected");
     }
     if (!isEffect(call.capability)) {
-      return execute(call);
+      return execute(call, input.signal);
     }
 
     const identity = callIdentity(call);

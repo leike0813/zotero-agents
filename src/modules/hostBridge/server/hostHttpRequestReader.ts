@@ -103,6 +103,28 @@ function getComponents() {
   };
 }
 
+export function watchHostHttpPeerClose(
+  inputStream: unknown,
+  onClose: () => void,
+): (() => void) | undefined {
+  const stream = resolveAsyncInputStream(inputStream);
+  const flag =
+    getComponents().interfaces?.nsIAsyncInputStream?.WAIT_CLOSURE_ONLY;
+  if (!stream || typeof flag !== "number") return;
+  try {
+    stream.asyncWait({ onInputStreamReady: onClose }, flag, 0, getMainThread());
+  } catch {
+    return;
+  }
+  return () => {
+    try {
+      stream.asyncWait(null, 0, 0, null);
+    } catch {
+      // The peer can close while the response is being delivered.
+    }
+  };
+}
+
 function getMainThread() {
   const { classes, interfaces } = getComponents();
   const factory = classes?.["@mozilla.org/thread-manager;1"];

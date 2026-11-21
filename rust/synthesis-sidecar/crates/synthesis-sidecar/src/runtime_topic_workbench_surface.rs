@@ -108,14 +108,11 @@ fn search_topics(apps: &ProductionApplications, args: &[Value]) -> Result<Value,
     // The application owns admission, so the wire value is rebuilt through the
     // same validator the application and the shared corpus use.
     let request = TopicSearchRequest::from_value(request.clone())?;
-    // Leave time for the bounded partial-result projection before the outer
-    // production operation deadline expires.
-    let budget = crate::runtime_deadline::bounded_timeout(std::time::Duration::from_secs(9))?
-        .saturating_sub(std::time::Duration::from_secs(1));
-    crate::runtime_deadline::with_request_deadline(budget, || {
-        wire(apps.topics.search(request, &|| {
-            crate::runtime_deadline::bounded_timeout(std::time::Duration::from_secs(1)).map(|_| ())
-        })?)
+    crate::runtime_evidence_search::with_vector_search(std::time::Duration::MAX, || {
+        wire(
+            apps.topics
+                .search(request, &crate::runtime_evidence_search::vector_checkpoint)?,
+        )
     })
 }
 

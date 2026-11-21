@@ -31,6 +31,9 @@ fn semantic_read_error(code: String, fallback: &str) -> Result<Value, String> {
         | "embedding_service_unavailable"
         | "scan_budget_exhausted"
         | "operation_timeout"
+        | "query_encoding_timeout"
+        | "vector_scoring_timeout"
+        | "source_verification_timeout"
         | "invalid_source"
         | "retrieval_unavailable" => Ok(unavailable(&code)),
         "repository_unavailable" => Ok(unavailable("retrieval_unavailable")),
@@ -184,6 +187,7 @@ impl RetrievalApplication {
             json!({"query":request["query"],"includeTopics":topic,"maxResults":limit + 25});
         let mut scope = None;
         let basis = self.evidence_publication()?;
+        let scope_budget = crate::search_execution::phase(crate::search_execution::SCOPE_LIMIT);
         if topic {
             query["libraryIds"] = json!([]);
             query["sourceKinds"] = json!([]);
@@ -216,10 +220,18 @@ impl RetrievalApplication {
             }
             scope = Some(captured.clone());
         }
-        let outcome = if let Some(scope) =
-            scope.as_ref().filter(|s| s.get("collectionRef").is_some())
-        {
-            let eligible = scoped_evidence_identities(self.sources.as_ref(), scope, checkpoint)?;
+        let eligible =
+            if let Some(scope) = scope.as_ref().filter(|s| s.get("collectionRef").is_some()) {
+                Some(scoped_evidence_identities(
+                    self.sources.as_ref(),
+                    scope,
+                    &|| crate::search_execution::checkpoint(checkpoint),
+                )?)
+            } else {
+                None
+            };
+        drop(scope_budget);
+        let outcome = if let Some(eligible) = eligible {
             self.query_scoped(query, &eligible, checkpoint)?
         } else {
             self.query_with_checkpoint(query, checkpoint)?
@@ -247,6 +259,9 @@ impl RetrievalApplication {
             );
         }
         let mut results = Vec::new();
+        let verification =
+            crate::search_execution::phase(crate::search_execution::VECTOR_PHASE_LIMIT);
+        let verify_checkpoint = || crate::search_execution::checkpoint(checkpoint);
         for hit in outcome.results {
             if results.len() == limit {
                 if !capture_library {
@@ -267,13 +282,18 @@ impl RetrievalApplication {
                 &hit.source_version,
                 location,
                 scope.as_ref(),
-                checkpoint,
+                &verify_checkpoint,
             ) {
                 Ok(mut row) => {
                     row["score"] = json!(hit.score);
                     row["evidenceRef"] = json!({"publication":basis,"identity":hit.item_identity,
                         "fragmentId":hit.fragment_id,"sourceVersion":hit.source_version});
                     results.push(row);
+                }
+                Err(code) if crate::search_execution::is_timeout(&code) => {
+                    issues.insert("source_verification_timeout".into());
+                    limited = true;
+                    break;
                 }
                 Err(code)
                     if matches!(
@@ -291,6 +311,7 @@ impl RetrievalApplication {
                 Err(code) => return Err(code),
             }
         }
+        drop(verification);
         if self.evidence_publication()? != basis {
             return Err("basis_mismatch".into());
         }

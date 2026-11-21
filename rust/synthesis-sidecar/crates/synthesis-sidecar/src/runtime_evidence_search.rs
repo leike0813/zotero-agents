@@ -1,6 +1,26 @@
 use crate::runtime_production_client::ProductionClientRouteEntry;
 use crate::runtime_production_ports::ProductionApplications;
 use serde_json::Value;
+use std::time::Duration;
+
+pub(crate) fn with_vector_search<T>(
+    budget: Duration,
+    run: impl FnOnce() -> Result<T, String>,
+) -> Result<T, String> {
+    use crate::runtime_diagnostics::{ObservationContextGuard, child_observation_context};
+    use synthesis_application::search_execution::{with_thread_context, within};
+    let budget = crate::runtime_deadline::bounded_timeout(budget.min(Duration::from_secs(120)))?
+        .saturating_sub(Duration::from_secs(2));
+    let trace = child_observation_context();
+    with_thread_context(
+        std::sync::Arc::new(move || Box::new(ObservationContextGuard::install(trace.as_ref()))),
+        || within(budget, run),
+    )
+}
+
+pub(crate) fn vector_checkpoint() -> Result<(), String> {
+    crate::runtime_deadline::bounded_timeout(Duration::from_secs(1)).map(|_| ())
+}
 
 pub(crate) const EVIDENCE_SEARCH_CLIENT_ROUTES: &[ProductionClientRouteEntry] =
     &[ProductionClientRouteEntry::new(
@@ -12,14 +32,8 @@ fn search(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String
     let [request] = args else {
         return Err("invalid_request".into());
     };
-    // Leave time for the bounded partial-result projection before the outer
-    // production operation deadline expires.
-    let budget = crate::runtime_deadline::bounded_timeout(std::time::Duration::from_secs(9))?
-        .saturating_sub(std::time::Duration::from_secs(1));
-    crate::runtime_deadline::with_request_deadline(budget, || {
-        apps.evidence.search(request.clone(), &|| {
-            crate::runtime_deadline::bounded_timeout(std::time::Duration::from_secs(1)).map(|_| ())
-        })
+    with_vector_search(Duration::MAX, || {
+        apps.evidence.search(request.clone(), &vector_checkpoint)
     })
 }
 
@@ -42,14 +56,11 @@ pub(crate) fn execute_library_retrieval(
     apps: &ProductionApplications,
     request: Value,
 ) -> Result<Value, String> {
-    let budget = crate::runtime_deadline::bounded_timeout(std::time::Duration::from_secs(9))?
-        .saturating_sub(std::time::Duration::from_secs(1));
-    crate::runtime_deadline::with_request_deadline(budget, || {
+    let budget = crate::runtime_production_client::library_retrieval_deadline()
+        .saturating_sub(Duration::from_secs(10));
+    with_vector_search(budget, || {
         apps.evidence
-            .search_library_items_with_retrieval(request, &|| {
-                crate::runtime_deadline::bounded_timeout(std::time::Duration::from_secs(1))
-                    .map(|_| ())
-            })
+            .search_library_items_with_retrieval(request, &vector_checkpoint)
     })
 }
 

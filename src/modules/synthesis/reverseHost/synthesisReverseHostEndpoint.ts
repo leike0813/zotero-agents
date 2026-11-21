@@ -14,7 +14,12 @@ import {
 } from "../../../../packages/synthesis-contracts/src/sidecarObservability";
 import { ZoteroHostCapabilityError } from "../../zoteroHostCapabilityBroker";
 import {
+  createCancellationController,
+  type CancellationSignal,
+} from "../../../utils/wait";
+import {
   beginHostHttpRequestRead,
+  watchHostHttpPeerClose,
   type HostHttpRequestReadOperation,
 } from "../../hostBridge/server/hostHttpRequestReader";
 import {
@@ -43,6 +48,7 @@ type BrokerDispatch = {
   dispatch(input: {
     authorizationToken: string;
     call: unknown;
+    signal?: CancellationSignal;
   }): Promise<unknown>;
 };
 
@@ -70,6 +76,7 @@ function errorResponse(status: number, error: SynthesisJsonValue) {
 export async function handleSynthesisReverseHostHttpRequest(
   request: HttpRequest,
   broker: BrokerDispatch,
+  signal?: CancellationSignal,
 ) {
   if (
     request.method !== "POST" ||
@@ -92,6 +99,7 @@ export async function handleSynthesisReverseHostHttpRequest(
         await broker.dispatch({
           authorizationToken,
           call: request.body,
+          signal,
         }),
         "synthesisReverseHostHttpResult",
       ),
@@ -285,6 +293,7 @@ export function createSynthesisReverseHostEndpoint(options: EndpointOptions) {
     let responseCompleted = false;
     let capability: string | undefined;
     let trace: SynthesisSidecarTraceContext | undefined;
+    let stopWatchingClose: (() => void) | undefined;
     const record = (
       event: Parameters<typeof recordSynthesisSidecarTraceEvent>[0],
     ) => {
@@ -326,9 +335,16 @@ export function createSynthesisReverseHostEndpoint(options: EndpointOptions) {
         ...(capability ? { identities: { capability } } : {}),
         metrics: { requestBytes: readResult.bytes.byteLength },
       });
+      const cancellation =
+        capability === "retrieval.embedding.encode"
+          ? createCancellationController()
+          : undefined;
+      if (cancellation)
+        stopWatchingClose = watchHostHttpPeerClose(input, cancellation.abort);
       const result = await handleSynthesisReverseHostHttpRequest(
         request,
         broker,
+        cancellation?.signal,
       );
       let responseStatus = result.status;
       const responseBody =
@@ -429,6 +445,7 @@ export function createSynthesisReverseHostEndpoint(options: EndpointOptions) {
         }
       }
     } finally {
+      stopWatchingClose?.();
       reads.delete(read);
       transports.delete(transport);
       input.close?.();

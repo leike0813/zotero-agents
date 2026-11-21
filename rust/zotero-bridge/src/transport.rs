@@ -3,14 +3,14 @@ use std::{
     io::{Read, Write},
     net::TcpStream,
     sync::{
-        atomic::{AtomicU64, Ordering},
         Mutex, OnceLock,
+        atomic::{AtomicU64, Ordering},
     },
     time::Duration,
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 
 use crate::{
@@ -929,11 +929,16 @@ mod tests {
     }
 
     #[test]
-    fn call_timeouts_follow_manifest_artifact_policy() {
+    fn call_timeouts_follow_manifest_policy() {
         let cases = [
             ("paper_artifacts.get_manifest", 124_000),
             ("paper_artifacts.read", 124_000),
             ("paper_artifacts.export_filtered", 124_000),
+            ("library.search_items", 124_000),
+            ("synthesis.search_evidence", 124_000),
+            ("synthesis.search_semantic_evidence", 124_000),
+            ("synthesis.read_semantic_context", 39_000),
+            ("topics.search", 124_000),
             ("library.list_items", 30_000),
             ("literature.ingest", 330_000),
             ("item.updateTags", 330_000),

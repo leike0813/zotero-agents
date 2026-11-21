@@ -7,13 +7,21 @@
   "controlTargetBytes": 786432,
   "deadlineMs": 10000,
   "deadlineOverridesMs": {
-    "client.exploreRetrievalIndex": 60000,
-    "client.searchSemanticEvidence": 60000,
+    "library.retrieval.execute": 120000,
+    "client.searchEvidence": 120000,
+    "client.searchTopics": 120000,
+    "client.exploreRetrievalIndex": 120000,
+    "client.searchSemanticEvidence": 120000,
+    "client.recommendSimilarPapers": 120000,
+    "client.readSemanticContext": 35000,
     "client.getPaperArtifactManifest": 120000,
     "client.readPaperArtifacts": 120000,
     "client.exportFilteredPaperArtifacts": 120000
   },
   "hostCapabilities": {
+    "library.search_items": "library.retrieval.execute",
+    "synthesis.search_evidence": "client.searchEvidence",
+    "topics.search": "client.searchTopics",
     "synthesis.search_semantic_evidence": "client.searchSemanticEvidence",
     "synthesis.read_semantic_context": "client.readSemanticContext",
     "paper_artifacts.get_manifest": "client.getPaperArtifactManifest",

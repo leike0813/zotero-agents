@@ -18,6 +18,7 @@ pub mod related_items;
 pub mod retrieval;
 mod retrieval_discovery;
 pub mod retrieval_similarity;
+pub mod search_execution;
 pub mod tag_audit;
 pub mod tag_vocabulary;
 pub mod topic;

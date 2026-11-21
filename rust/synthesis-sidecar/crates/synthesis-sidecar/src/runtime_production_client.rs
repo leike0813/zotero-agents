@@ -26,6 +26,17 @@ const PRODUCTION_CLIENT_CAPABILITY_MANIFEST: &str = include_str!(
 const PRODUCTION_CLIENT_OPERATION_MANIFEST: &str = include_str!(
     "../../../../../packages/synthesis-contracts/contract-set/synthesis-production-client-v1/operations.json"
 );
+pub(crate) const LIBRARY_RETRIEVAL_EXECUTE: &str = "library.retrieval.execute";
+
+pub(crate) fn library_retrieval_deadline() -> Duration {
+    static DEADLINE: std::sync::OnceLock<Duration> = std::sync::OnceLock::new();
+    *DEADLINE.get_or_init(|| {
+        let manifest: ProductionClientOperationManifest =
+            serde_json::from_str(PRODUCTION_CLIENT_OPERATION_MANIFEST)
+                .expect("embedded operations manifest");
+        Duration::from_millis(manifest.deadline_overrides_ms[LIBRARY_RETRIEVAL_EXECUTE])
+    })
+}
 
 pub(crate) type ProductionClientHandler =
     fn(&crate::runtime_production_ports::ProductionApplications, &[Value]) -> Result<Value, String>;
@@ -675,12 +686,13 @@ fn production_client_operation_manifest(
             .deadline_overrides_ms
             .iter()
             .any(|(capability, deadline)| {
-                !manifest.access.contains_key(capability) || !(100..=120_000).contains(deadline)
+                (capability != LIBRARY_RETRIEVAL_EXECUTE
+                    && !manifest.access.contains_key(capability))
+                    || !(100..=120_000).contains(deadline)
             })
-        || manifest
-            .host_capabilities
-            .values()
-            .any(|capability| !manifest.access.contains_key(capability))
+        || manifest.host_capabilities.values().any(|capability| {
+            capability != LIBRARY_RETRIEVAL_EXECUTE && !manifest.access.contains_key(capability)
+        })
         || manifest
             .work_deadline_ms
             .iter()

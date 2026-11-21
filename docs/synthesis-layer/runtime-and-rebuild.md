@@ -476,12 +476,28 @@ application and routes are still under implementation.
   deadline. The public maintenance owner admits one retrieval operation per
   data root. Individual source reads and embedding batches retain independent
   deadlines and timed-out steps have separate receipt diagnostics.
+- An in-flight document batch observes cancellation while waiting for the Host.
+  Canceling the wait closes the reverse Host connection and stops the provider
+  request or its retry delay. A retry reuses completed source groups.
 - Cleanup and Discovery use a separate post-publication budget. Their failure
   records a tail issue and preserves the successful index.
 - Startup, queries, and Home reads never scan sources, encode missing content,
   or resume maintenance. Startup reconciliation keeps the existing
   continuation-required and external-effect-unknown classification and
   dispatches nothing.
+
+### Foreground retrieval budgets
+
+The operation manifest supplies the outer budget for Library, Evidence and
+Topic search, dedicated semantic search, and similarity. Encoding, exact
+scoring and source verification each have up to 30 seconds within a
+120-second foreground limit. Transport grace and result projection use the
+remaining time. Mixed searches run the existing bounded lexical work alongside
+vector ranking. A timed-out phase preserves verified hits and reports reduced
+coverage. Semantic context reads use the source verification budget.
+
+The Broker validates indexed matches using their current source version and
+UTF-16 range. Long sources use bounded range reads, including on continuation.
 
 ### Host Embedding Configuration
 

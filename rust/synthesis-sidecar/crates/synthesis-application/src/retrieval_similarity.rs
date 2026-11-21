@@ -14,7 +14,6 @@ use crate::retrieval::RetrievalApplication;
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Default result count when the request omits limit; matches the shared
 /// TypeScript SYNTHESIS_RETRIEVAL_DEFAULT_LIMIT.
@@ -28,7 +27,6 @@ const SIMILARITY_MAX_CATALOG_PAGES: usize = 64;
 const SIMILARITY_MAX_SOURCE_VERSION_UTF16: usize = 256;
 const SIMILARITY_MAX_CONTENT_UTF16: usize = 262_144;
 const SIMILARITY_CATALOG_PAGE_LIMIT: usize = 100;
-const SIMILARITY_QUERY_LIFETIME_MS: u64 = 30_000;
 /// Approved structured overview paths inside a canonical digest artifact.
 /// Only these exact JSON pointers are read; arbitrary markdown is never mined
 /// for a summary and no descriptor format or length is fabricated.
@@ -150,10 +148,12 @@ impl RetrievalApplication {
         let mut issues = IssueBag::default();
 
         // Seed material, restricted to the seed's own library.
+        let seed_budget = crate::search_execution::phase(crate::search_execution::SCOPE_LIMIT);
+        let seed_checkpoint = || crate::search_execution::checkpoint(checkpoint);
         let seed_catalog = self.similarity_catalog(
             seed_ref.library_id,
             std::slice::from_ref(&seed_ref),
-            checkpoint,
+            &seed_checkpoint,
             &mut issues,
         );
         let (seed_rows, seed_scope, seed_limited) = match seed_catalog {
@@ -170,13 +170,15 @@ impl RetrievalApplication {
         if seed_limited {
             issues.push("scan_budget_exhausted", None, 1);
         }
-        let Some(seed) = self.paper_material(&seed_scope, &seed_rows, checkpoint, &mut issues)?
+        let Some(seed) =
+            self.paper_material(&seed_scope, &seed_rows, &seed_checkpoint, &mut issues)?
         else {
             issues.push("source_unavailable", Some("metadata"), 1);
             checkpoint()?;
             return Ok(unavailable_result(issues));
         };
-        checkpoint()?;
+        seed_checkpoint()?;
+        drop(seed_budget);
 
         // One extra ranked result so excluding the seed still yields limit.
         let max_results = (limit + 1).min(SIMILARITY_MAX_LIMIT + 1);
@@ -190,11 +192,7 @@ impl RetrievalApplication {
         query.insert("libraryIds".into(), json!([seed_ref.library_id]));
         query.insert("maxResults".into(), json!(max_results));
         query.insert("includeTopics".into(), json!(false));
-        query.insert(
-            "deadlineAtMs".into(),
-            json!(now_millis().saturating_add(SIMILARITY_QUERY_LIFETIME_MS)),
-        );
-        let outcome = match self.query(Value::Object(query)) {
+        let outcome = match self.query_with_checkpoint(Value::Object(query), checkpoint) {
             Ok(outcome) => outcome,
             Err(code) if is_service_failure(&code) => {
                 // Index or encoding-service failure: report bounded
@@ -205,10 +203,23 @@ impl RetrievalApplication {
             }
             Err(code) => return Err(code),
         };
-        if outcome.limited {
-            issues.push("result_budget_exhausted", None, 1);
+        for issue in &outcome.issues {
+            if let Some(code) = issue["code"].as_str() {
+                issues.push(
+                    if code == "vector_scoring_timeout" {
+                        "scan_budget_exhausted"
+                    } else {
+                        code
+                    },
+                    None,
+                    issue["affectedCount"].as_u64().unwrap_or(1) as usize,
+                );
+            }
         }
 
+        let verification =
+            crate::search_execution::phase(crate::search_execution::VECTOR_PHASE_LIMIT);
+        let verify_checkpoint = || crate::search_execution::checkpoint(checkpoint);
         // Seed exclusion happens before any title or excerpt is read. Topic
         // results carry no portable identity and are never similarity items.
         let mut ranked = outcome
@@ -226,8 +237,12 @@ impl RetrievalApplication {
         let (result_rows, result_scope, result_limited) = if result_refs.is_empty() {
             (Vec::new(), seed_scope.clone(), false)
         } else {
-            let catalog =
-                self.similarity_catalog(seed_ref.library_id, &result_refs, checkpoint, &mut issues);
+            let catalog = self.similarity_catalog(
+                seed_ref.library_id,
+                &result_refs,
+                &verify_checkpoint,
+                &mut issues,
+            );
             match catalog {
                 Ok(rows) => rows,
                 Err(code) if is_protocol_error(&code) => return Err(code),
@@ -255,13 +270,29 @@ impl RetrievalApplication {
 
         let mut results = Vec::new();
         for fragment in &ranked {
-            checkpoint()?;
+            if let Err(code) = verify_checkpoint() {
+                if !crate::search_execution::is_timeout(&code) {
+                    return Err(code);
+                }
+                issues.push("scan_budget_exhausted", None, 1);
+                break;
+            }
             let Some(item_ref) = fragment.item_ref.clone() else {
                 continue;
             };
             let identity = format!("{}:{}", item_ref.library_id, item_ref.key);
             let material = match by_identity.get(&identity) {
-                Some(rows) => self.paper_material(&result_scope, rows, checkpoint, &mut issues)?,
+                Some(rows) => {
+                    match self.paper_material(&result_scope, rows, &verify_checkpoint, &mut issues)
+                    {
+                        Ok(material) => material,
+                        Err(code) if crate::search_execution::is_timeout(&code) => {
+                            issues.push("scan_budget_exhausted", None, 1);
+                            break;
+                        }
+                        Err(code) => return Err(code),
+                    }
+                }
                 None => None,
             };
             let (title, excerpt, material_kind) = match material {
@@ -282,6 +313,7 @@ impl RetrievalApplication {
                 "materialKind": material_kind,
             }));
         }
+        drop(verification);
 
         let status = if issues.degraded() {
             "limited"
@@ -575,6 +607,8 @@ fn is_service_failure(code: &str) -> bool {
             | "embedding_response_invalid"
             | "service_unavailable"
             | "operation_timeout"
+            | "query_encoding_timeout"
+            | "vector_scoring_timeout"
     )
 }
 
@@ -634,13 +668,6 @@ fn truncate_utf16(text: &str, max: usize) -> String {
         out.push(character);
     }
     out
-}
-
-fn now_millis() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|elapsed| elapsed.as_millis() as u64)
-        .unwrap_or_default()
 }
 
 #[cfg(test)]

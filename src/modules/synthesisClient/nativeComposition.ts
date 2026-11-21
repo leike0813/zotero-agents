@@ -388,7 +388,9 @@ export function createNativeSynthesisLibraryRetrievalPort(options?: {
           capability: "library.retrieval.execute",
           payload,
           signal: control?.signal as AbortSignal | undefined,
-          deadlineMs: 10_000,
+          deadlineMs: synthesisProductionTransportDeadlineMs(
+            "library.retrieval.execute",
+          ),
           rebuildResult(value) {
             return rebuildSynthesisProtocolDto<
               NativeSynthesisLibraryLexicalResult & {

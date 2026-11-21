@@ -190,6 +190,9 @@ export function RetrievalExplorer({
         case "request_timeout":
         case "worker_timeout":
         case "operation_timeout":
+        case "query_encoding_timeout":
+        case "vector_scoring_timeout":
+        case "source_verification_timeout":
           messages.add(t("synthesis-explorer-timeout"));
           break;
         case "invalid_request":
@@ -327,9 +330,14 @@ export function RetrievalExplorer({
           class="secondary zs-icon-btn retrieval-preferences"
           aria-label={t("synthesis-home-settings")}
           title={t("synthesis-home-settings")}
-          onClick={() => onAction("hostCommand", { command: "openPreferences" })}
+          onClick={() =>
+            onAction("hostCommand", { command: "openPreferences" })
+          }
         >
-          <span class="zs-icon zs-icon-settings-applications" aria-hidden="true" />
+          <span
+            class="zs-icon zs-icon-settings-applications"
+            aria-hidden="true"
+          />
         </button>
         <details
           class="retrieval-settings"

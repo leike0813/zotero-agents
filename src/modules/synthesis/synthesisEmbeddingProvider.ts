@@ -561,7 +561,8 @@ export function createSynthesisEmbeddingProvider(options?: {
     let attempts = 0;
     let lastFailure: AssociationFailure | undefined;
     let lastError: SynthesisClientError | undefined;
-    for (const service of services) {
+    for (let serviceIndex = 0; serviceIndex < services.length; serviceIndex++) {
+      const service = services[serviceIndex];
       let retrySameService = request.purpose === "document";
       for (;;) {
         if (args.signal?.aborted) {
@@ -578,10 +579,17 @@ export function createSynthesisEmbeddingProvider(options?: {
           );
         }
         attempts += 1;
+        const timeoutMs =
+          request.purpose === "query"
+            ? Math.max(
+                1,
+                Math.floor(remaining / (services.length - serviceIndex)),
+              )
+            : remaining;
         const vectors = await requestVectors({
           service,
           prefixedInputs,
-          timeoutMs: remaining,
+          timeoutMs,
           signal: args.signal,
           purpose: request.purpose,
         });

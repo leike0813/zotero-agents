@@ -1,10 +1,11 @@
 use crate::runtime_contract::{NativeLaunchConfig, current_time_ms};
 use serde::Deserialize;
 use serde_json::{Value, json};
-use std::io::{Read, Write};
+use std::cell::RefCell;
+use std::io::{self, Read, Write};
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpStream};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::runtime_deadline::bounded_timeout;
 use crate::runtime_diagnostics::{
@@ -20,6 +21,60 @@ const MAX_REVERSE_HOST_RESPONSE_HEADER_BYTES: u64 = 16 * 1024;
 const MAX_REVERSE_HOST_RESPONSE_BODY_BYTES: u64 = 1024 * 1024;
 const MAX_REFERENCE_ARTIFACT_RESPONSE_BODY_BYTES: u64 = 8 * 1024 * 1024;
 static REVERSE_HOST_REQUEST_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+type EmbeddingCheckpoint = Box<dyn Fn() -> Result<(), String>>;
+
+thread_local! {
+    static EMBEDDING_CHECKPOINT: RefCell<Option<EmbeddingCheckpoint>> = const { RefCell::new(None) };
+}
+
+pub(crate) fn with_embedding_checkpoint<T>(
+    checkpoint: impl Fn() -> Result<(), String> + 'static,
+    run: impl FnOnce() -> T,
+) -> T {
+    let previous = EMBEDDING_CHECKPOINT.replace(Some(Box::new(checkpoint)));
+    let result = run();
+    EMBEDDING_CHECKPOINT.replace(previous);
+    result
+}
+
+struct EmbeddingResponse<'a> {
+    stream: &'a mut TcpStream,
+    checkpoint: &'a dyn Fn() -> Result<(), String>,
+    deadline: Instant,
+    next_check: Instant,
+    stopped: Option<String>,
+}
+
+impl Read for EmbeddingResponse<'_> {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        loop {
+            let now = Instant::now();
+            if now >= self.deadline {
+                return Err(io::ErrorKind::TimedOut.into());
+            }
+            if now >= self.next_check {
+                if let Err(code) = (self.checkpoint)() {
+                    self.stopped = Some(code);
+                    return Err(io::ErrorKind::ConnectionAborted.into());
+                }
+                self.next_check = self.deadline.min(now + Duration::from_millis(200));
+                self.stream.set_read_timeout(Some(self.next_check - now))?;
+            }
+            match self.stream.read(buffer) {
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        io::ErrorKind::TimedOut | io::ErrorKind::WouldBlock
+                    ) =>
+                {
+                    continue;
+                }
+                result => return result,
+            }
+        }
+    }
+}
 
 fn reverse_host_timeout(capability: &str) -> Duration {
     match capability {
@@ -92,7 +147,9 @@ fn send_reverse_host_request(
     timeout: Duration,
     body: &[u8],
     max_response_body_bytes: u64,
+    embedding: bool,
 ) -> Result<(Value, usize), String> {
+    let deadline = Instant::now() + timeout;
     let address = SocketAddr::V4(SocketAddrV4::new(
         Ipv4Addr::LOCALHOST,
         config.reverse_host.port,
@@ -114,7 +171,20 @@ fn send_reverse_host_request(
     .and_then(|_| stream.flush())
     .map_err(|error| reverse_host_io_error(&error).to_owned())?;
     let (status, response_body, response_bytes) =
-        read_response(&mut stream, max_response_body_bytes)?;
+        EMBEDDING_CHECKPOINT.with_borrow(|checkpoint| {
+            if let Some(checkpoint) = checkpoint.as_deref().filter(|_| embedding) {
+                let mut reader = EmbeddingResponse {
+                    stream: &mut stream,
+                    checkpoint,
+                    deadline,
+                    next_check: Instant::now(),
+                    stopped: None,
+                };
+                let result = read_response(&mut reader, max_response_body_bytes);
+                return reader.stopped.map_or(result, Err);
+            }
+            read_response(&mut stream, max_response_body_bytes)
+        })?;
     let result = decode_reverse_host_response(status, &response_body)?;
     Ok((result, response_bytes))
 }
@@ -191,7 +261,15 @@ pub(crate) fn call_reverse_host(
         service_instance_id,
         capability,
         payload,
-        send_reverse_host_request,
+        |config, timeout, body, limit| {
+            send_reverse_host_request(
+                config,
+                timeout,
+                body,
+                limit,
+                capability == "retrieval.embedding.encode",
+            )
+        },
     )
 }
 
@@ -463,6 +541,37 @@ mod tests {
                 Err("reverse_host_response_envelope_invalid".into())
             );
         }
+    }
+
+    #[test]
+    fn cancel_during_an_embedding_response_closes_the_host_connection() {
+        use std::net::TcpListener;
+        use std::sync::atomic::AtomicBool;
+
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let mut config = test_config();
+        config.reverse_host.port = listener.local_addr().unwrap().port();
+        std::thread::scope(|scope| {
+            let host = scope.spawn(|| {
+                let (mut host, _) = listener.accept().unwrap();
+                host.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+                let mut received = Vec::new();
+                host.read_to_end(&mut received).unwrap();
+                assert!(received.ends_with(b"{}"));
+            });
+            let checked = AtomicBool::new(false);
+            let result = with_embedding_checkpoint(
+                move || {
+                    if checked.swap(true, Ordering::SeqCst) {
+                        return Err("operation_canceled".into());
+                    }
+                    Ok(())
+                },
+                || send_reverse_host_request(&config, Duration::from_secs(1), b"{}", 1024, true),
+            );
+            assert!(matches!(result, Err(code) if code == "operation_canceled"));
+            host.join().unwrap();
+        });
     }
 
     fn test_config() -> NativeLaunchConfig {

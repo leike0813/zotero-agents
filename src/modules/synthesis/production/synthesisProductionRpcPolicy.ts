@@ -20,6 +20,9 @@ type OperationPolicy = {
 };
 
 type OperationPolicyOverride = Partial<OperationPolicy>;
+type DeadlineCapability =
+  | SynthesisSidecarProductionClientCapability
+  | "library.retrieval.execute";
 
 const manifest = productionOperations as {
   schema: string;
@@ -27,10 +30,8 @@ const manifest = productionOperations as {
   responseBytes: number;
   controlTargetBytes: number;
   deadlineMs: number;
-  deadlineOverridesMs: Partial<
-    Record<SynthesisSidecarProductionClientCapability, number>
-  >;
-  hostCapabilities: Record<string, SynthesisSidecarProductionClientCapability>;
+  deadlineOverridesMs: Partial<Record<DeadlineCapability, number>>;
+  hostCapabilities: Record<string, DeadlineCapability>;
   workDeadlineMs: Partial<
     Record<SynthesisSidecarProductionClientCapability, number | null>
   >;
@@ -128,7 +129,7 @@ export const SYNTHESIS_PRODUCTION_RPC_TRANSPORT_ERRORS = Object.freeze({
 } satisfies SynthesisSidecarRpcTransportErrors);
 
 export function synthesisProductionOperationDeadlineMs(
-  capability: SynthesisSidecarProductionClientCapability,
+  capability: DeadlineCapability,
 ) {
   return manifest.deadlineOverridesMs[capability] ?? manifest.deadlineMs;
 }
@@ -155,7 +156,7 @@ export function synthesisProductionOperationPolicy(
 }
 
 export function synthesisProductionTransportDeadlineMs(
-  capability: SynthesisSidecarProductionClientCapability,
+  capability: DeadlineCapability,
 ) {
   return (
     synthesisProductionOperationDeadlineMs(capability) +

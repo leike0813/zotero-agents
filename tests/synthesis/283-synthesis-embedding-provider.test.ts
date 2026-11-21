@@ -542,6 +542,42 @@ describe("Synthesis embedding provider", function () {
     assert.isTrue(fake.calls[1].url.includes("fallback"));
   });
 
+  it("reserves a bounded query timeout for each remaining compatible service", async function () {
+    let now = 1000;
+    let attempt = 0;
+    const fake = fakeClient((args) => {
+      now += [1000, 500, 0][attempt++];
+      return args.url.includes("last")
+        ? {
+            status: 200,
+            text: openAiText([{ index: 0, embedding: [1, 0, 0] }]),
+          }
+        : { status: 503, text: "unavailable" };
+    });
+    const result = await createSynthesisEmbeddingProvider({
+      client: fake.client,
+      now: () => now,
+    }).encode({
+      identity,
+      purpose: "query",
+      inputs: ["alpha"],
+      deadlineAtMs: 4000,
+      services: ["primary", "middle", "last"].map((id) => ({
+        connection: connection({ id, baseUrl: `http://${id}` }),
+      })),
+    });
+
+    assert.deepEqual(result.vectors, [[1, 0, 0]]);
+    assert.deepEqual(
+      fake.calls.map((call) => call.timeoutMs),
+      [1000, 1000, 1500],
+    );
+    assert.deepEqual(
+      fake.calls.map((call) => new URL(call.url).hostname),
+      ["primary", "middle", "last"],
+    );
+  });
+
   it("bounds document batches to three total attempts", async function () {
     const fake = fakeClient(() => ({ status: 503, text: "unavailable" }));
     await rejects(

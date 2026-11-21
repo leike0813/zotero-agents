@@ -1,4 +1,5 @@
 import { getPref, setPref } from "../../utils/prefs";
+import type { CancellationSignal } from "../../utils/wait";
 import {
   SynthesisClientError,
   hashSynthesisContractCanonicalJson,
@@ -84,7 +85,7 @@ export type SynthesisEmbeddingPrefsSaveInput = {
 export type SynthesisHostEmbeddingPort = {
   describe(): Promise<SynthesisEmbeddingDescribeResult>;
   encode(
-    request: SynthesisEmbeddingEncodeRequest,
+    request: SynthesisEmbeddingEncodeRequest & { signal?: CancellationSignal },
   ): Promise<SynthesisEmbeddingEncodeResult>;
 };
 
@@ -879,6 +880,7 @@ export function createSynthesisEmbeddingHostPort(options?: {
         inputs: request.inputs,
         deadlineAtMs: request.deadlineAtMs,
         services: compatibleServices,
+        signal: request.signal,
       });
     },
   };

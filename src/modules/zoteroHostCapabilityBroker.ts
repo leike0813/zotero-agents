@@ -1,4 +1,5 @@
 import { resolveRuntimeZotero } from "../utils/runtimeBridge";
+import { synthesisProductionOperationDeadlineMs } from "./synthesis/production/synthesisProductionRpcPolicy";
 import {
   createZoteroHostAcquisition,
   type ZoteroHostAcquisition,
@@ -3086,7 +3087,12 @@ function resolveItem(ref: ZoteroHostItemRefInput | undefined | null) {
 /** A published index may reference an item that is not in Zotero's object cache. */
 async function loadEvidenceItem(ref: ZoteroHostItemRefInput) {
   assertPortableRef(ref, "item");
-  return (await resolveZotero().Items.getByLibraryAndKeyAsync(ref.libraryId, ref.key)) || null;
+  return (
+    (await resolveZotero().Items.getByLibraryAndKeyAsync(
+      ref.libraryId,
+      ref.key,
+    )) || null
+  );
 }
 
 function requireItem(
@@ -18022,7 +18028,9 @@ export function createZoteroHostCapabilityBroker(
   // instead of the injectable searchNow test clock so paging, catalog rescans and
   // per-source reads stay bounded in production; in-flight reads always settle
   // before the budget is enforced so native slots are never force-released.
-  const librarySearchBudgetMs = 20_000;
+  const librarySearchBudgetMs = synthesisProductionOperationDeadlineMs(
+    "library.retrieval.execute",
+  );
   const lexicalPort =
     options?.lexicalPort ?? createNativeSynthesisLibraryLexicalPort();
   const retrievalPort =
@@ -18220,6 +18228,7 @@ export function createZoteroHostCapabilityBroker(
             {
               scope: entry.round.scope,
               sourceKinds: normalized.sourceKinds,
+              scanMode: "retrieval",
               limit: Math.min(
                 100,
                 256 - descriptors.length,
@@ -18281,6 +18290,8 @@ export function createZoteroHostCapabilityBroker(
         ...entry.round.descriptors,
         ...entry.round.semanticDescriptors,
       ]) {
+        if (descriptor.contentLength > SYNTHESIS_EVIDENCE_SOURCE_MAX_UTF16)
+          continue;
         assertSearchBudget();
         const current = await readEvidenceSource({
           scope: entry.round.scope,
@@ -18289,6 +18300,32 @@ export function createZoteroHostCapabilityBroker(
         if (current.outcome !== "available") throw searchConflict();
       }
       for (const hit of entry.round.result.results) {
+        for (const match of hit.matches) {
+          assertSearchBudget();
+          const descriptor = [
+            ...entry.round.descriptors,
+            ...entry.round.semanticDescriptors,
+          ].find(
+            (candidate) =>
+              evidenceDescriptorIdentityKey(
+                candidate.itemRef,
+                candidate.sourceVersion,
+                candidate.source,
+              ) ===
+              evidenceDescriptorIdentityKey(
+                hit.item.ref,
+                match.sourceVersion,
+                match.source,
+              ),
+          );
+          if (!descriptor) throw searchConflict();
+          const current = await readEvidenceSource({
+            scope: entry.round.scope,
+            descriptor,
+            location: match.location,
+          });
+          if (current.outcome !== "available") throw searchConflict();
+        }
         assertSearchBudget();
         const current = await withZoteroHostSlice(control, () => {
           const item = resolveItem(hit.item.ref);
@@ -18408,7 +18445,6 @@ export function createZoteroHostCapabilityBroker(
         { phase: "read", recovery: "retry_same_operation" },
       );
     }
-    assertSearchBudget();
     if (
       hashSynthesisContractCanonicalJson(execution.scope) !==
       hashSynthesisContractCanonicalJson(scope)
@@ -18432,8 +18468,12 @@ export function createZoteroHostCapabilityBroker(
     const validatedSourceContent = new Map<string, string>();
     const itemRevisions = new Map<string, string>();
     const results: LibraryItemSearchResultDto["results"] = [];
-    for (const hit of execution.result.results) {
-      assertSearchBudget();
+    const projectionExpired = () => {
+      throwIfWorkflowCallCanceled(control);
+      return Date.now() > deadlineAt;
+    };
+    projection: for (const hit of execution.result.results) {
+      if (projectionExpired()) break;
       for (const match of hit.matches) {
         const descriptorKey = evidenceDescriptorIdentityKey(
           hit.itemRef,
@@ -18455,13 +18495,15 @@ export function createZoteroHostCapabilityBroker(
         ) {
           let cursor: string | undefined;
           do {
-            assertSearchBudget();
+            if (projectionExpired()) break projection;
             const page = await listEvidenceSources({
               scope: { ...scope, itemRefs: [hit.itemRef] },
               sourceKinds: [match.source.kind],
+              scanMode: "retrieval",
               limit: 100,
               cursor,
             });
+            if (projectionExpired()) break projection;
             descriptor = page.descriptors.find(
               (row) =>
                 evidenceDescriptorIdentityKey(
@@ -18478,21 +18520,33 @@ export function createZoteroHostCapabilityBroker(
           }
         }
         if (!descriptor) throw searchConflict();
-        // The first reference to a descriptor loads the full current content once
-        // (its version is already validated by readSource); later matches reuse it
-        // and resolve their range through the shared pure validator.
-        let content = validatedSourceContent.get(descriptorKey);
-        if (content === undefined) {
-          const current = await readEvidenceSource({ scope, descriptor });
-          assertSearchBudget();
-          if (current.outcome !== "available") throw searchConflict();
-          content = current.content;
-          validatedSourceContent.set(descriptorKey, content);
+        if (descriptor.contentLength > SYNTHESIS_EVIDENCE_SOURCE_MAX_UTF16) {
+          const current = await readEvidenceSource({
+            scope,
+            descriptor,
+            location: match.location,
+          });
+          if (projectionExpired()) break projection;
+          if (
+            current.outcome !== "available" ||
+            current.location.range.start !== match.location.range.start ||
+            current.location.range.end !== match.location.range.end
+          )
+            throw searchConflict();
+        } else {
+          let content = validatedSourceContent.get(descriptorKey);
+          if (content === undefined) {
+            const current = await readEvidenceSource({ scope, descriptor });
+            if (projectionExpired()) break projection;
+            if (current.outcome !== "available") throw searchConflict();
+            content = current.content;
+            validatedSourceContent.set(descriptorKey, content);
+          }
+          if (
+            !validateEvidenceSourceLocation(descriptor, content, match.location)
+          )
+            throw searchConflict();
         }
-        if (
-          !validateEvidenceSourceLocation(descriptor, content, match.location)
-        )
-          throw searchConflict();
       }
       const { summary, revision } = await withZoteroHostSlice(control, () => {
         const item = resolveItem(hit.itemRef);
@@ -18507,11 +18561,31 @@ export function createZoteroHostCapabilityBroker(
           revision: canonicalItemVersion(item).revision,
         };
       });
+      if (projectionExpired()) break;
       itemRevisions.set(
         `${summary.ref.libraryId}:${summary.ref.key}`,
         revision,
       );
       results.push({ item: summary, matches: hit.matches });
+    }
+    const result: LibraryItemSearchResultDto = { ...execution.result, results };
+    if (results.length < execution.result.results.length) {
+      result.status = "limited";
+      result.total = null;
+      if (result.method !== "lexical") {
+        result.coverage = {
+          ...result.coverage,
+          vector: { status: "limited", reason: "source_verification_timeout" },
+        };
+      }
+      if (
+        !result.issues.some((issue) => issue.code === "scan_budget_exhausted")
+      ) {
+        result.issues = [
+          ...result.issues.slice(0, 7),
+          { code: "scan_budget_exhausted", sourceKind: null, affectedCount: 1 },
+        ];
+      }
     }
     const round: LibrarySearchRound = {
       semanticDescriptors,
@@ -18524,10 +18598,10 @@ export function createZoteroHostCapabilityBroker(
       descriptors: execution.descriptors,
       catalogLimited: execution.catalogLimited,
       itemRevisions,
-      result: { ...execution.result, results },
+      result,
       expiresAt: searchNow() + 60_000,
     };
-    assertSearchBudget();
+    throwIfWorkflowCallCanceled(control);
     return publishSearchPage(round, 0, normalized.limit);
   };
   const resolveEvidenceScope = async (
@@ -19453,7 +19527,8 @@ export function createZoteroHostCapabilityBroker(
       if (!request.location) return { outcome: "source_read_failed" };
       if (
         descriptor.source.kind === "analysis" &&
-        (location.unit !== "analysis_field" || location.field !== "$")
+        (location.unit !== "analysis_field" ||
+          typeof location.field !== "string")
       )
         return { outcome: "invalid_source" };
       const { start, end } = location.range;

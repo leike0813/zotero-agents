@@ -1970,11 +1970,19 @@ describe("Synthesis native client composition", function () {
   });
 
   it("derives production transport deadlines from the shared operation manifest", function () {
-    // The explorer still verifies original excerpts after the 30s query/score budget.
-    assert.isAbove(
-      synthesisProductionOperationDeadlineMs("client.exploreRetrievalIndex"),
-      30_000,
-    );
+    for (const capability of [
+      "library.retrieval.execute",
+      "client.searchEvidence",
+      "client.searchTopics",
+      "client.exploreRetrievalIndex",
+      "client.searchSemanticEvidence",
+      "client.recommendSimilarPapers",
+    ] as const) {
+      assert.isAbove(
+        synthesisProductionOperationDeadlineMs(capability),
+        90_000,
+      );
+    }
     assert.equal(
       synthesisProductionOperationDeadlineMs("client.listTopics"),
       10_000,

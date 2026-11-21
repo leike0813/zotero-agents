@@ -358,13 +358,16 @@ export function inspectSynthesisProductionCapabilities(
         operations.deadlineMs <= 60_000 &&
         Object.entries(operations.deadlineOverridesMs || {}).every(
           ([capability, deadline]) =>
-            capability in operations.access &&
+            (capability in operations.access ||
+              capability === "library.retrieval.execute") &&
             Number.isSafeInteger(deadline) &&
             deadline >= 100 &&
             deadline <= 120_000,
         ) &&
         Object.values(operations.hostCapabilities || {}).every(
-          (capability) => capability in operations.access,
+          (capability) =>
+            capability in operations.access ||
+            capability === "library.retrieval.execute",
         ) &&
         Object.entries(operations.workDeadlineMs || {}).every(
           ([capability, deadline]) =>

@@ -53,7 +53,6 @@ const RETRIEVAL_MAX_PREFIX_CHARS: usize = 256;
 const RETRIEVAL_MAX_OPTIONS_KEY_CHARS: usize = 128;
 const RETRIEVAL_SOURCE_READ_PAGE_UTF16: usize = 65_536;
 const ANALYSIS_ROOT_FIELD: &str = "$";
-const RETRIEVAL_QUERY_LIFETIME_MS: u64 = 30_000;
 const RETRIEVAL_ENCODE_BATCH_DEADLINE_MS: u64 = 60_000;
 
 /// Reverse-Host embedding capability. Describe performs no network call and
@@ -257,7 +256,10 @@ impl VectorCoverage {
             | "retrieval_index_paused"
             | "embedding_disabled"
             | "embedding_service_unavailable"
+            | "retrieval_unavailable"
             | "operation_timeout"
+            | "query_encoding_timeout"
+            | "vector_scoring_timeout"
             | "source_changed"
             | "basis_mismatch"
             | "scan_budget_exhausted"
@@ -281,7 +283,11 @@ impl VectorCoverage {
             } else {
                 VectorCoverageStatus::Complete
             },
-            reason: None,
+            reason: outcome
+                .issues
+                .iter()
+                .any(|issue| issue["code"] == "vector_scoring_timeout")
+                .then(|| "vector_scoring_timeout".to_owned()),
         }
     }
 }
@@ -302,6 +308,12 @@ pub(crate) fn topic_section(asset: &str) -> &str {
 }
 
 impl RetrievalApplication {
+    pub(crate) fn embedding_enabled(&self) -> bool {
+        self.embeddings
+            .describe()
+            .is_ok_and(|description| description["enabled"] == true)
+    }
+
     pub fn new(
         repository: Arc<RepositoryPort>,
         sources: Arc<dyn EvidenceSourcePort>,
@@ -449,16 +461,23 @@ impl RetrievalApplication {
     /// Round-continuation basis: the exact publication token a caller froze.
     /// Consumers bind their cursor to this without encoding anything.
     pub fn publication_basis(&self) -> Result<Option<String>, String> {
-        let described = self.embeddings.describe().ok();
+        self.publication_basis_for(None)
+    }
+
+    pub(crate) fn publication_basis_for(
+        &self,
+        publication: Option<&str>,
+    ) -> Result<Option<String>, String> {
+        let enabled = publication.is_some() || self.embedding_enabled();
         self.repository.with_reader(|repository| {
             let state = repository.get_retrieval_state()?.unwrap_or_default();
+            if publication.is_some_and(|expected| expected != state.active_publication_id) {
+                return Err("basis_mismatch".into());
+            }
             if !state.enabled
                 || state.status != "ready"
                 || state.active_publication_id.is_empty()
-                || described
-                    .as_ref()
-                    .and_then(|value| value["enabled"].as_bool())
-                    != Some(true)
+                || !enabled
             {
                 return Ok(None);
             }
@@ -641,21 +660,52 @@ impl RetrievalApplication {
         // The Host describes the live embedding capability. When enhancement is
         // disabled, do not encode. Encode selects a compatible service for the
         // active identity, independently of the Host's pending target.
-        let described = self
-            .embeddings
-            .describe()
-            .map_err(|_| "retrieval_unavailable".to_owned())?;
-        if described.get("enabled").and_then(Value::as_bool) != Some(true) {
-            return Err("embedding_disabled".into());
-        }
-        let deadline = request
-            .deadline_at_ms
-            .unwrap_or_else(|| now_millis() + RETRIEVAL_QUERY_LIFETIME_MS);
-        checkpoint()?;
-        if now_millis() > deadline {
+        use crate::search_execution::{VECTOR_PHASE_LIMIT, is_timeout, within};
+        let phase = || {
+            request
+                .deadline_at_ms
+                .map_or(VECTOR_PHASE_LIMIT, |deadline| {
+                    VECTOR_PHASE_LIMIT.min(std::time::Duration::from_millis(
+                        deadline.saturating_sub(now_millis()),
+                    ))
+                })
+        };
+        if phase().is_zero() {
             return Err("operation_timeout".into());
         }
-        let query_vector = self.encode_query(&identity, &request.query, deadline)?;
+        let query_vector = within(phase(), || {
+            checkpoint()?;
+            let described = self.embeddings.describe().map_err(|code| {
+                if is_timeout(&code) {
+                    code
+                } else {
+                    "retrieval_unavailable".into()
+                }
+            })?;
+            if described.get("enabled").and_then(Value::as_bool) != Some(true) {
+                return Err("embedding_disabled".into());
+            }
+            let remaining = crate::search_execution::remaining().unwrap_or_default();
+            if remaining.is_zero() {
+                return Err("operation_timeout".into());
+            }
+            let vector = self.encode_query(
+                &identity,
+                &request.query,
+                now_millis().saturating_add(remaining.as_millis() as u64),
+            )?;
+            crate::search_execution::checkpoint(checkpoint)?;
+            Ok(vector)
+        })
+        .map_err(|code: String| {
+            if is_timeout(&code) {
+                "query_encoding_timeout".into()
+            } else {
+                code
+            }
+        })?;
+        let scoring = crate::search_execution::phase(phase());
+        let score_checkpoint = || crate::search_execution::checkpoint(checkpoint);
         let publication = state.active_publication_id.clone();
 
         // Hard scope first: distinct ready evidence groups for the requested
@@ -757,15 +807,26 @@ impl RetrievalApplication {
             .map(|group| group.group_id.clone())
             .collect::<BTreeSet<_>>();
         let mut best: BTreeMap<String, ScoredFragment> = BTreeMap::new();
-        for batch in identities.chunks(RETRIEVAL_FRAGMENT_QUERY_BATCH) {
-            checkpoint()?;
+        let mut scoring_timed_out = false;
+        let mut complete_identities = 0;
+        'scoring: for batch in identities.chunks(RETRIEVAL_FRAGMENT_QUERY_BATCH) {
+            if let Err(code) = score_checkpoint() {
+                if !is_timeout(&code) {
+                    return Err(code);
+                }
+                scoring_timed_out = true;
+                break;
+            }
             let fragments = self.repository.with_reader(|repository| {
                 repository.list_retrieval_fragments_for_items(&publication, batch)
             })?;
             for fragment in fragments {
-                checkpoint()?;
-                if now_millis() > deadline {
-                    return Err("operation_timeout".into());
+                if let Err(code) = score_checkpoint() {
+                    if !is_timeout(&code) {
+                        return Err(code);
+                    }
+                    scoring_timed_out = true;
+                    break 'scoring;
                 }
                 if !ready_groups.contains(&fragment.group_id) {
                     continue;
@@ -834,6 +895,14 @@ impl RetrievalApplication {
                     },
                 );
             }
+            complete_identities += batch.len();
+        }
+        if scoring_timed_out {
+            let complete = identities[..complete_identities]
+                .iter()
+                .map(String::as_str)
+                .collect::<BTreeSet<_>>();
+            best.retain(|identity, _| complete.contains(identity.as_str()));
         }
         let mut results = best.into_values().collect::<Vec<_>>();
         results.sort_by(|left, right| {
@@ -886,6 +955,15 @@ impl RetrievalApplication {
                 "affectedCount":1}),
             );
         }
+        if scoring_timed_out {
+            if results.is_empty() {
+                return Err("vector_scoring_timeout".into());
+            }
+            issues.push(json!({"code":"vector_scoring_timeout",
+                "sourceKind":null,"affectedCount":1}));
+        }
+        drop(scoring);
+        checkpoint()?;
         Ok(RetrievalQueryOutcome {
             publication,
             target_has_sources: !groups.is_empty(),
@@ -896,7 +974,7 @@ impl RetrievalApplication {
                 .collect(),
             results,
             issues,
-            limited: unavailable > 0 || truncated,
+            limited: unavailable > 0 || truncated || scoring_timed_out,
         })
     }
 
@@ -2983,6 +3061,132 @@ mod tests {
     }
 
     #[test]
+    fn library_vector_query_starts_during_a_slow_lexical_scan() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::mpsc::{self, Receiver, Sender};
+
+        struct SlowSources {
+            sources: FakeSources,
+            query_started: Mutex<Receiver<()>>,
+            lexical_finished: Arc<AtomicBool>,
+        }
+        impl EvidenceSourcePort for SlowSources {
+            fn list_sources(&self, request: Value) -> Result<Value, String> {
+                self.sources.list_sources(request)
+            }
+            fn read_source(&self, request: Value) -> Result<Value, String> {
+                if request.get("location").is_none()
+                    && !self.lexical_finished.load(Ordering::SeqCst)
+                {
+                    let _ = self
+                        .query_started
+                        .lock()
+                        .unwrap()
+                        .recv_timeout(std::time::Duration::from_secs(1));
+                    self.lexical_finished.store(true, Ordering::SeqCst);
+                }
+                let mut read = self.sources.read_source(request.clone())?;
+                if let Some(location) = request.get("location") {
+                    read["location"] = location.clone();
+                }
+                Ok(read)
+            }
+        }
+        struct Encoder {
+            query_started: Sender<()>,
+            lexical_finished: Arc<AtomicBool>,
+        }
+        impl RetrievalEmbeddingPort for Encoder {
+            fn describe(&self) -> Result<Value, String> {
+                FakeEmbeddings.describe()
+            }
+            fn encode(&self, request: Value) -> Result<Value, String> {
+                if self.lexical_finished.load(Ordering::SeqCst) {
+                    return Err("operation_timeout".into());
+                }
+                let _ = self.query_started.send(());
+                FakeEmbeddings.encode(request)
+            }
+        }
+
+        let rows = vec![(descriptor("AAAA", "title", "v1", 5), "alpha".into())];
+        let mut fixture = fixture("independent-search-lanes", rows.clone());
+        fixture
+            .application
+            .build(maintenance(), RetrievalBuildMode::Full, &checkpoint())
+            .unwrap();
+        let lexical_finished = Arc::new(AtomicBool::new(false));
+        let (started_tx, started_rx) = mpsc::channel();
+        fixture.application.embeddings = Arc::new(Encoder {
+            query_started: started_tx,
+            lexical_finished: lexical_finished.clone(),
+        });
+        let search =
+            crate::evidence_search::EvidenceSearchApplication::new(Arc::new(SlowSources {
+                sources: FakeSources { rows },
+                query_started: Mutex::new(started_rx),
+                lexical_finished,
+            }))
+            .with_retrieval(Arc::new(fixture.application));
+        let execution = search
+            .search_library_items_with_retrieval(
+                json!({"query":"alpha","libraryIds":[1]}),
+                &checkpoint(),
+            )
+            .unwrap();
+        assert_eq!(execution["result"]["method"], "hybrid", "{execution}");
+    }
+
+    #[test]
+    fn semantic_evidence_retains_verified_hits_on_source_timeout() {
+        struct TimeoutAfterFirst {
+            sources: FakeSources,
+            reads: std::sync::atomic::AtomicUsize,
+        }
+        impl EvidenceSourcePort for TimeoutAfterFirst {
+            fn list_sources(&self, request: Value) -> Result<Value, String> {
+                self.sources.list_sources(request)
+            }
+            fn read_source(&self, request: Value) -> Result<Value, String> {
+                if self
+                    .reads
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+                    > 0
+                {
+                    return Err("operation_timeout".into());
+                }
+                let mut read = self.sources.read_source(request.clone())?;
+                read["location"] = request["location"].clone();
+                Ok(read)
+            }
+        }
+
+        let rows = vec![
+            (descriptor("AAAA", "title", "v1", 5), "alpha".into()),
+            (descriptor("BBBB", "title", "v1", 4), "beta".into()),
+        ];
+        let mut fixture = fixture("partial-semantic-evidence", rows.clone());
+        fixture
+            .application
+            .build(maintenance(), RetrievalBuildMode::Full, &checkpoint())
+            .unwrap();
+        fixture.application.sources = Arc::new(TimeoutAfterFirst {
+            sources: FakeSources { rows },
+            reads: Default::default(),
+        });
+        let result = fixture
+            .application
+            .search_semantic_evidence(
+                json!({"query":"alpha","libraryIds":[1],"limit":2}),
+                &checkpoint(),
+            )
+            .unwrap();
+        assert_eq!(result["coverage"]["vector"], "limited");
+        assert_eq!(result["results"].as_array().unwrap().len(), 1);
+        assert_eq!(result["issues"], json!(["source_verification_timeout"]));
+    }
+
+    #[test]
     fn enhancement_timeout_preserves_lexical_results_but_cancellation_propagates() {
         use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -3033,8 +3237,11 @@ mod tests {
                 let evidence =
                     crate::evidence_search::EvidenceSearchApplication::new(Arc::new(SearchSources))
                         .with_retrieval(Arc::new(fixture.application));
+                let vector_thread = std::thread::current().id();
                 let checkpoint = || {
-                    if stopped.load(Ordering::SeqCst) {
+                    if std::thread::current().id() == vector_thread
+                        && stopped.load(Ordering::SeqCst)
+                    {
                         Err(code.to_owned())
                     } else {
                         Ok(())

@@ -1,4 +1,5 @@
 use crate::runtime_deadline::{bounded_timeout, with_request_deadline};
+use crate::runtime_evidence_search::{vector_checkpoint, with_vector_search};
 use crate::runtime_production_client::ProductionClientRouteEntry;
 use crate::runtime_production_ports::ProductionApplications;
 use crate::runtime_public_maintenance_operation::{
@@ -62,25 +63,32 @@ pub(crate) const RETRIEVAL_CLIENT_ROUTES: &[ProductionClientRouteEntry] = &[
     })
     .with_request_validator(no_args),
     ProductionClientRouteEntry::new("client.recommendSimilarPapers", |apps, args| {
-        apps.retrieval
-            .recommend(one(args)?, &|| checkpoint_current_before_promotion(apps))
+        with_vector_search(Duration::MAX, || {
+            apps.retrieval.recommend(one(args)?, &vector_checkpoint)
+        })
     })
     .with_request_validator(similarity_args),
     ProductionClientRouteEntry::new("client.exploreRetrievalIndex", |apps, args| {
-        apps.retrieval
-            .explore(one(args)?, &|| checkpoint_current_before_promotion(apps))
+        with_vector_search(Duration::MAX, || {
+            apps.retrieval.explore(one(args)?, &vector_checkpoint)
+        })
     })
     .with_request_validator(|args| validate_one(args, "RetrievalExplorerRequest")),
     ProductionClientRouteEntry::new("client.searchSemanticEvidence", |apps, args| {
-        let checkpoint = || bounded_timeout(Duration::from_secs(60)).map(|_| ());
-        apps.retrieval
-            .search_semantic_evidence(one(args)?, &checkpoint)
+        with_vector_search(Duration::MAX, || {
+            apps.retrieval
+                .search_semantic_evidence(one(args)?, &vector_checkpoint)
+        })
     })
     .with_request_validator(semantic_search_args),
     ProductionClientRouteEntry::new("client.readSemanticContext", |apps, args| {
-        let checkpoint = || bounded_timeout(Duration::from_secs(10)).map(|_| ());
-        apps.retrieval
-            .read_semantic_context(one(args)?, &checkpoint)
+        with_vector_search(
+            synthesis_application::search_execution::VECTOR_PHASE_LIMIT,
+            || {
+                apps.retrieval
+                    .read_semantic_context(one(args)?, &vector_checkpoint)
+            },
+        )
     })
     .with_request_validator(semantic_context_args),
     ProductionClientRouteEntry::new("client.invalidateRetrievalSources", |apps, args| {
@@ -143,7 +151,10 @@ fn maintain(
 ) -> Result<Value, String> {
     let request = one(args)?;
     let checkpoint = || checkpoint_current_before_promotion(apps);
-    let mut result = apps
+    let repository = apps.repository.clone();
+    let mut result = crate::runtime_reverse_host::with_embedding_checkpoint(
+        move || crate::runtime_public_maintenance_operation::checkpoint_current_before_promotion_in_repository(&repository),
+        || apps
         .retrieval
         .maintain(
             match mode {
@@ -152,7 +163,8 @@ fn maintain(
             },
             request,
             &checkpoint,
-        )
+        ),
+    )
         .map_err(|code| {
             if code == "operation_timeout" {
                 "retrieval_source_timeout".into()

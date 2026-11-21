@@ -313,8 +313,9 @@ has changed, the verifier can use up to
 25 further candidates to fill the page. The view reports incomplete verification,
 an empty index scope, service failures and results hidden by the filter separately.
 When a request fails, the notice includes a selectable diagnostic code.
-The explorer has a 60-second operation budget so query encoding and scoring
-can use their 30-second budget and still leave time to verify excerpts.
+The explorer allows up to 120 seconds. Query encoding, exact scoring and
+excerpt verification each have their own 30-second budget. The view keeps
+already verified excerpts when verification reaches its deadline.
 
 Index contents displays a paginated table. Library, source and status filters
 apply before pagination. Expand a row to read a bounded page of verified previews

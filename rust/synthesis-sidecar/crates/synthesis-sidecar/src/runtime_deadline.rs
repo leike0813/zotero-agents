@@ -23,6 +23,11 @@ pub(crate) fn with_request_context<T>(
 }
 
 pub(crate) fn bounded_timeout(maximum: Duration) -> Result<Duration, String> {
+    let maximum = synthesis_application::search_execution::remaining()
+        .map_or(maximum, |remaining| maximum.min(remaining));
+    if maximum.is_zero() {
+        return Err("operation_timeout".into());
+    }
     REQUEST_DEADLINE.with(|deadline| match deadline.get() {
         Some(deadline) => {
             let remaining = deadline.saturating_duration_since(Instant::now());

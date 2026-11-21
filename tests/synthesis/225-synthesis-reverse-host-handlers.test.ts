@@ -570,6 +570,7 @@ describe("Synthesis reverse Host handlers", function () {
       purpose: string;
       inputs: string[];
       deadlineAtMs: number;
+      signal?: AbortSignal;
     }> = [];
     const identity = {
       modelId: "qwen3-embedding:0.6b",
@@ -609,6 +610,7 @@ describe("Synthesis reverse Host handlers", function () {
     assert.equal(encodeRequests.length, 0);
 
     const contextDeadlineAtMs = Date.now() + 5000;
+    const cancellation = new AbortController();
     const encoded = await handlers["retrieval.embedding.encode"](
       {
         identity,
@@ -616,15 +618,20 @@ describe("Synthesis reverse Host handlers", function () {
         inputs: ["alpha", "beta"],
         deadlineAtMs: contextDeadlineAtMs + 60_000,
       },
-      { deadlineAtMs: contextDeadlineAtMs } as never,
+      {
+        deadlineAtMs: contextDeadlineAtMs,
+        signal: cancellation.signal,
+      } as never,
     );
     assert.deepEqual(Object.keys(encodeRequests[0]).sort(), [
       "deadlineAtMs",
       "identity",
       "inputs",
       "purpose",
+      "signal",
     ]);
     assert.equal(encodeRequests[0].deadlineAtMs, contextDeadlineAtMs);
+    assert.strictEqual(encodeRequests[0].signal, cancellation.signal);
     assert.deepEqual(encodeRequests[0].inputs, ["alpha", "beta"]);
     assert.lengthOf(encoded.vectors, 2);
     assert.notInclude(JSON.stringify(encoded), "apiKey");

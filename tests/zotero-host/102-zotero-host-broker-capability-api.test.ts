@@ -566,6 +566,7 @@ describe("zotero host broker capability api", function () {
       let now = 1000;
       let executionCount = 0;
       let publication = "retrieval:published:1";
+      let afterExecution: (() => void) | undefined;
       let selectedLibraries = [first.libraryID];
       const view = {
         ZoteroPane: {
@@ -585,6 +586,7 @@ describe("zotero host broker capability api", function () {
             },
             sourceKinds: ["metadata"],
           });
+          afterExecution?.();
           return {
             scope: catalog.scope,
             descriptors: catalog.descriptors,
@@ -746,6 +748,39 @@ describe("zotero host broker capability api", function () {
         "conflict",
       );
       assert.strictEqual(executionCount, 2);
+      if (method === "hybrid") {
+        let projecting = false;
+        let expired = false;
+        const getField = first.getField;
+        const readClock = Date.now;
+        afterExecution = () => {
+          projecting = true;
+        };
+        first.getField = function (...args) {
+          if (projecting) expired = true;
+          return getField.apply(this, args);
+        };
+        Date.now = () => readClock() + (expired ? 121_000 : 0);
+        try {
+          const limited = await broker.library.searchItems({
+            ...request,
+            limit: 2,
+          });
+          assert.deepEqual(
+            limited.results.map((hit) => hit.item.ref.key),
+            [second.key],
+          );
+          assert.equal(limited.status, "limited");
+          assert.isNull(limited.total);
+          assert.equal(
+            limited.coverage.vector?.reason,
+            "source_verification_timeout",
+          );
+        } finally {
+          Date.now = readClock;
+          first.getField = getField;
+        }
+      }
     });
   }
 
@@ -1230,6 +1265,136 @@ describe("zotero host broker capability api", function () {
       if (previousIOUtils === undefined) delete runtime.IOUtils;
       else runtime.IOUtils = previousIOUtils;
     }
+  });
+
+  it("verifies large semantic fulltext hits by indexed range across continuation", async function () {
+    const parents = [
+      await createParentItem("Large semantic first"),
+      await createParentItem("Large semantic second"),
+    ];
+    const ranges: Array<{ start: number; end: number }> = [];
+    for (const [index, parent] of parents.entries()) {
+      const dir = await mkTempDir(`zotero-search-large-semantic-${index}`);
+      const mdPath = joinPath(dir, "evidence.md");
+      const content = `${"x".repeat(40_000)} indexed hit ${index}`;
+      await writeUtf8(mdPath, content);
+      const attachment = new Zotero.Item("attachment");
+      (attachment as any).parentItemID = parent.id;
+      attachment.setField("title", "evidence.md");
+      attachment.setField("contentType", "text/markdown");
+      attachment.setFilePath(mdPath);
+      (attachment as any).attachmentLinkMode = 0;
+      (attachment as any).getAttachmentLinkMode = () => 0;
+      await attachment.saveTx();
+      const start = content.indexOf("indexed hit");
+      ranges.push({ start, end: start + "indexed hit".length });
+    }
+    const view = {
+      ZoteroPane: {
+        getSelectedLibraryIDs: () => [parents[0]!.libraryID],
+        getSelectedItems: () => [],
+      },
+    } as unknown as _ZoteroTypes.MainWindow;
+    const scanModes: unknown[] = [];
+    const broker = createZoteroHostCapabilityBroker(() => view, {
+      lexicalPort: {
+        async execute() {
+          throw new Error("unused");
+        },
+      },
+      retrievalPort: {
+        async getPublication() {
+          return "large-fulltext-publication";
+        },
+        async execute(request) {
+          const sources = getZoteroHostEvidenceSourceControl(broker);
+          const catalog = await sources.listSources({
+            scope: {
+              libraryIds: request.libraryIds!,
+              itemRefs: request.itemRefs,
+            },
+            sourceKinds: ["fulltext"],
+          });
+          const frozenPrefix = catalog.descriptors.filter(
+            (descriptor) => descriptor.itemRef.key === parents[0]!.key,
+          );
+          const matches = await Promise.all(
+            parents.map(async (parent, index) => {
+              const descriptorPage = await sources.listSources({
+                scope: {
+                  libraryIds: request.libraryIds!,
+                  itemRefs: [{ libraryId: parent.libraryID, key: parent.key }],
+                },
+                sourceKinds: ["fulltext"],
+                scanMode: "retrieval",
+              });
+              scanModes.push("retrieval");
+              const descriptor = descriptorPage.descriptors[0]!;
+              return {
+                itemRef: { libraryId: parent.libraryID, key: parent.key },
+                matches: [
+                  {
+                    source: descriptor.source,
+                    sourceVersion: descriptor.sourceVersion,
+                    location: {
+                      unit: "paragraph" as const,
+                      field: null,
+                      range: ranges[index]!,
+                    },
+                    matchedTerms: ["indexed", "hit"],
+                    phraseMatch: true,
+                  },
+                ],
+              };
+            }),
+          );
+          return {
+            scope: catalog.scope,
+            descriptors: frozenPrefix,
+            catalogIssues: catalog.issues,
+            catalogLimited: true,
+            publication: "large-fulltext-publication",
+            result: {
+              results: matches,
+              status: "completed",
+              method: "hybrid",
+              coverage: {
+                kind: "library",
+                sources: {
+                  metadata: { status: "not_requested", sourcesScanned: 0 },
+                  fulltext: { status: "complete", sourcesScanned: 2 },
+                  analysis: { status: "not_requested", sourcesScanned: 0 },
+                },
+              },
+              issues: [],
+              nextCursor: null,
+              hasMore: false,
+              total: 2,
+            },
+          };
+        },
+      },
+    });
+    const request = {
+      query: "indexed hit",
+      libraryIds: [parents[0]!.libraryID],
+      itemRefs: parents.map((parent) => ({
+        libraryId: parent.libraryID,
+        key: parent.key,
+      })),
+      sourceKinds: ["fulltext" as const],
+      limit: 1,
+    };
+    const first = await broker.library.searchItems(request);
+    assert.strictEqual(first.results[0]!.item.ref.key, parents[0]!.key);
+    assert.isTrue(first.hasMore);
+    const next = await broker.library.searchItems({
+      ...request,
+      cursor: first.nextCursor!,
+    });
+    assert.strictEqual(next.results[0]!.item.ref.key, parents[1]!.key);
+    assert.isFalse(next.hasMore);
+    assert.isAtLeast(scanModes.length, 2);
   });
 
   it("keeps translator network waits outside Host admission and suppresses canceled results", async function () {

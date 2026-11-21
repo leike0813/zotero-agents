@@ -113,6 +113,24 @@ pub struct EvidenceSearchRequest {
 }
 
 impl EvidenceSearchRequest {
+    fn scope(&self) -> Value {
+        let mut request = self.clone();
+        if let Some(ids) = &mut request.library_ids {
+            ids.sort_unstable();
+            ids.dedup();
+        }
+        if let Some(refs) = &mut request.item_refs {
+            refs.sort();
+            refs.dedup();
+        }
+        let mut scope = serde_json::to_value(request).expect("search request is serializable");
+        let fields = scope.as_object_mut().expect("search request is an object");
+        for key in ["query", "maxResults", "limit", "sourceKinds", "cursor"] {
+            fields.remove(key);
+        }
+        scope
+    }
+
     pub fn from_value(value: Value) -> Result<Self, String> {
         let request = Self::decode_value(value)?;
         request.validate_paging()?;
@@ -444,12 +462,6 @@ struct Scan {
     empty_scope: bool,
 }
 
-struct EvidenceCatalog<'a> {
-    scope: &'a Value,
-    kinds: &'a [SourceKind],
-    descriptors: &'a [SourceDescriptor],
-}
-
 impl Scan {
     fn coverage(&self, counts: &BTreeMap<SourceKind, usize>, issues: &[Value]) -> Value {
         json!({"kind":"library","sources":{
@@ -514,7 +526,7 @@ impl EvidenceSearchApplication {
     pub fn search(
         &self,
         request: Value,
-        checkpoint: &dyn Fn() -> Result<(), String>,
+        checkpoint: &(dyn Fn() -> Result<(), String> + Sync),
     ) -> Result<Value, String> {
         let mut request = EvidenceSearchRequest::from_value(request)?;
         let query = LexicalQuery::new(&request.query).map_err(|_| "invalid_request".to_owned())?;
@@ -586,78 +598,132 @@ impl EvidenceSearchApplication {
                 SourceKind::Analysis,
             ]
         });
-        let scan = self.scan(&request, &query, &kinds, None, checkpoint, 32)?;
+        let max_results = request.max_results.unwrap_or(100);
+        let lexical = || {
+            let checkpoint = || crate::search_execution::checkpoint(checkpoint);
+            let mut scan = self.scan(&request, &query, &kinds, None, &checkpoint, 32)?;
+            let mut candidates = std::mem::take(&mut scan.candidates);
+            if candidates.len() > max_results {
+                candidates.truncate(max_results);
+                add_issue(&mut scan.issues, "result_budget_exhausted", None);
+            }
+            let mut verified = Vec::new();
+            let mut round_bytes = 0;
+            for candidate in candidates {
+                if let Err(code) = checkpoint() {
+                    if code != "operation_timeout" {
+                        return Err(code);
+                    }
+                    add_issue(&mut scan.issues, "scan_budget_exhausted", None);
+                    break;
+                }
+                match self.verify(&scan.scope, &candidate) {
+                    Ok(context) => {
+                        round_bytes += candidate.content.len()
+                            + context
+                                .iter()
+                                .map(|value| value["content"].as_str().unwrap_or_default().len())
+                                .sum::<usize>();
+                        if round_bytes > MAX_ROUND_BYTES {
+                            add_issue(&mut scan.issues, "result_budget_exhausted", None);
+                            break;
+                        }
+                        verified.push(Candidate {
+                            context,
+                            ..candidate
+                        });
+                    }
+                    Err(code) => add_issue(
+                        &mut scan.issues,
+                        code,
+                        Some(candidate.descriptor.source.kind()),
+                    ),
+                }
+            }
+            Ok((scan, verified))
+        };
+        let retrieval = self.retrieval.as_ref().filter(|_| {
+            !kinds.is_empty() && !request.item_refs.as_ref().is_some_and(Vec::is_empty)
+        });
+        let ((mut scan, mut verified), outcome) = if let Some(retrieval) = retrieval {
+            let (lexical, vector) = crate::search_execution::overlap(lexical, || {
+                let mut scope = request.scope();
+                if scope.get("libraryIds").is_none() {
+                    let page = crate::search_execution::within(
+                        crate::search_execution::SCOPE_LIMIT,
+                        || {
+                            self.sources.list_sources(json!({
+                                "scope": scope, "limit": 1, "sourceKinds": ["metadata"]
+                            }))
+                        },
+                    )?;
+                    scope = page
+                        .get("scope")
+                        .filter(|scope| scope.is_object())
+                        .cloned()
+                        .ok_or("invalid_source")?;
+                }
+                let query = json!({"query": request.query, "sourceKinds": kinds,
+                    "libraryIds": scope["libraryIds"], "maxResults": max_results});
+                let outcome = self.query_published(retrieval, query, &scope, checkpoint);
+                Ok::<_, String>((scope, outcome))
+            })?;
+            let outcome = match vector {
+                Ok((scope, outcome)) if lexical.0.scope == scope => outcome,
+                Ok((_, Err(code))) | Err(code) => Err(code),
+                Ok(_) => return Err("basis_mismatch".into()),
+            };
+            (lexical, Some(outcome))
+        } else {
+            (
+                crate::search_execution::within(crate::search_execution::LEXICAL_LIMIT, lexical)?,
+                None,
+            )
+        };
         if scan.empty_scope {
             return Ok(json!({"results":[],"status":"completed","method":"lexical",
                 "coverage":scan.coverage(&BTreeMap::new(), &[]),"issues":[],
                 "nextCursor":null,"hasMore":false,"total":0}));
         }
-        let scope = scan.scope;
-        let catalog_issues = scan.catalog_issues;
-        let catalog_limited = scan.catalog_limited;
-        let catalog_basis = scan.catalog_basis;
-        let counts = scan.counts;
-        let mut issues = scan.issues;
-        let mut candidates = scan.candidates;
-        let max_results = request.max_results.unwrap_or(100);
-        if candidates.len() > max_results {
-            candidates.truncate(max_results);
-            add_issue(&mut issues, "result_budget_exhausted", None);
-        }
-        let mut verified = Vec::new();
-        let mut round_bytes = 0;
-        for candidate in candidates {
-            if let Err(code) = checkpoint() {
-                if code != "operation_timeout" {
-                    return Err(code);
-                }
-                add_issue(&mut issues, "scan_budget_exhausted", None);
-                break;
-            }
-            match self.verify(&scope, &candidate) {
-                Ok(context) => {
-                    round_bytes += candidate.content.len()
-                        + context
-                            .iter()
-                            .map(|value| value["content"].as_str().unwrap_or_default().len())
-                            .sum::<usize>();
-                    if round_bytes > MAX_ROUND_BYTES {
-                        add_issue(&mut issues, "result_budget_exhausted", None);
-                        break;
-                    }
-                    verified.push(Candidate {
-                        context,
-                        ..candidate
-                    });
-                }
-                Err(code) => add_issue(&mut issues, code, Some(candidate.descriptor.source.kind())),
-            }
-        }
+        let ranked_publication = outcome
+            .as_ref()
+            .and_then(|outcome| outcome.as_ref().ok())
+            .map(|outcome| outcome.publication.clone());
         let mut vector_coverage = None;
-        let method = match self.retrieval.clone() {
-            Some(retrieval) => self
+        let method = match outcome {
+            Some(outcome) => self
                 .union_evidence_passages(
-                    &request,
-                    EvidenceCatalog {
-                        scope: &scope,
-                        kinds: &kinds,
-                        descriptors: &scan.descriptors,
-                    },
+                    max_results,
+                    &mut scan,
                     &mut verified,
-                    &mut issues,
                     &mut vector_coverage,
-                    &retrieval,
+                    outcome,
                     checkpoint,
                 )?
                 .unwrap_or("lexical"),
             None => "lexical",
         };
+        let Scan {
+            scope,
+            catalog_issues,
+            catalog_limited,
+            catalog_basis,
+            counts,
+            issues,
+            ..
+        } = scan;
         // Frozen after the union, so a suspension performed during source
         // verification is already reflected in the bound basis.
-        let publication = self
-            .retrieval
-            .as_ref()
-            .and_then(|retrieval| retrieval.publication_basis().ok().flatten());
+        let publication = if method == "lexical" {
+            None
+        } else {
+            Some(
+                retrieval
+                    .ok_or("basis_mismatch")?
+                    .publication_basis_for(ranked_publication.as_deref())?
+                    .ok_or("basis_mismatch")?,
+            )
+        };
         let mut coverage = json!({"kind":"library","sources":{
             "metadata": work_coverage(SourceKind::Metadata,&kinds,&counts,&issues,catalog_limited),
             "fulltext": work_coverage(SourceKind::Fulltext,&kinds,&counts,&issues,catalog_limited),
@@ -1016,31 +1082,38 @@ impl EvidenceSearchApplication {
     pub fn search_library_items_with_retrieval(
         &self,
         request: Value,
-        checkpoint: &dyn Fn() -> Result<(), String>,
+        checkpoint: &(dyn Fn() -> Result<(), String> + Sync),
     ) -> Result<Value, String> {
         let Some(retrieval) = self.retrieval.clone() else {
             return self.search_library_items(request, checkpoint);
         };
-        let Ok(parsed) = EvidenceSearchRequest::from_value(request.clone()) else {
-            return self.search_library_items(request, checkpoint);
-        };
-        let mut execution = self.search_library_items(request, checkpoint)?;
+        let parsed = decode_library_lexical_request(request.clone())?;
+        parsed.validate_paging()?;
+        let scope = parsed.scope();
+        let mut query =
+            json!({"query": parsed.query, "libraryIds": scope["libraryIds"], "maxResults": 500});
+        if let Some(kinds) = &parsed.source_kinds {
+            query["sourceKinds"] = json!(kinds);
+        }
+        let (mut execution, outcome) = crate::search_execution::overlap(
+            || {
+                self.search_library_items(request, &|| {
+                    crate::search_execution::checkpoint(checkpoint)
+                })
+            },
+            || self.query_published(&retrieval, query, &scope, checkpoint),
+        )?;
+        if execution["scope"] != scope {
+            return Err("basis_mismatch".into());
+        }
         let lexical_empty = execution["result"]["results"]
             .as_array()
             .is_none_or(Vec::is_empty);
-        let scope = execution["scope"].clone();
         let descriptors = execution["descriptors"]
             .as_array()
             .cloned()
             .unwrap_or_default();
-        let mut query = json!({"query": parsed.query.clone(), "maxResults": 500});
-        if let Some(libraries) = scope.get("libraryIds").filter(|value| value.is_array()) {
-            query["libraryIds"] = libraries.clone();
-        }
-        if let Some(kinds) = &parsed.source_kinds {
-            query["sourceKinds"] = json!(kinds);
-        }
-        let outcome = match self.query_published(&retrieval, query, &scope, checkpoint) {
+        let outcome = match outcome {
             Ok(outcome) => outcome,
             Err(code) => {
                 execution["result"]["coverage"]["vector"] =
@@ -1086,11 +1159,18 @@ impl EvidenceSearchApplication {
             .iter()
             .map(library_item_identity)
             .collect::<BTreeSet<_>>();
+        let verification =
+            crate::search_execution::phase(crate::search_execution::VECTOR_PHASE_LIMIT);
         for fragment in outcome
             .results
             .iter()
             .filter(|fragment| fragment.topic.is_none())
         {
+            if vector_verification_stopped(checkpoint, &mut issues, |coverage| {
+                execution["result"]["coverage"]["vector"] = json!(coverage);
+            })? {
+                break;
+            }
             let Some(item_ref) = fragment.item_ref.as_ref() else {
                 continue;
             };
@@ -1136,6 +1216,7 @@ impl EvidenceSearchApplication {
                 }
             }
         }
+        drop(verification);
         if vector.is_empty() {
             // Surface any verification failure or truthful bound before leaving.
             flush_library_issues(&mut execution, issues);
@@ -1171,11 +1252,11 @@ impl EvidenceSearchApplication {
         // suspension performed above is already reflected and cannot make this
         // freshly frozen round immediately stale. It matches getState().
         // publication, not the raw publication id.
-        execution["publication"] = retrieval
-            .publication_basis()
-            .ok()
-            .flatten()
-            .map_or(Value::Null, Value::from);
+        execution["publication"] = json!(
+            retrieval
+                .publication_basis_for(Some(&outcome.publication))?
+                .ok_or("basis_mismatch")?
+        );
         Ok(execution)
     }
 
@@ -1215,7 +1296,12 @@ impl EvidenceSearchApplication {
             return retrieval.query_with_checkpoint(query, checkpoint);
         }
         // Zotero owns mutable filter membership. Complete the filtered identity set before scoring.
-        let eligible = scoped_evidence_identities(self.sources.as_ref(), scope, checkpoint)?;
+        let eligible =
+            crate::search_execution::within(crate::search_execution::SCOPE_LIMIT, || {
+                scoped_evidence_identities(self.sources.as_ref(), scope, &|| {
+                    crate::search_execution::checkpoint(checkpoint)
+                })
+            })?;
         retrieval.query_scoped(query, &eligible, checkpoint)
     }
 
@@ -1257,7 +1343,7 @@ impl EvidenceSearchApplication {
         let read = self
             .sources
             .read_source(json!({"scope": scope, "descriptor": descriptor, "location": location}))
-            .map_err(|_| "source_read_failed".to_owned())?;
+            .map_err(vector_source_read_error)?;
         available_content(&read, &parsed, Some(&location))
             .ok_or_else(|| read_issue(&read).to_owned())?;
         Ok((source, location))
@@ -1270,16 +1356,9 @@ impl EvidenceSearchApplication {
         checkpoint: &dyn Fn() -> Result<(), String>,
         page_budget: usize,
     ) -> Result<(Vec<SourceDescriptor>, Value, Vec<Value>, bool), String> {
-        let value = serde_json::to_value(request).map_err(|_| "invalid_request".to_owned())?;
-        let mut scope_input = value.as_object().unwrap().clone();
-        for key in ["query", "maxResults", "limit", "sourceKinds"] {
-            scope_input.remove(key);
-        }
+        let scope_input = request.scope();
         let mut input = serde_json::Map::new();
-        input.insert(
-            "scope".into(),
-            captured.cloned().unwrap_or(Value::Object(scope_input)),
-        );
+        input.insert("scope".into(), captured.cloned().unwrap_or(scope_input));
         if let Some(kinds) = &request.source_kinds {
             input.insert("sourceKinds".into(), json!(kinds));
         }
@@ -1472,30 +1551,24 @@ impl EvidenceSearchApplication {
     /// vector contributed, so the round stays truthfully lexical.
     fn union_evidence_passages(
         &self,
-        request: &EvidenceSearchRequest,
-        catalog: EvidenceCatalog<'_>,
+        max_results: usize,
+        scan: &mut Scan,
         verified: &mut Vec<Candidate>,
-        issues: &mut Vec<Value>,
         vector_coverage: &mut Option<crate::retrieval::VectorCoverage>,
-        retrieval: &crate::retrieval::RetrievalApplication,
+        outcome: Result<crate::retrieval::RetrievalQueryOutcome, String>,
         checkpoint: &dyn Fn() -> Result<(), String>,
     ) -> Result<Option<&'static str>, String> {
-        let EvidenceCatalog {
+        let Some(retrieval) = self.retrieval.as_ref() else {
+            return Ok(None);
+        };
+        let Scan {
             scope,
-            kinds,
             descriptors,
-        } = catalog;
-        let max_results = request.max_results.unwrap_or(100);
+            issues,
+            ..
+        } = scan;
         let lexical_empty = verified.is_empty();
-        let mut query = json!({
-            "query": request.query.clone(),
-            "sourceKinds": kinds,
-            "maxResults": max_results.min(500),
-        });
-        if let Some(libraries) = scope.get("libraryIds").filter(|value| value.is_array()) {
-            query["libraryIds"] = libraries.clone();
-        }
-        let outcome = match self.query_published(retrieval, query, scope, checkpoint) {
+        let outcome = match outcome {
             Ok(outcome) => outcome,
             Err(code) => {
                 *vector_coverage = Some(crate::retrieval::VectorCoverage::failure(&code));
@@ -1569,11 +1642,18 @@ impl EvidenceSearchApplication {
             .map(|(identity, _)| identity.clone())
             .collect::<BTreeSet<_>>();
         let mut vector = Vec::new();
+        let verification =
+            crate::search_execution::phase(crate::search_execution::VECTOR_PHASE_LIMIT);
         for fragment in outcome
             .results
             .iter()
             .filter(|fragment| fragment.topic.is_none())
         {
+            if vector_verification_stopped(checkpoint, issues, |coverage| {
+                *vector_coverage = Some(coverage);
+            })? {
+                break;
+            }
             let Some(item_ref) = fragment.item_ref.as_ref() else {
                 continue;
             };
@@ -1615,6 +1695,7 @@ impl EvidenceSearchApplication {
                 }
             }
         }
+        drop(verification);
         if vector.is_empty() {
             return Ok(None);
         }
@@ -1720,7 +1801,7 @@ impl EvidenceSearchApplication {
             .read_source(
                 json!({"scope": scope, "descriptor": descriptor_value, "location": location}),
             )
-            .map_err(|_| "source_read_failed".to_owned())?;
+            .map_err(vector_source_read_error)?;
         let content = available_content(&read, &descriptor, Some(&location))
             .ok_or_else(|| read_issue(&read).to_owned())?;
         Ok((descriptor.clone(), location, content))
@@ -1777,6 +1858,11 @@ fn add_issue(issues: &mut Vec<Value>, code: &str, kind: Option<SourceKind>) {
     add_issue_count(issues, code, kind, 1);
 }
 fn add_issue_count(issues: &mut Vec<Value>, code: &str, kind: Option<SourceKind>, count: usize) {
+    let code = match code {
+        "vector_scoring_timeout" | "source_verification_timeout" => "scan_budget_exhausted",
+        code if crate::search_execution::is_timeout(code) => "scan_budget_exhausted",
+        code => code,
+    };
     let kind = json!(kind);
     if let Some(issue) = issues
         .iter_mut()
@@ -2020,19 +2106,48 @@ fn enhancement_failure_issue(
         }
         code = stopped;
     }
-    Ok(if code == "operation_timeout" {
-        "scan_budget_exhausted"
+    Ok(
+        if crate::search_execution::is_timeout(&code)
+            || matches!(
+                code.as_str(),
+                "query_encoding_timeout" | "vector_scoring_timeout"
+            )
+        {
+            "scan_budget_exhausted"
+        } else {
+            "vector_unavailable"
+        },
+    )
+}
+
+fn vector_verification_stopped(
+    checkpoint: &dyn Fn() -> Result<(), String>,
+    issues: &mut Vec<Value>,
+    record: impl FnOnce(crate::retrieval::VectorCoverage),
+) -> Result<bool, String> {
+    match crate::search_execution::checkpoint(checkpoint) {
+        Ok(()) => Ok(false),
+        Err(code) if crate::search_execution::is_timeout(&code) => {
+            record(crate::retrieval::VectorCoverage::verification_failure(
+                "source_verification_timeout",
+            ));
+            add_issue(issues, "scan_budget_exhausted", None);
+            Ok(true)
+        }
+        Err(code) => Err(code),
+    }
+}
+
+fn vector_source_read_error(code: String) -> String {
+    if crate::search_execution::is_timeout(&code) {
+        "source_verification_timeout".into()
     } else {
-        "vector_unavailable"
-    })
+        "source_read_failed".into()
+    }
 }
 
 fn retrieval_is_active(retrieval: &crate::retrieval::RetrievalApplication) -> bool {
-    retrieval
-        .state()
-        .ok()
-        .and_then(|state| state["enabled"].as_bool())
-        == Some(true)
+    retrieval.embedding_enabled()
 }
 
 /// Surface a bounded private-route issue on the execution envelope before it
@@ -3264,11 +3379,10 @@ mod tests {
             content: "evidence".into(),
             change_on_verification: false,
         }));
-        let calls = std::cell::Cell::new(0);
+        let calls = std::sync::atomic::AtomicUsize::new(0);
         let result = app
             .search(json!({"query":"evidence"}), &|| {
-                calls.set(calls.get() + 1);
-                if calls.get() > 2 {
+                if calls.fetch_add(1, std::sync::atomic::Ordering::Relaxed) >= 2 {
                     Err("operation_timeout".into())
                 } else {
                     Ok(())
