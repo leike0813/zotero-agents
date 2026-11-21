@@ -573,6 +573,7 @@ export async function withHostBridgeCliHarness<T>(
     "search.schema.json",
     "reverse-host.schema.json",
     "topic-domain.schema.json",
+    "retrieval.schema.json",
   ]) {
     ajv.addSchema(
       JSON.parse(

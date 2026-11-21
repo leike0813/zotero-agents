@@ -342,10 +342,12 @@ This document complements `docs/components/workflow-hook-helpers.md` and defines
 
 ## Retrieval Adapter Boundary
 
-Vector retrieval adds no public Agent surface. The workbench-only native
-adapters (`retrieval.getState`, `build`, `rebuild`, `update`, `cleanup`,
-`recommend`, and bounded `invalidate`) stay private to the workbench; they are
-not `WorkflowHostApi` members, Host Bridge capabilities, or MCP tools.
+Host Bridge and MCP expose `synthesis.search_semantic_evidence` and
+`synthesis.read_semantic_context` as bounded Synthesis reads. The first returns
+source-verified excerpts from the published vector index. The second uses the
+source owner to verify adjacent text for the same evidence reference. Workbench
+semantic search shares the same ranking and verification. Workbench state,
+maintenance, recommendations and invalidation use private native adapters.
 
 - The Host alone owns embedding connections, credentials, and embedding HTTP.
   The sidecar receives bounded text, vectors, and encoding identity only.

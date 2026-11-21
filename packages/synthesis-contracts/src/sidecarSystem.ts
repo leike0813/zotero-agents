@@ -55,6 +55,8 @@ export const SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES = [
   "client.cleanupRetrievalIndex",
   "client.recommendSimilarPapers",
   "client.exploreRetrievalIndex",
+  "client.searchSemanticEvidence",
+  "client.readSemanticContext",
   "client.invalidateRetrievalSources",
   "client.searchTopics",
   "client.searchEvidence",
@@ -165,7 +167,7 @@ export const SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES = [
   "client.resolveWebDavSyncConflict",
 ] as const;
 export const SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT =
-  "1095fe869a4acc037feefcab3a400ec4483b086a23d98982c3456f6ebfc81c78" as const;
+  "560eb6591c3c41ecee04736c723e096959136e8f38d784080321fff99bddbfc2" as const;
 export const SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES = [
   "client.getRetrievalState",
   "client.buildRetrievalIndex",
@@ -174,6 +176,8 @@ export const SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES = [
   "client.cleanupRetrievalIndex",
   "client.recommendSimilarPapers",
   "client.exploreRetrievalIndex",
+  "client.searchSemanticEvidence",
+  "client.readSemanticContext",
   "client.invalidateRetrievalSources",
   "client.searchTopics",
   "client.searchEvidence",

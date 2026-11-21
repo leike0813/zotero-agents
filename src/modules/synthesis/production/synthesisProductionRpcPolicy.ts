@@ -32,7 +32,7 @@ const manifest = productionOperations as {
   >;
   hostCapabilities: Record<string, SynthesisSidecarProductionClientCapability>;
   workDeadlineMs: Partial<
-    Record<SynthesisSidecarProductionClientCapability, number>
+    Record<SynthesisSidecarProductionClientCapability, number | null>
   >;
   receiptQueryCapability: SynthesisSidecarProductionClientCapability;
   access: Record<
@@ -104,14 +104,15 @@ if (
   operationCapabilities.some(
     (capability) =>
       (resolvePolicy(capability).receipt === "public-maintenance-operation") !==
-      Number.isSafeInteger(manifest.workDeadlineMs[capability]),
+      capability in manifest.workDeadlineMs,
   ) ||
   Object.entries(manifest.workDeadlineMs).some(
     ([capability, deadline]) =>
       !(capability in manifest.access) ||
-      !Number.isSafeInteger(deadline) ||
-      Number(deadline) < 100 ||
-      Number(deadline) > 30 * 60_000,
+      (deadline !== null &&
+        (!Number.isSafeInteger(deadline) ||
+          Number(deadline) < 100 ||
+          Number(deadline) > 30 * 60_000)),
   )
 ) {
   throw new Error("invalid_production_operation_manifest");
@@ -136,10 +137,10 @@ export function synthesisProductionOperationWorkDeadlineMs(
   capability: SynthesisSidecarProductionClientCapability,
 ) {
   const deadline = manifest.workDeadlineMs[capability];
-  if (!Number.isSafeInteger(deadline)) {
+  if (deadline === undefined) {
     throw new Error("production_operation_has_no_work_deadline");
   }
-  return deadline as number;
+  return deadline;
 }
 
 export function synthesisProductionOperationPolicy(

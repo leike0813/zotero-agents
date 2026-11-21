@@ -136,6 +136,12 @@ import {
   type SynthesisEvidenceSearchResult,
 } from "../../../packages/synthesis-contracts/src/search";
 import { isTransientStorageBusyError } from "../guardedSqlite";
+import {
+  rebuildSynthesisSemanticEvidenceSearchRequest,
+  rebuildSynthesisSemanticEvidenceSearchResult,
+  rebuildSynthesisSemanticEvidenceContextRequest,
+  rebuildSynthesisSemanticEvidenceContextResult,
+} from "../../../packages/synthesis-contracts/src/retrieval";
 
 type ClientMethod<
   Group extends keyof SynthesisClient,
@@ -149,6 +155,8 @@ type SyncTransportMethod<
 > = SynthesisClient["sync"]["webDav"][Method];
 
 export interface SynthesisClientPort {
+  searchSemanticEvidence?: SynthesisClient["searchSemanticEvidence"];
+  readSemanticContext?: SynthesisClient["readSemanticContext"];
   searchEvidence?: (
     request: SynthesisEvidenceSearchRequest,
   ) => Promise<SynthesisEvidenceSearchResult>;
@@ -1475,6 +1483,24 @@ export function createSynthesisClientFromPort(
         rebuildSynthesisEvidenceSearchRequest(request),
         undefined,
         rebuildSynthesisEvidenceSearchResult,
+      );
+    },
+    async searchSemanticEvidence(request) {
+      return runClientJsonPort(
+        port.searchSemanticEvidence,
+        "searchSemanticEvidence",
+        rebuildSynthesisSemanticEvidenceSearchRequest(request),
+        undefined,
+        rebuildSynthesisSemanticEvidenceSearchResult,
+      );
+    },
+    async readSemanticContext(request) {
+      return runClientJsonPort(
+        port.readSemanticContext,
+        "readSemanticContext",
+        rebuildSynthesisSemanticEvidenceContextRequest(request),
+        undefined,
+        rebuildSynthesisSemanticEvidenceContextResult,
       );
     },
     concepts: {

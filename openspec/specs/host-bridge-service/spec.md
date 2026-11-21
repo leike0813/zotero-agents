@@ -393,6 +393,15 @@ The authenticated Host Bridge capability `synthesis.search_evidence` SHALL valid
 - **WHEN** the native retrieval route or source-owner read is unavailable
 - **THEN** Host Bridge preserves the typed unavailable or limited outcome and does not fall back to a second search implementation
 
+### Requirement: Host Bridge SHALL project semantic evidence reads
+
+Host Bridge SHALL publish `synthesis.search_semantic_evidence` and `synthesis.read_semantic_context` as bounded read-only capabilities with shared Synthesis contracts and MCP mirroring. CLI SHALL expose the two operations under `synthesis evidence`.
+
+#### Scenario: An agent answers a question from its library
+
+- **WHEN** it calls a semantic evidence operation
+- **THEN** it receives source excerpts with stable provenance and explicit coverage or failure information. Existing Host Bridge authorization applies.
+
 ### Requirement: Host Bridge SHALL expose bounded canonical Topic search
 
 Host Bridge SHALL expose the Synthesis Topic search as the read capability `topics.search`, validate its closed request and result contracts, and preserve the Topic application as the search owner.

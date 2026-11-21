@@ -2,6 +2,231 @@
   "schema": "synthesis-sidecar-protocol-corpus.v1",
   "cases": [
     {
+      "id": "semantic-evidence-search-result",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/SemanticEvidenceSearchResult",
+      "valid": true,
+      "admitted": true,
+      "value": {
+        "status": "completed",
+        "method": "vector",
+        "coverage": {
+          "vector": "complete",
+          "sourceKinds": ["topic"]
+        },
+        "results": [
+          {
+            "evidenceRef": {
+              "publication": "publication",
+              "identity": "topic:topic-a",
+              "fragmentId": "fragment",
+              "sourceVersion": "source-version"
+            },
+            "topicId": "topic-a",
+            "title": "Topic A",
+            "content": "Synthesis",
+            "format": "markdown",
+            "source": {
+              "kind": "topic",
+              "section": "summary"
+            },
+            "sourceVersion": "source-version",
+            "location": {
+              "unit": "topic_section",
+              "field": "summary",
+              "range": {
+                "start": 0,
+                "end": 9
+              }
+            },
+            "score": 0.77
+          }
+        ],
+        "issues": []
+      }
+    },
+    {
+      "id": "semantic-evidence-search-rejects-dual-identity",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/SemanticEvidenceSearchResult",
+      "valid": false,
+      "admitted": false,
+      "value": {
+        "status": "completed",
+        "method": "vector",
+        "coverage": {
+          "vector": "complete",
+          "sourceKinds": ["topic"]
+        },
+        "results": [
+          {
+            "evidenceRef": {
+              "publication": "publication",
+              "identity": "topic:topic-a",
+              "fragmentId": "fragment",
+              "sourceVersion": "source-version"
+            },
+            "topicId": "topic-a",
+            "title": "Topic A",
+            "content": "Synthesis",
+            "format": "markdown",
+            "source": {
+              "kind": "topic",
+              "section": "summary"
+            },
+            "sourceVersion": "source-version",
+            "location": {
+              "unit": "topic_section",
+              "field": "summary",
+              "range": {
+                "start": 0,
+                "end": 9
+              }
+            },
+            "score": 0.77,
+            "itemRef": {
+              "libraryId": 1,
+              "key": "CITE1"
+            }
+          }
+        ],
+        "issues": []
+      }
+    },
+    {
+      "id": "semantic-evidence-context-result",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/SemanticEvidenceContextResult",
+      "valid": true,
+      "admitted": true,
+      "value": {
+        "status": "completed",
+        "method": "vector",
+        "coverage": {
+          "vector": "complete",
+          "sourceKinds": ["metadata"]
+        },
+        "results": [
+          {
+            "evidenceRef": {
+              "publication": "publication",
+              "identity": "1:CITE1",
+              "fragmentId": "fragment",
+              "sourceVersion": "source-version"
+            },
+            "itemRef": {
+              "libraryId": 1,
+              "key": "CITE1"
+            },
+            "content": "evidence 😀",
+            "format": "text",
+            "source": {
+              "kind": "metadata",
+              "field": "abstract"
+            },
+            "sourceVersion": "source-version",
+            "location": {
+              "unit": "field",
+              "field": "abstract",
+              "range": {
+                "start": 0,
+                "end": 11
+              }
+            },
+            "match": true
+          }
+        ],
+        "issues": []
+      }
+    },
+    {
+      "id": "semantic-evidence-context-rejects-unlocated-text",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/SemanticEvidenceContextResult",
+      "valid": false,
+      "admitted": false,
+      "value": {
+        "status": "completed",
+        "method": "vector",
+        "coverage": {
+          "vector": "complete",
+          "sourceKinds": ["metadata"]
+        },
+        "results": [
+          {
+            "evidenceRef": {
+              "publication": "publication",
+              "identity": "1:CITE1",
+              "fragmentId": "fragment",
+              "sourceVersion": "source-version"
+            },
+            "itemRef": {
+              "libraryId": 1,
+              "key": "CITE1"
+            },
+            "content": "evidence 😀",
+            "format": "text",
+            "source": {
+              "kind": "metadata",
+              "field": "abstract"
+            },
+            "sourceVersion": "source-version",
+            "match": true
+          }
+        ],
+        "issues": []
+      }
+    },
+    {
+      "id": "semantic-evidence-scoped-search",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/SearchSemanticEvidenceClientRequest",
+      "valid": true,
+      "admitted": true,
+      "value": {
+        "args": [{ "query": "语义检索", "libraryIds": [1], "limit": 4 }]
+      }
+    },
+    {
+      "id": "semantic-evidence-cross-target-filter",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/SearchSemanticEvidenceClientRequest",
+      "valid": false,
+      "admitted": false,
+      "value": {
+        "args": [{ "query": "scope", "target": "topic", "libraryIds": [1] }]
+      }
+    },
+    {
+      "id": "semantic-evidence-context",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/ReadSemanticContextClientRequest",
+      "valid": true,
+      "admitted": true,
+      "value": {
+        "args": [
+          {
+            "evidenceRef": {
+              "publication": "publication",
+              "identity": "1:ITEM1",
+              "fragmentId": "fragment",
+              "sourceVersion": "source-version"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "semantic-evidence-context-requires-version",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/ReadSemanticContextClientRequest",
+      "valid": false,
+      "admitted": false,
+      "value": {
+        "args": [
+          {
+            "evidenceRef": {
+              "publication": "publication",
+              "identity": "1:ITEM1",
+              "fragmentId": "fragment"
+            }
+          }
+        ]
+      }
+    },
+    {
       "id": "explorer-search",
       "schemaRef": "schemas/retrieval.schema.json#/$defs/RetrievalExplorerClientRequest",
       "valid": true,

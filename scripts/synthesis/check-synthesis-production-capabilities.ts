@@ -31,7 +31,7 @@ type OperationManifest = {
   deadlineMs: number;
   deadlineOverridesMs: Record<string, number>;
   hostCapabilities: Record<string, string>;
-  workDeadlineMs: Record<string, number>;
+  workDeadlineMs: Record<string, number | null>;
   receiptQueryCapability: string;
   policyDefaults: OperationPolicy;
   policyOverrides: Record<string, Partial<OperationPolicy>>;
@@ -371,9 +371,10 @@ export function inspectSynthesisProductionCapabilities(
             capability in operations.access &&
             operationPolicy(operations, capability).receipt ===
               "public-maintenance-operation" &&
-            Number.isSafeInteger(deadline) &&
-            deadline >= 100 &&
-            deadline <= 30 * 60_000,
+            (deadline === null ||
+              (Number.isSafeInteger(deadline) &&
+                deadline >= 100 &&
+                deadline <= 30 * 60_000)),
         ) &&
         Object.keys(operations.access).every(
           (capability) =>

@@ -8,7 +8,7 @@ use std::thread;
 use synthesis_application::RepositoryPort;
 use synthesis_canonical_store::canonical_json_hash;
 use synthesis_protocol::{unix_millis_from_utc_iso8601, utc_now_iso8601};
-use synthesis_repository::{OperationQuery, OperationRecord};
+use synthesis_repository::{OperationQuery, OperationRecord, Repository};
 
 use crate::runtime_background_tasks::{BackgroundTaskOwner, current_task_canceled};
 use crate::runtime_diagnostics::{
@@ -64,7 +64,7 @@ fn current_operation_id() -> Option<String> {
 struct PublicMaintenanceBasis {
     pub capability: String,
     pub args: Vec<Value>,
-    pub deadline_ms: u64,
+    pub deadline_ms: Option<u64>,
     pub source_hash: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub predecessor_operation_id: Option<String>,
@@ -245,6 +245,56 @@ pub(crate) fn read(
         .filter(|row| row.basis_kind == PUBLIC_MAINTENANCE_BASIS_KIND)
         .map(|row| maintenance_operation_view(&row))
         .transpose()
+}
+
+const RETRIEVAL_MAINTENANCE_TYPES: [&str; 4] = [
+    "client.buildRetrievalIndex",
+    "client.rebuildRetrievalIndex",
+    "client.updateRetrievalIndex",
+    "client.cleanupRetrievalIndex",
+];
+
+fn retrieval_operation_query(include_completed: bool) -> OperationQuery {
+    OperationQuery {
+        operation_types: RETRIEVAL_MAINTENANCE_TYPES.map(str::to_owned).into(),
+        basis_kinds: vec![PUBLIC_MAINTENANCE_BASIS_KIND.into()],
+        include_completed,
+        limit: 1,
+        ..OperationQuery::default()
+    }
+}
+
+pub(crate) fn read_retrieval_maintenance(
+    apps: &ProductionApplications,
+) -> Result<Option<MaintenanceOperationView>, String> {
+    apps.repository.with_reader(|repository| {
+        let active = repository.list_operations(&retrieval_operation_query(false))?;
+        let row = if let Some(row) = active.into_iter().next() {
+            Some(row)
+        } else {
+            repository
+                .list_operations(&retrieval_operation_query(true))?
+                .into_iter()
+                .next()
+        };
+        row.as_ref().map(maintenance_operation_view).transpose()
+    })
+}
+
+fn check_retrieval_admission(
+    repository: &Repository,
+    kind: &str,
+    operation_id: &str,
+) -> Result<(), String> {
+    if RETRIEVAL_MAINTENANCE_TYPES.contains(&kind)
+        && repository
+            .list_operations(&retrieval_operation_query(false))?
+            .first()
+            .is_some_and(|active| active.operation_id != operation_id)
+    {
+        return Err("retrieval_maintenance_busy".into());
+    }
+    Ok(())
 }
 
 pub(crate) fn submit(
@@ -502,7 +552,7 @@ fn begin_public_maintenance_operation(
     operation_type: &str,
     args: &[Value],
     source_hash: &str,
-    deadline_ms: u64,
+    deadline_ms: Option<u64>,
     now: &str,
 ) -> Result<(OperationRecord, bool), String> {
     let paper_refs = args
@@ -551,12 +601,16 @@ fn begin_public_maintenance_operation(
         updated_at: now.into(),
         ..OperationRecord::default()
     };
-    let (stored, inserted) = apps
-        .repository
-        .owner()
+    let owner = apps.repository.owner();
+    let repository = owner
         .lock()
-        .map_err(|_| "repository_unavailable".to_owned())?
-        .insert_operation_if_absent(&row)?;
+        .map_err(|_| "repository_unavailable".to_owned())?;
+    if let Some(exact) = repository.get_operation(operation_id)? {
+        return Ok((exact, false));
+    }
+    check_retrieval_admission(&repository, operation_type, operation_id)?;
+    let (stored, inserted) = repository.insert_operation_if_absent(&row)?;
+    drop(repository);
     if inserted {
         emit_public_maintenance_event(&stored, "maintenance-started", "started", None);
     }
@@ -816,18 +870,23 @@ fn checkpoint_current_after_promotion_in_repository(
     if is_terminal(&row.status) {
         return Err("operation_terminal".into());
     }
-    let basis = decode_basis(&row)?;
-    let created_at = unix_millis_from_utc_iso8601(&row.created_at)
-        .ok_or_else(|| "operation_basis_invalid".to_owned())?;
-    let deadline_at = created_at
-        .checked_add(i64::try_from(basis.deadline_ms).map_err(|_| "operation_basis_invalid")?)
-        .ok_or_else(|| "operation_basis_invalid".to_owned())?;
-    let now =
-        unix_millis_from_utc_iso8601(now).ok_or_else(|| "operation_basis_invalid".to_owned())?;
-    if now > deadline_at {
+    if maintenance_deadline_elapsed(&row, now)? {
         return Err("operation_timeout".into());
     }
     Ok(())
+}
+
+fn maintenance_deadline_elapsed(row: &OperationRecord, now: &str) -> Result<bool, String> {
+    let basis = decode_basis(row)?;
+    let Some(deadline) = basis.deadline_ms else {
+        return Ok(false);
+    };
+    let invalid = || "operation_basis_invalid".to_owned();
+    let created_at = unix_millis_from_utc_iso8601(&row.created_at).ok_or_else(invalid)?;
+    let expires_at = created_at
+        .checked_add(i64::try_from(deadline).map_err(|_| invalid())?)
+        .ok_or_else(invalid)?;
+    Ok(unix_millis_from_utc_iso8601(now).ok_or_else(invalid)? > expires_at)
 }
 
 pub(crate) fn checkpoint_current_before_promotion_in_repository(
@@ -854,17 +913,7 @@ fn checkpoint_before_promotion_in_repository(
     let Some(mut row) = repository.get_operation(operation_id)? else {
         return Err("operation_receipt_missing".into());
     };
-    let basis = decode_basis(&row)?;
-    let created_at = unix_millis_from_utc_iso8601(&row.created_at)
-        .ok_or_else(|| "operation_basis_invalid".to_owned())?;
-    let deadline_at = created_at
-        .checked_add(
-            i64::try_from(basis.deadline_ms).map_err(|_| "operation_basis_invalid".to_owned())?,
-        )
-        .ok_or_else(|| "operation_basis_invalid".to_owned())?;
-    let now_millis =
-        unix_millis_from_utc_iso8601(now).ok_or_else(|| "operation_basis_invalid".to_owned())?;
-    if now_millis > deadline_at {
+    if maintenance_deadline_elapsed(&row, now)? {
         row.status = "timed_out".into();
         row.phase = "timed_out".into();
         row.phase_label = "Timed out".into();
@@ -1016,7 +1065,12 @@ pub(crate) fn control(
     command: &MaintenanceControlCommand,
     now: &str,
 ) -> Result<MaintenanceOperationView, String> {
-    let outcome = control_in_repository(apps.repository.as_ref(), command, now)?;
+    let policy = |capability: &str| {
+        catalog
+            .resolve_maintenance(capability)
+            .map(|route| route.work_deadline_ms())
+    };
+    let outcome = control_with_policy(apps.repository.as_ref(), command, now, policy)?;
     let Some(pending_dispatch) = outcome.dispatch else {
         return Ok(outcome.view);
     };
@@ -1036,10 +1090,20 @@ pub(crate) fn control(
         .ok_or_else(|| "operation_receipt_missing".to_owned())
 }
 
+#[cfg(test)]
 fn control_in_repository(
     repository: &RepositoryPort,
     command: &MaintenanceControlCommand,
     now: &str,
+) -> Result<PublicMaintenanceControlOutcome, String> {
+    control_with_policy(repository, command, now, |_| None)
+}
+
+fn control_with_policy(
+    repository: &RepositoryPort,
+    command: &MaintenanceControlCommand,
+    now: &str,
+    deadline_policy: impl FnOnce(&str) -> Option<Option<u64>>,
 ) -> Result<PublicMaintenanceControlOutcome, String> {
     let operation_id = command.operation_id();
     let repository = repository.owner();
@@ -1099,6 +1163,12 @@ fn control_in_repository(
         MaintenanceControlCommand::Continue { .. }
             if row.status == "pending" && row.phase == "continuation_required" =>
         {
+            check_retrieval_admission(&repository, &row.operation_type, operation_id)?;
+            if let Some(deadline_ms) = deadline_policy(&row.operation_type) {
+                let mut basis = decode_basis(&row)?;
+                basis.deadline_ms = deadline_ms;
+                row.basis_value = encode_basis(&basis)?;
+            }
             row.phase = "queued".into();
             row.phase_label = "Queued".into();
             row.message.clear();
@@ -1124,12 +1194,19 @@ fn control_in_repository(
             let mut basis = decode_basis(&row)?;
             basis.predecessor_operation_id = Some(predecessor.clone());
             basis.retry_key = Some(retry_key.clone());
-            let basis_value = encode_basis(&basis)?;
             let identity = canonical_json_hash(&json!({
                 "predecessorOperationId": predecessor,
                 "retryKey": retry_key,
             }))?;
             let successor_id = format!("maintenance:retry:{}", &identity[7..31]);
+            if let Some(exact) = repository.get_operation(&successor_id)? {
+                return control_outcome(exact, false);
+            }
+            check_retrieval_admission(&repository, &row.operation_type, &successor_id)?;
+            if let Some(deadline_ms) = deadline_policy(&row.operation_type) {
+                basis.deadline_ms = deadline_ms;
+            }
+            let basis_value = encode_basis(&basis)?;
             let source_hash = canonical_json_hash(
                 &serde_json::from_str::<Value>(&basis_value)
                     .map_err(|_| "operation_basis_invalid")?,
@@ -1285,7 +1362,7 @@ mod tests {
     use std::sync::{Arc, Mutex, mpsc};
     use std::time::{Duration, Instant};
     use synthesis_canonical_store::{CanonicalIdentity, CanonicalStore};
-    use synthesis_repository::{Repository, RepositoryIdentity};
+    use synthesis_repository::RepositoryIdentity;
     use synthesis_test_support::TestRoot;
 
     use crate::runtime_production_ports::build_production_applications;
@@ -1560,7 +1637,7 @@ mod tests {
         let basis = PublicMaintenanceBasis {
             capability: "client.syncWebDavNow".into(),
             args: vec![json!({"scope":"library"})],
-            deadline_ms: 10_000,
+            deadline_ms: Some(10_000),
             source_hash: "sha256:fixture".into(),
             predecessor_operation_id: Some("maintenance:one".into()),
             retry_key: Some("retry-1".into()),
@@ -1680,7 +1757,7 @@ mod tests {
         let basis = PublicMaintenanceBasis {
             capability: "client.syncWebDavNow".into(),
             args: Vec::new(),
-            deadline_ms: 10_000,
+            deadline_ms: Some(10_000),
             source_hash: "sha256:fixture".into(),
             predecessor_operation_id: None,
             retry_key: None,
@@ -1798,6 +1875,55 @@ mod tests {
     }
 
     #[test]
+    fn retrieval_work_survives_the_old_deadline_and_has_one_owner() {
+        let root = TestRoot::new("retrieval-long-work");
+        let apps = test_applications(&root);
+        let kind = "client.buildRetrievalIndex";
+        let initial = "2026-08-02T00:00:00.000Z";
+        let later = "2026-08-02T02:00:00.000Z";
+        let (row, inserted) = begin_public_maintenance_operation(
+            &apps,
+            "maintenance:retrieval:a",
+            kind,
+            &[],
+            "sha256:a",
+            None,
+            initial,
+        )
+        .expect("admission");
+        assert!(inserted);
+        mark_public_maintenance_running(&apps, &row.operation_id, initial).unwrap();
+        checkpoint_before_promotion_in_repository(&apps.repository, &row.operation_id, later)
+            .expect("the old whole-operation deadline must not end this job");
+        assert!(
+            !begin_public_maintenance_operation(
+                &apps,
+                &row.operation_id,
+                kind,
+                &[],
+                "sha256:a",
+                None,
+                later,
+            )
+            .unwrap()
+            .1
+        );
+        assert_eq!(
+            begin_public_maintenance_operation(
+                &apps,
+                "maintenance:retrieval:b",
+                "client.rebuildRetrievalIndex",
+                &[],
+                "sha256:b",
+                None,
+                later,
+            )
+            .unwrap_err(),
+            "retrieval_maintenance_busy",
+        );
+    }
+
+    #[test]
     fn phase_deadline_publishes_one_retryable_timeout_terminal() {
         crate::runtime_diagnostics::configure_debug_events(true);
         crate::runtime_diagnostics::take_captured_diagnostic_events();
@@ -1814,7 +1940,7 @@ mod tests {
         let basis = PublicMaintenanceBasis {
             capability: "client.buildRetrievalIndex".into(),
             args: Vec::new(),
-            deadline_ms: 1_000,
+            deadline_ms: Some(1_000),
             source_hash: "sha256:fixture".into(),
             predecessor_operation_id: None,
             retry_key: None,

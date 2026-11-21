@@ -133,6 +133,7 @@ function cloneSchema<T>(value: T): T {
 const CANONICAL_PROTOCOL_SCHEMA_PATHS = [
   "packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/search.schema.json",
   "packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/reverse-host.schema.json",
+  "packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/retrieval.schema.json",
 ] as const;
 
 let canonicalProtocolSchemaIndex: Map<string, any> | undefined;

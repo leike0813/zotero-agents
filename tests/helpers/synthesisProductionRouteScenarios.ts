@@ -220,6 +220,17 @@ const GROUPED_INVOCATIONS: Record<
     }),
   "client.exploreRetrievalIndex": (_, harness) =>
     harness.retrieval.explore({ operation: "browse", limit: 1 }),
+  "client.searchSemanticEvidence": (client) =>
+    client.searchSemanticEvidence({ query: "production", libraryIds: [1] }),
+  "client.readSemanticContext": (client) =>
+    client.readSemanticContext({
+      evidenceRef: {
+        publication: "missing",
+        identity: "1:SCENARIO1",
+        fragmentId: "missing",
+        sourceVersion: "missing",
+      },
+    }),
   "client.recommendSimilarPapers": (_, harness) =>
     harness.retrieval.recommend({
       paperRef: { libraryId: 1, key: "SCENARIO1" },

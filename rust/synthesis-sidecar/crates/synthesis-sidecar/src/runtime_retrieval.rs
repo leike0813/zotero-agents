@@ -1,15 +1,25 @@
+use crate::runtime_deadline::{bounded_timeout, with_request_deadline};
 use crate::runtime_production_client::ProductionClientRouteEntry;
 use crate::runtime_production_ports::ProductionApplications;
 use crate::runtime_public_maintenance_operation::{
     checkpoint_current_after_promotion, checkpoint_current_before_promotion,
+    read_retrieval_maintenance,
 };
+use crate::runtime_webdav_maintenance_surface::public_maintenance_operation_dto;
 use serde_json::{Value, json};
+use std::time::Duration;
 use synthesis_application::retrieval::RetrievalBuildMode;
 
 pub(crate) const RETRIEVAL_CLIENT_ROUTES: &[ProductionClientRouteEntry] = &[
     ProductionClientRouteEntry::new("client.getRetrievalState", |apps, args| {
         no_args(args)?;
-        apps.retrieval.state()
+        let mut state = apps.retrieval.state()?;
+        state["maintenance"] = read_retrieval_maintenance(apps)?
+            .as_ref()
+            .map(public_maintenance_operation_dto)
+            .transpose()?
+            .unwrap_or(Value::Null);
+        Ok(state)
     }),
     ProductionClientRouteEntry::new("client.buildRetrievalIndex", |apps, args| {
         maintain(apps, args, RetrievalBuildMode::Full)
@@ -61,6 +71,18 @@ pub(crate) const RETRIEVAL_CLIENT_ROUTES: &[ProductionClientRouteEntry] = &[
             .explore(one(args)?, &|| checkpoint_current_before_promotion(apps))
     })
     .with_request_validator(|args| validate_one(args, "RetrievalExplorerRequest")),
+    ProductionClientRouteEntry::new("client.searchSemanticEvidence", |apps, args| {
+        let checkpoint = || bounded_timeout(Duration::from_secs(60)).map(|_| ());
+        apps.retrieval
+            .search_semantic_evidence(one(args)?, &checkpoint)
+    })
+    .with_request_validator(semantic_search_args),
+    ProductionClientRouteEntry::new("client.readSemanticContext", |apps, args| {
+        let checkpoint = || bounded_timeout(Duration::from_secs(10)).map(|_| ());
+        apps.retrieval
+            .read_semantic_context(one(args)?, &checkpoint)
+    })
+    .with_request_validator(semantic_context_args),
     ProductionClientRouteEntry::new("client.invalidateRetrievalSources", |apps, args| {
         apps.retrieval.invalidate(one(args)?)
     })
@@ -106,6 +128,14 @@ fn invalidate_args(args: &[Value]) -> Result<(), String> {
     validate_one(args, "RetrievalInvalidateRequest")
 }
 
+fn semantic_search_args(args: &[Value]) -> Result<(), String> {
+    validate_one(args, "SemanticEvidenceSearchRequest")
+}
+
+fn semantic_context_args(args: &[Value]) -> Result<(), String> {
+    validate_one(args, "SemanticEvidenceContextRequest")
+}
+
 fn maintain(
     apps: &ProductionApplications,
     args: &[Value],
@@ -113,28 +143,35 @@ fn maintain(
 ) -> Result<Value, String> {
     let request = one(args)?;
     let checkpoint = || checkpoint_current_before_promotion(apps);
-    let mut result = apps.retrieval.maintain(
-        match mode {
-            RetrievalBuildMode::Full => "rebuild",
-            RetrievalBuildMode::Increment => "update",
-        },
-        request,
-        &checkpoint,
-    )?;
+    let mut result = apps
+        .retrieval
+        .maintain(
+            match mode {
+                RetrievalBuildMode::Full => "rebuild",
+                RetrievalBuildMode::Increment => "update",
+            },
+            request,
+            &checkpoint,
+        )
+        .map_err(|code| {
+            if code == "operation_timeout" {
+                "retrieval_source_timeout".into()
+            } else {
+                code
+            }
+        })?;
     // Discovery runs only after a successful publication, as separate
     // candidate work that cannot revoke the published index.
     if publication_succeeded(&result) {
-        match apps
-            .retrieval
-            .cleanup(&|| checkpoint_current_after_promotion(apps))
-        {
-            Ok(cleanup) => attach_discovery_issues(&mut result, Ok(cleanup)),
-            Err(code) => attach_discovery_issues(&mut result, Err(code)),
-        }
-        let discovery = apps
-            .retrieval
-            .refresh_discovery(&|| checkpoint_current_after_promotion(apps));
-        attach_discovery_issues(&mut result, discovery);
+        const TAIL_BUDGET: Duration = Duration::from_secs(30 * 60);
+        with_request_deadline(TAIL_BUDGET, || {
+            let checkpoint = || {
+                bounded_timeout(TAIL_BUDGET)?;
+                checkpoint_current_after_promotion(apps)
+            };
+            attach_discovery_issues(&mut result, apps.retrieval.cleanup(&checkpoint));
+            attach_discovery_issues(&mut result, apps.retrieval.refresh_discovery(&checkpoint));
+        });
     }
     if !publication_succeeded(&result) {
         return Err("retrieval_publication_incomplete".into());
@@ -216,6 +253,8 @@ mod tests {
                     "client.cleanupRetrievalIndex" => no_args(args),
                     "client.recommendSimilarPapers" => similarity_args(args),
                     "client.exploreRetrievalIndex" => validate_one(args,"RetrievalExplorerRequest"),
+                    "client.searchSemanticEvidence" => semantic_search_args(args),
+                    "client.readSemanticContext" => semantic_context_args(args),
                     "client.invalidateRetrievalSources" => invalidate_args(args),
                     _ => Err("invalid_request".into()),
                 }

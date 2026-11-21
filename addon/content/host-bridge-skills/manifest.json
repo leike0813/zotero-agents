@@ -3,7 +3,7 @@
   "cli": {
     "version": "0.5.2-dev.3",
     "buildFingerprint": "7253480c64672c477e2b81363d8465319d8959ec8dd31d3d8faddcbc83cd2848",
-    "commandCatalogChecksum": "68a4f3402f06cab508b261a737f48e422ab58cf066a27f35c053d9697c2f85cb"
+    "commandCatalogChecksum": "3b9eb93ef81df140234619e202616eb8a9a1f1313cde0c1010d0e8d4d97f976b"
   },
   "surfaces": [
     {
@@ -57,8 +57,8 @@
   "files": [
     {
       "path": "zotero-bridge-cli/assets/agent-surface.json",
-      "bytes": 2271609,
-      "sha256": "d21510731cfc2f02cec797cdbe413370c59070a8bb3ac211d94596f57770cdda"
+      "bytes": 2280771,
+      "sha256": "a5860086353b6a367ed67196fac5afb1a9380c0429d22a4788b31db3e27fb1e7"
     },
     {
       "path": "zotero-bridge-cli/assets/output.schema.json",
@@ -77,8 +77,8 @@
     },
     {
       "path": "zotero-bridge-cli/references/command-catalog.md",
-      "bytes": 44015,
-      "sha256": "d1bf2f71e77cb6aa7e89d95ab2eefb906cca9c5408630b1ce0157a6bd386af38"
+      "bytes": 44367,
+      "sha256": "382309bfe396c6718da2d24bcd09e317e526c69bc10ccaf5f3d634dc90f88cf7"
     },
     {
       "path": "zotero-bridge-cli/references/commands/acquisition/activate.md",
@@ -581,9 +581,19 @@
       "sha256": "dcb399792301ecc3e1c00d47b7649ae53d2ce6ef02631b30e012f01e1abf74e8"
     },
     {
+      "path": "zotero-bridge-cli/references/commands/synthesis/evidence/context.md",
+      "bytes": 11199,
+      "sha256": "5456c45e3e65ff306a6ec732247f601b31683753b0b2510b6a528cf4e69ddc90"
+    },
+    {
       "path": "zotero-bridge-cli/references/commands/synthesis/evidence/search.md",
       "bytes": 10372,
       "sha256": "ed63d9fc537739223403f4a189a5990ad9eabb6ee58ea3da3c7faa193e312fb3"
+    },
+    {
+      "path": "zotero-bridge-cli/references/commands/synthesis/evidence/semantic-search.md",
+      "bytes": 10816,
+      "sha256": "39899dc6fb252133d3237396c49c574048c6dba77a4146747b2f6a4471815fc7"
     },
     {
       "path": "zotero-bridge-cli/references/commands/synthesis/graph/get-layout.md",
@@ -932,9 +942,9 @@
     },
     {
       "path": "zotero-research-synthesis/SKILL.md",
-      "bytes": 22482,
-      "sha256": "dd35df6650ac5dfc1f312313e82fa85795eecab2fb1259c94e6dee81edf3ca10"
+      "bytes": 23736,
+      "sha256": "80856d3847f4bb62b41f0384394bc3cfc59691c8490b2b2a683aaa1b42ae4136"
     }
   ],
-  "aggregateSha256": "9553a6a2a6196fc1d71dbc731b3d1fcd80cbc80e62eb73db70f17d68aea3f0c8"
+  "aggregateSha256": "8a5fdc45444e0c827120e313149dea39cf258d15059cac260fc4bf71ca0fa926"
 }

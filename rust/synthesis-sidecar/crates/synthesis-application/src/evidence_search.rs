@@ -225,6 +225,42 @@ pub trait EvidenceSourcePort: Send + Sync {
     }
 }
 
+pub(crate) fn scoped_evidence_identities(
+    sources: &dyn EvidenceSourcePort,
+    scope: &Value,
+    checkpoint: &dyn Fn() -> Result<(), String>,
+) -> Result<BTreeSet<String>, String> {
+    let mut input = json!({"scope":scope,"limit":100,"sourceKinds":["metadata"]});
+    let mut eligible = BTreeSet::new();
+    let mut cursors = BTreeSet::new();
+    loop {
+        checkpoint()?;
+        let page = sources.list_sources(input.clone())?;
+        if &page["scope"] != scope {
+            return Err("basis_mismatch".into());
+        }
+        if page["issues"]
+            .as_array()
+            .is_none_or(|issues| !issues.is_empty())
+        {
+            return Err("source_unavailable".into());
+        }
+        for d in page["descriptors"].as_array().ok_or("invalid_source")? {
+            let item: ItemRef =
+                serde_json::from_value(d["itemRef"].clone()).map_err(|_| "invalid_source")?;
+            eligible.insert(format!("{}:{}", item.library_id, item.key));
+        }
+        if page["hasMore"] == false {
+            return Ok(eligible);
+        }
+        let cursor = page["nextCursor"].as_str().ok_or("invalid_source")?;
+        if cursors.len() >= 10_000 || !cursors.insert(cursor.to_owned()) {
+            return Err("scan_budget_exhausted".into());
+        }
+        input["cursor"] = json!(cursor);
+    }
+}
+
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct EvidenceSourcesResultDto {
@@ -1179,35 +1215,7 @@ impl EvidenceSearchApplication {
             return retrieval.query_with_checkpoint(query, checkpoint);
         }
         // Zotero owns mutable filter membership. Complete the filtered identity set before scoring.
-        let mut input = json!({"scope":scope,"limit":100,"sourceKinds":["metadata"]});
-        let mut eligible = BTreeSet::new();
-        let mut cursors = BTreeSet::new();
-        loop {
-            checkpoint()?;
-            let page = self.sources.list_sources(input.clone())?;
-            if &page["scope"] != scope {
-                return Err("basis_mismatch".into());
-            }
-            if page["issues"]
-                .as_array()
-                .is_none_or(|issues| !issues.is_empty())
-            {
-                return Err("source_unavailable".into());
-            }
-            for d in page["descriptors"].as_array().ok_or("invalid_source")? {
-                let item: ItemRef =
-                    serde_json::from_value(d["itemRef"].clone()).map_err(|_| "invalid_source")?;
-                eligible.insert(format!("{}:{}", item.library_id, item.key));
-            }
-            if page["hasMore"] == false {
-                break;
-            }
-            let cursor = page["nextCursor"].as_str().ok_or("invalid_source")?;
-            if cursors.len() >= 10000 || !cursors.insert(cursor.to_owned()) {
-                return Err("scan_budget_exhausted".into());
-            }
-            input["cursor"] = json!(cursor);
-        }
+        let eligible = scoped_evidence_identities(self.sources.as_ref(), scope, checkpoint)?;
         retrieval.query_scoped(query, &eligible, checkpoint)
     }
 

@@ -1,5 +1,6 @@
 import { assert } from "chai";
 import { h, render } from "preact";
+import { JSDOM } from "jsdom";
 
 import {
   SYNTHESIS_WORKBENCH_DEFAULT_MESSAGES,
@@ -7,6 +8,26 @@ import {
 } from "../../src/shared/synthesisWorkbenchI18nContract";
 import type { SynthesisWorkbenchSnapshot } from "../../src/shared/synthesisWorkbenchWireContract";
 import { RetrievalMaintenance } from "../../src/synthesis/components/RetrievalMaintenance";
+import {
+  mountSynthesisWorkbenchRuntime,
+  setSynthesisRetrievalPortsForTests,
+  setSynthesisWorkbenchSidecarStatusSubscriberForTests,
+} from "../../src/modules/synthesis/workbench/synthesisWorkbenchTab";
+import {
+  createSynthesisClientFromPort,
+  type SynthesisClientPort,
+} from "../../src/modules/synthesisClient/clientPortAdapter";
+import {
+  resetDefaultSynthesisClientForTests,
+  setDefaultSynthesisClientCompositionFactoryForTests,
+} from "../../src/modules/synthesisClient/defaultClient";
+import type {
+  SynthesisPublicMaintenanceOperation,
+  SynthesisPublicMaintenanceOperationControlRequest,
+  SynthesisPublicMaintenanceOperationRequest,
+  SynthesisRetrievalMaintenanceRequest,
+  SynthesisRetrievalState,
+} from "../../packages/synthesis-contracts/src/index";
 import {
   createSidebarDomEnvironment,
   installSidebarDomGlobals,
@@ -333,5 +354,347 @@ describe("Synthesis retrieval maintenance", function () {
     const args = ready.dispatched[0].payload!.args as Record<string, unknown>;
     assert.deepEqual(args.identity, retrieval.pendingIdentity);
     assert.deepEqual(args.scope, retrieval.pendingScope);
+  });
+});
+
+type WorkbenchChromeMessage = {
+  type?: string;
+  payload?: {
+    retrieval?: { maintenance?: SynthesisPublicMaintenanceOperation | null };
+    actions?: {
+      lastCompleted?: { command?: string };
+      lastFailed?: { command?: string };
+    };
+  };
+};
+
+type WorkbenchBridge = {
+  postMessage(action: string, payload: Record<string, unknown>): Promise<void>;
+};
+
+const BUILD_ARGS = {
+  identity: {
+    modelId: "bge-m3",
+    dimensions: 1024,
+    queryPrefix: "",
+    documentPrefix: "",
+  },
+  scope: {
+    libraryIds: [1],
+    sourceKinds: ["metadata"],
+    includeTopics: false,
+  },
+};
+
+function makeOperation(
+  overrides: Partial<SynthesisPublicMaintenanceOperation> = {},
+): SynthesisPublicMaintenanceOperation {
+  return {
+    schema: "synthesis.maintenance_operation.v1",
+    operation_id: "maintenance:retrieval:test",
+    status: "pending",
+    ...overrides,
+  };
+}
+
+function makeRetrievalState(
+  maintenance?: SynthesisPublicMaintenanceOperation | null,
+): SynthesisRetrievalState {
+  return {
+    enabled: true,
+    status: "paused",
+    activeIdentity: null,
+    pendingIdentity: null,
+    activeScope: null,
+    pendingScope: null,
+    publication: null,
+    progress: {
+      completedGroups: 0,
+      totalGroups: 0,
+      completedFragments: 0,
+      failedGroups: 0,
+      missingGroups: 0,
+    },
+    updatedAt: null,
+    issues: [],
+    ...(maintenance === undefined ? {} : { maintenance }),
+  };
+}
+
+function makeFakeRetrieval() {
+  const calls = {
+    builds: 0,
+    stateReads: 0,
+    operationReads: 0,
+    controls: [] as string[],
+  };
+  const receipt = {
+    current: null as SynthesisPublicMaintenanceOperation | null,
+  };
+  let stateError: Error | null = null;
+  const accept = async () => {
+    calls.builds += 1;
+    receipt.current = makeOperation();
+    return receipt.current;
+  };
+  return {
+    calls,
+    receipt,
+    failStateReads(error: Error | null) {
+      stateError = error;
+    },
+    ports: {
+      getState: async (): Promise<SynthesisRetrievalState> => {
+        calls.stateReads += 1;
+        if (stateError) throw stateError;
+        return makeRetrievalState(receipt.current);
+      },
+      build: accept,
+      rebuild: accept,
+      update: accept,
+      cleanup: async () => makeOperation({ status: "completed" }),
+      getOperation: async (
+        _request: SynthesisPublicMaintenanceOperationRequest,
+      ): Promise<SynthesisPublicMaintenanceOperation> => {
+        calls.operationReads += 1;
+        return receipt.current ?? makeOperation();
+      },
+      controlOperation: async (
+        request: SynthesisPublicMaintenanceOperationControlRequest,
+      ): Promise<SynthesisPublicMaintenanceOperation> => {
+        calls.controls.push(request.action);
+        receipt.current =
+          request.action === "cancel"
+            ? makeOperation({ status: "canceled" })
+            : request.action === "retry"
+              ? makeOperation({
+                  operation_id: "maintenance:retry:test",
+                  status: "pending",
+                })
+              : makeOperation({ status: "pending", phase: "queued" });
+        return receipt.current;
+      },
+    },
+  };
+}
+
+async function waitUntil(predicate: () => boolean, attempts = 400) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    if (predicate()) {
+      return;
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error("condition_not_reached");
+}
+
+function latestMaintenance(messages: WorkbenchChromeMessage[]) {
+  const chrome = messages.filter(
+    (message) => message.type === "synthesis:chrome",
+  );
+  return chrome.at(-1)?.payload?.retrieval?.maintenance ?? null;
+}
+
+async function mountWorkbench(fake: ReturnType<typeof makeFakeRetrieval>) {
+  const client = createSynthesisClientFromPort({
+    getSynthesisWorkbenchChromeInput: async () => ({ libraryId: 1 }),
+    getSynthesisWorkbenchSurfaceInput: async () => ({}),
+  } as unknown as SynthesisClientPort);
+  setDefaultSynthesisClientCompositionFactoryForTests(() => ({
+    client,
+    invalidate() {},
+    async dispose() {},
+  }));
+  setSynthesisRetrievalPortsForTests({
+    settings: {
+      get: () => ({
+        enabled: true,
+        connections: [],
+        primaryConnectionId: null,
+        fallbackConnectionIds: [],
+        pendingScope: null,
+        connectionTests: {},
+        presets: [],
+      }),
+    },
+    retrieval: fake.ports,
+  });
+  setSynthesisWorkbenchSidecarStatusSubscriberForTests(() => () => {});
+  const dom = new JSDOM('<div id="root"></div>', {
+    url: "https://example.test/",
+  });
+  const root = dom.window.document.getElementById("root")!;
+  const mounted = await mountSynthesisWorkbenchRuntime({
+    root,
+    hostWindow: dom.window as unknown as Window,
+    chromeWindow: dom.window as unknown as _ZoteroTypes.MainWindow,
+  });
+  const messages: WorkbenchChromeMessage[] = [];
+  const frame = root.querySelector("iframe")!;
+  const frameWindow = frame.contentWindow!;
+  frameWindow.postMessage = ((message: WorkbenchChromeMessage) => {
+    messages.push(message);
+  }) as typeof frameWindow.postMessage;
+  frame.dispatchEvent(new dom.window.Event("load"));
+  await waitUntil(() =>
+    Boolean(
+      (
+        frameWindow as unknown as {
+          __zoteroSkillsSynthesisWorkbenchBridge?: unknown;
+        }
+      ).__zoteroSkillsSynthesisWorkbenchBridge,
+    ),
+  );
+  const bridge = (
+    frameWindow as unknown as {
+      __zoteroSkillsSynthesisWorkbenchBridge: WorkbenchBridge;
+    }
+  ).__zoteroSkillsSynthesisWorkbenchBridge;
+  return {
+    bridge,
+    messages,
+    async cleanup() {
+      mounted.cleanup();
+      setSynthesisRetrievalPortsForTests(null);
+      setSynthesisWorkbenchSidecarStatusSubscriberForTests(undefined);
+      setDefaultSynthesisClientCompositionFactoryForTests(null);
+      await resetDefaultSynthesisClientForTests();
+      dom.window.close();
+    },
+  };
+}
+
+describe("Synthesis retrieval maintenance host seam", function () {
+  this.timeout(20000);
+
+  async function submitBuild(bridge: WorkbenchBridge): Promise<void> {
+    await bridge.postMessage("hostCommand", {
+      command: "retrievalBuildIndex",
+      args: BUILD_ARGS,
+    });
+  }
+
+  it("returns the accepted receipt without observing the operation inline", async function () {
+    const fake = makeFakeRetrieval();
+    const workbench = await mountWorkbench(fake);
+    try {
+      await submitBuild(workbench.bridge);
+      await waitUntil(() =>
+        workbench.messages.some(
+          (message) =>
+            message.payload?.actions?.lastCompleted?.command ===
+            "retrievalBuildIndex",
+        ),
+      );
+
+      assert.equal(fake.calls.builds, 1);
+      assert.equal(
+        fake.calls.operationReads,
+        0,
+        "the accepted receipt is observed through the durable state read",
+      );
+      const maintenance = latestMaintenance(workbench.messages);
+      assert.equal(maintenance?.operation_id, "maintenance:retrieval:test");
+      assert.equal(maintenance?.status, "pending");
+    } finally {
+      await workbench.cleanup();
+    }
+  });
+
+  it("keeps observing the receipt after navigation and reattaches it on reopen", async function () {
+    const fake = makeFakeRetrieval();
+    const workbench = await mountWorkbench(fake);
+    try {
+      await submitBuild(workbench.bridge);
+      await waitUntil(() => fake.calls.stateReads >= 2);
+      const readsBeforeNavigation = fake.calls.stateReads;
+
+      await workbench.bridge.postMessage("selectTab", { tab: "graph" });
+      await waitUntil(() => fake.calls.stateReads > readsBeforeNavigation);
+      assert.equal(
+        latestMaintenance(workbench.messages)?.status,
+        "pending",
+        "the durable receipt stays visible on another tab",
+      );
+    } finally {
+      await workbench.cleanup();
+    }
+
+    const reopened = await mountWorkbench(fake);
+    try {
+      await waitUntil(
+        () =>
+          latestMaintenance(reopened.messages)?.operation_id ===
+          "maintenance:retrieval:test",
+      );
+      assert.equal(latestMaintenance(reopened.messages)?.status, "pending");
+      const readsAfterReopen = fake.calls.stateReads;
+      await waitUntil(() => fake.calls.stateReads > readsAfterReopen);
+    } finally {
+      await reopened.cleanup();
+    }
+  });
+
+  it("keeps the last successful receipt when the state read fails", async function () {
+    const fake = makeFakeRetrieval();
+    const workbench = await mountWorkbench(fake);
+    try {
+      await submitBuild(workbench.bridge);
+      await waitUntil(
+        () => latestMaintenance(workbench.messages)?.status === "pending",
+      );
+      fake.failStateReads(new Error("service_unavailable"));
+      const readsBeforeFailure = fake.calls.stateReads;
+      await waitUntil(() => fake.calls.stateReads > readsBeforeFailure + 1);
+
+      assert.equal(
+        latestMaintenance(workbench.messages)?.status,
+        "pending",
+        "a failed state read must not drop the last observed receipt",
+      );
+    } finally {
+      await workbench.cleanup();
+    }
+  });
+
+  it("applies cancel, retry and continue to the durable receipt", async function () {
+    const fake = makeFakeRetrieval();
+    const workbench = await mountWorkbench(fake);
+    try {
+      await submitBuild(workbench.bridge);
+      await waitUntil(
+        () => latestMaintenance(workbench.messages)?.status === "pending",
+      );
+
+      await workbench.bridge.postMessage("hostCommand", {
+        command: "retrievalCancelIndex",
+        args: { operationId: "maintenance:retrieval:test" },
+      });
+      await waitUntil(
+        () => latestMaintenance(workbench.messages)?.status === "canceled",
+      );
+
+      await workbench.bridge.postMessage("hostCommand", {
+        command: "retrievalRetryIndex",
+        args: { operationId: "maintenance:retrieval:test" },
+      });
+      await waitUntil(
+        () =>
+          latestMaintenance(workbench.messages)?.operation_id ===
+          "maintenance:retry:test",
+      );
+
+      await workbench.bridge.postMessage("hostCommand", {
+        command: "retrievalContinueIndex",
+        args: { operationId: "maintenance:retry:test" },
+      });
+      await waitUntil(
+        () => latestMaintenance(workbench.messages)?.status === "pending",
+      );
+
+      assert.deepEqual(fake.calls.controls, ["cancel", "retry", "continue"]);
+    } finally {
+      await workbench.cleanup();
+    }
   });
 });

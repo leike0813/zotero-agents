@@ -1,6 +1,6 @@
 {
   "cliSchema": "zotero-bridge.cli.v5",
-  "commandCatalogChecksum": "68a4f3402f06cab508b261a737f48e422ab58cf066a27f35c053d9697c2f85cb",
+  "commandCatalogChecksum": "3b9eb93ef81df140234619e202616eb8a9a1f1313cde0c1010d0e8d4d97f976b",
   "commands": [
     {
       "approvalContract": {
@@ -63580,6 +63580,158 @@
           "conflictsWith": [],
           "defaultValues": [],
           "global": false,
+          "help": "Semantic evidence context request as inline JSON, a file path, @file, or '-' for stdin",
+          "id": "query",
+          "kind": "option",
+          "possibleValues": [],
+          "repeatable": false,
+          "required": true,
+          "takesValue": true,
+          "token": "--query",
+          "valueNames": [
+            "JSON_OR_FILE"
+          ]
+        }
+      ],
+      "argv": [
+        "synthesis",
+        "evidence",
+        "context"
+      ],
+      "argvBindings": [
+        {
+          "kind": "option",
+          "property": "query",
+          "required": true,
+          "takesValue": true,
+          "token": "--query",
+          "valueNames": [
+            "JSON_OR_FILE"
+          ]
+        }
+      ],
+      "binding": "passthrough",
+      "category": "read",
+      "command": "synthesis evidence context",
+      "composition": null,
+      "danger": "none",
+      "effects": [
+        {
+          "description": "Reads neighbouring fragments of one verified evidence source without changing Zotero-managed data.",
+          "kind": "none",
+          "stateChanged": false
+        }
+      ],
+      "handleTransitions": [],
+      "hiddenFromIntentSearch": false,
+      "inputSchemas": {
+        "query": {
+          "examples": [
+            {
+              "description": "JSON container for the semantic evidence context request.",
+              "kind": "shape-only",
+              "prerequisites": [
+                "Use the evidence reference returned by a semantic evidence search; replace example identifiers with the current publication, identity, fragment and source version."
+              ],
+              "value": {
+                "evidenceRef": {
+                  "fragmentId": "fragment-id",
+                  "identity": "source-identity",
+                  "publication": "publication-id",
+                  "sourceVersion": "source-version"
+                }
+              }
+            }
+          ],
+          "required": true,
+          "requiredWhen": [],
+          "schema": {
+            "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/retrieval.schema.json#/$defs/SemanticEvidenceContextRequest"
+          },
+          "schemaSource": "target-capability",
+          "token": "--query"
+        }
+      },
+      "invocationSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "query": {
+            "description": "Semantic evidence context request as inline JSON, a file path, @file, or '-' for stdin",
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "type": "object"
+      },
+      "operationalAliases": [
+        "synthesis evidence context",
+        "synthesis",
+        "evidence",
+        "context",
+        "query",
+        "JSON_OR_FILE"
+      ],
+      "outputBoundary": {
+        "strategy": "fixed"
+      },
+      "pagination": "none",
+      "payloadSchema": {
+        "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/retrieval.schema.json#/$defs/SemanticEvidenceContextRequest"
+      },
+      "recovery": [
+        {
+          "action": "Preserve the structured reason and run a fresh semantic evidence search; do not substitute another source for the rejected reference.",
+          "nextCommand": "synthesis evidence semantic-search",
+          "requiresHandles": [],
+          "stateCheck": "none",
+          "when": "The evidence reference is stale or its source is no longer available."
+        }
+      ],
+      "resultSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "approval": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "capability": {
+            "const": "synthesis.read_semantic_context"
+          },
+          "data": {
+            "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/retrieval.schema.json#/$defs/SemanticEvidenceContextResult"
+          }
+        },
+        "required": [
+          "capability",
+          "approval",
+          "data"
+        ],
+        "type": "object"
+      },
+      "summary": "Read neighbouring fragments of one verified semantic evidence hit",
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "synthesis.read_semantic_context"
+        }
+      ]
+    },
+    {
+      "approvalContract": {
+        "kind": "none",
+        "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+        "timing": "none"
+      },
+      "arguments": [
+        {
+          "aliases": [
+            "input"
+          ],
+          "conflictsWith": [],
+          "defaultValues": [],
+          "global": false,
           "help": "Evidence search request as inline JSON, a file path, @file, or '-' for stdin",
           "id": "query",
           "kind": "option",
@@ -63710,6 +63862,155 @@
         {
           "kind": "capability",
           "target": "synthesis.search_evidence"
+        }
+      ]
+    },
+    {
+      "approvalContract": {
+        "kind": "none",
+        "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+        "timing": "none"
+      },
+      "arguments": [
+        {
+          "aliases": [
+            "input"
+          ],
+          "conflictsWith": [],
+          "defaultValues": [],
+          "global": false,
+          "help": "Semantic evidence search request as inline JSON, a file path, @file, or '-' for stdin",
+          "id": "query",
+          "kind": "option",
+          "possibleValues": [],
+          "repeatable": false,
+          "required": true,
+          "takesValue": true,
+          "token": "--query",
+          "valueNames": [
+            "JSON_OR_FILE"
+          ]
+        }
+      ],
+      "argv": [
+        "synthesis",
+        "evidence",
+        "semantic-search"
+      ],
+      "argvBindings": [
+        {
+          "kind": "option",
+          "property": "query",
+          "required": true,
+          "takesValue": true,
+          "token": "--query",
+          "valueNames": [
+            "JSON_OR_FILE"
+          ]
+        }
+      ],
+      "binding": "passthrough",
+      "category": "read",
+      "command": "synthesis evidence semantic-search",
+      "composition": null,
+      "danger": "none",
+      "effects": [
+        {
+          "description": "Searches the published vector index without changing Zotero-managed data.",
+          "kind": "none",
+          "stateChanged": false
+        }
+      ],
+      "handleTransitions": [],
+      "hiddenFromIntentSearch": false,
+      "inputSchemas": {
+        "query": {
+          "examples": [
+            {
+              "description": "JSON container for the semantic evidence search request.",
+              "kind": "shape-only",
+              "prerequisites": [
+                "Replace example values with a non-empty query and scope valid for the selected Zotero library; limit is capped at 12."
+              ],
+              "value": {
+                "limit": 8,
+                "query": "semantic evidence phrase",
+                "target": "paper"
+              }
+            }
+          ],
+          "required": true,
+          "requiredWhen": [],
+          "schema": {
+            "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/retrieval.schema.json#/$defs/SemanticEvidenceSearchRequest"
+          },
+          "schemaSource": "target-capability",
+          "token": "--query"
+        }
+      },
+      "invocationSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "query": {
+            "description": "Semantic evidence search request as inline JSON, a file path, @file, or '-' for stdin",
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "type": "object"
+      },
+      "operationalAliases": [
+        "synthesis evidence semantic-search",
+        "synthesis",
+        "evidence",
+        "semantic-search",
+        "query",
+        "JSON_OR_FILE"
+      ],
+      "outputBoundary": {
+        "strategy": "fixed"
+      },
+      "pagination": "none",
+      "payloadSchema": {
+        "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/retrieval.schema.json#/$defs/SemanticEvidenceSearchRequest"
+      },
+      "recovery": [
+        {
+          "action": "Inspect coverage and issues; narrow the scope or retry only after the source owner is available.",
+          "nextCommand": "synthesis evidence semantic-search",
+          "requiresHandles": [],
+          "stateCheck": "none",
+          "when": "The semantic search is limited or unavailable."
+        }
+      ],
+      "resultSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "approval": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "capability": {
+            "const": "synthesis.search_semantic_evidence"
+          },
+          "data": {
+            "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/retrieval.schema.json#/$defs/SemanticEvidenceSearchResult"
+          }
+        },
+        "required": [
+          "capability",
+          "approval",
+          "data"
+        ],
+        "type": "object"
+      },
+      "summary": "Search the published vector index for citable semantic evidence",
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "synthesis.search_semantic_evidence"
         }
       ]
     },

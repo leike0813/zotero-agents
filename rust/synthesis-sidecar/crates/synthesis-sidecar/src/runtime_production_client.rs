@@ -171,7 +171,7 @@ struct ProductionClientOperationManifest {
     deadline_ms: u64,
     deadline_overrides_ms: BTreeMap<String, u64>,
     host_capabilities: BTreeMap<String, String>,
-    work_deadline_ms: BTreeMap<String, u64>,
+    work_deadline_ms: BTreeMap<String, Option<u64>>,
     receipt_query_capability: String,
     policy_defaults: ProductionClientPolicy,
     policy_overrides: BTreeMap<String, ProductionClientPolicyOverride>,
@@ -206,7 +206,7 @@ pub(crate) struct ResolvedMaintenanceRoute {
     operation_type: String,
     handler: ProductionClientHandler,
     canonical_effect: ProductionClientCanonicalEffect,
-    work_deadline_ms: u64,
+    work_deadline_ms: Option<u64>,
     semantic_success: Option<ProductionClientSemanticSuccess>,
 }
 
@@ -215,7 +215,7 @@ impl ResolvedMaintenanceRoute {
         &self.operation_type
     }
 
-    pub(crate) fn work_deadline_ms(&self) -> u64 {
+    pub(crate) fn work_deadline_ms(&self) -> Option<u64> {
         self.work_deadline_ms
     }
 
@@ -235,11 +235,16 @@ impl ResolvedMaintenanceRoute {
             .begin_maintenance(self.canonical_effect);
         let observed_at = Instant::now();
         let (outcome, sql_observation) = observe_repository_sql(|| {
-            with_request_context(
-                Duration::from_millis(self.work_deadline_ms),
-                debug_events_enabled().then_some(request_id),
-                || with_operation_context(operation_id, || (self.handler)(applications, args)),
-            )
+            let execute =
+                || with_operation_context(operation_id, || (self.handler)(applications, args));
+            match self.work_deadline_ms {
+                Some(deadline) => with_request_context(
+                    Duration::from_millis(deadline),
+                    debug_events_enabled().then_some(request_id),
+                    execute,
+                ),
+                None => execute(),
+            }
         });
         emit_query_observation(&self.operation_type, &outcome, sql_observation);
         if let (Some(maintenance), Ok(result)) = (canonical_maintenance.as_mut(), outcome.as_ref())
@@ -473,7 +478,7 @@ impl ProductionClientCatalog {
             operation_type: capability.to_owned(),
             handler: route.entry.handler,
             canonical_effect: route.entry.canonical_effect,
-            work_deadline_ms: route.metadata.work_deadline_ms?,
+            work_deadline_ms: route.metadata.work_deadline_ms,
             semantic_success: route.metadata.semantic_success.clone(),
         })
     }
@@ -683,7 +688,7 @@ fn production_client_operation_manifest(
                 !manifest.access.contains_key(capability)
                     || resolved_policy(&manifest, capability).receipt
                         != ProductionClientReceipt::PublicMaintenanceOperation
-                    || !(100..=1_800_000).contains(deadline)
+                    || deadline.is_some_and(|ms| !(100..=1_800_000).contains(&ms))
             })
         || manifest.access.keys().any(|capability| {
             (resolved_policy(&manifest, capability).receipt
@@ -740,7 +745,7 @@ fn production_client_operation_metadata(
                     request_bytes: manifest.request_bytes,
                     response_bytes: manifest.response_bytes,
                     deadline_ms,
-                    work_deadline_ms: manifest.work_deadline_ms.get(capability).copied(),
+                    work_deadline_ms: manifest.work_deadline_ms.get(capability).copied().flatten(),
                     semantic_success: manifest.semantic_success.get(capability).cloned(),
                 },
             )
@@ -1702,7 +1707,11 @@ mod dispatch_integration_tests {
             .resolve_maintenance("client.refreshReferenceSidecarNow")
             .expect("maintenance route");
         assert_eq!(route.operation_type(), "client.refreshReferenceSidecarNow");
-        assert!(route.work_deadline_ms() >= 100);
+        assert!(
+            route
+                .work_deadline_ms()
+                .is_some_and(|deadline| deadline >= 100)
+        );
 
         assert!(catalog.resolve_maintenance("client.listTopics").is_none());
         assert!(

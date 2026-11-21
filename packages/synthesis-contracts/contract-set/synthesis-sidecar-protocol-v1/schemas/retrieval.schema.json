@@ -2,6 +2,364 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/retrieval.schema.json",
   "$defs": {
+    "SemanticEvidenceSearchRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["query"],
+      "if": {
+        "required": ["target"],
+        "properties": { "target": { "const": "topic" } }
+      },
+      "then": {
+        "properties": {
+          "libraryIds": false,
+          "collectionRef": false,
+          "itemRefs": false,
+          "sourceKinds": false
+        }
+      },
+      "else": {
+        "properties": { "topicIds": false, "sections": false }
+      },
+      "properties": {
+        "query": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "pattern": "\\S"
+        },
+        "target": {
+          "enum": ["paper", "topic"],
+          "default": "paper"
+        },
+        "libraryIds": {
+          "$ref": "search.schema.json#/$defs/ResolvedLibraryIds"
+        },
+        "collectionRef": {
+          "$ref": "#/$defs/PaperRef"
+        },
+        "itemRefs": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/PaperRef"
+          }
+        },
+        "sourceKinds": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 3,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "search.schema.json#/$defs/SourceKind"
+          }
+        },
+        "topicIds": {
+          "type": "array",
+          "maxItems": 100,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        },
+        "sections": {
+          "type": "array",
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "topic-domain.schema.json#/$defs/TopicSectionName"
+          }
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 12,
+          "default": 8
+        }
+      }
+    },
+    "SemanticEvidenceContextRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["evidenceRef"],
+      "properties": {
+        "evidenceRef": {
+          "$ref": "#/$defs/SemanticEvidenceRef"
+        }
+      }
+    },
+    "SemanticEvidenceRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["publication", "identity", "fragmentId", "sourceVersion"],
+      "properties": {
+        "publication": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "identity": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 640
+        },
+        "fragmentId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 768
+        },
+        "sourceVersion": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      }
+    },
+    "SemanticEvidencePassage": {
+      "type": "object",
+      "additionalProperties": false,
+      "if": {
+        "required": ["topicId"],
+        "properties": {
+          "topicId": { "$ref": "#/$defs/SemanticEvidenceTopicId" }
+        }
+      },
+      "then": {
+        "properties": {
+          "itemRef": false,
+          "source": { "$ref": "#/$defs/SemanticEvidenceTopicSource" },
+          "location": { "$ref": "#/$defs/SemanticEvidenceTopicLocation" }
+        }
+      },
+      "else": {
+        "required": ["itemRef"],
+        "properties": {
+          "itemRef": { "$ref": "#/$defs/PaperRef" },
+          "source": { "$ref": "search.schema.json#/$defs/EvidenceSource" },
+          "location": { "$ref": "search.schema.json#/$defs/EvidenceLocation" }
+        }
+      },
+      "required": [
+        "evidenceRef",
+        "content",
+        "format",
+        "source",
+        "sourceVersion",
+        "location"
+      ],
+      "properties": {
+        "evidenceRef": {
+          "$ref": "#/$defs/SemanticEvidenceRef"
+        },
+        "itemRef": {
+          "$ref": "#/$defs/PaperRef"
+        },
+        "topicId": {
+          "$ref": "#/$defs/SemanticEvidenceTopicId"
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 1024
+        },
+        "content": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "format": {
+          "enum": ["text", "markdown"]
+        },
+        "source": {
+          "oneOf": [
+            {
+              "$ref": "search.schema.json#/$defs/EvidenceSource"
+            },
+            { "$ref": "#/$defs/SemanticEvidenceTopicSource" }
+          ]
+        },
+        "sourceVersion": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "location": {
+          "oneOf": [
+            {
+              "$ref": "search.schema.json#/$defs/EvidenceLocation"
+            },
+            { "$ref": "#/$defs/SemanticEvidenceTopicLocation" }
+          ]
+        },
+        "score": {
+          "type": "number",
+          "minimum": -1,
+          "maximum": 1
+        },
+        "match": {
+          "type": "boolean"
+        }
+      }
+    },
+    "SemanticEvidenceTopicId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "SemanticEvidenceTopicSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "section"],
+      "properties": {
+        "kind": { "const": "topic" },
+        "section": {
+          "$ref": "topic-domain.schema.json#/$defs/TopicSectionName"
+        }
+      }
+    },
+    "SemanticEvidenceTopicLocation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["unit", "field", "range"],
+      "properties": {
+        "unit": { "const": "topic_section" },
+        "field": { "$ref": "topic-domain.schema.json#/$defs/TopicSectionName" },
+        "range": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["start", "end"],
+          "properties": {
+            "start": { "type": "integer", "minimum": 0 },
+            "end": { "type": "integer", "minimum": 1 }
+          }
+        }
+      }
+    },
+    "SemanticEvidenceSearchResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "method", "results", "coverage", "issues"],
+      "properties": {
+        "status": {
+          "enum": ["completed", "limited", "unavailable"]
+        },
+        "method": {
+          "enum": ["vector", null]
+        },
+        "results": {
+          "type": "array",
+          "maxItems": 12,
+          "items": {
+            "$ref": "#/$defs/SemanticEvidencePassage"
+          }
+        },
+        "coverage": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["vector"],
+          "properties": {
+            "vector": {
+              "enum": ["complete", "limited", "unavailable"]
+            },
+            "sourceKinds": {
+              "type": "array",
+              "maxItems": 4,
+              "uniqueItems": true,
+              "items": {
+                "enum": ["metadata", "fulltext", "analysis", "topic"]
+              }
+            }
+          }
+        },
+        "issues": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        }
+      }
+    },
+    "SemanticEvidenceContextResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "method", "results", "coverage", "issues"],
+      "properties": {
+        "status": {
+          "enum": ["completed", "limited", "unavailable"]
+        },
+        "method": {
+          "enum": ["vector", null]
+        },
+        "results": {
+          "type": "array",
+          "maxItems": 3,
+          "items": {
+            "$ref": "#/$defs/SemanticEvidencePassage"
+          }
+        },
+        "coverage": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["vector"],
+          "properties": {
+            "vector": {
+              "enum": ["complete", "limited", "unavailable"]
+            },
+            "sourceKinds": {
+              "type": "array",
+              "maxItems": 4,
+              "uniqueItems": true,
+              "items": {
+                "enum": ["metadata", "fulltext", "analysis", "topic"]
+              }
+            }
+          }
+        },
+        "issues": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        }
+      }
+    },
+    "SearchSemanticEvidenceClientRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["args"],
+      "properties": {
+        "args": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": {
+            "$ref": "#/$defs/SemanticEvidenceSearchRequest"
+          }
+        }
+      }
+    },
+    "ReadSemanticContextClientRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["args"],
+      "properties": {
+        "args": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": {
+            "$ref": "#/$defs/SemanticEvidenceContextRequest"
+          }
+        }
+      }
+    },
     "EncodingIdentity": {
       "type": "object",
       "additionalProperties": false,
@@ -270,6 +628,14 @@
         "issues"
       ],
       "properties": {
+        "maintenance": {
+          "oneOf": [
+            {
+              "$ref": "client-webdav-maintenance.schema.json#/$defs/MaintenanceOperation"
+            },
+            { "type": "null" }
+          ]
+        },
         "enabled": {
           "type": "boolean"
         },

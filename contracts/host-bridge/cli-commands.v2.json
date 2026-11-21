@@ -9048,6 +9048,149 @@
       "pagination": "none",
       "payloadSchemaSource": "target-capability"
     },
+    "synthesis evidence semantic-search": {
+      "resultSchemaSource": "target-capability-envelope",
+      "inputs": {
+        "query": {
+          "token": "--query",
+          "required": true,
+          "requiredWhen": [],
+          "examples": [
+            {
+              "kind": "shape-only",
+              "value": {
+                "query": "semantic evidence phrase",
+                "target": "paper",
+                "limit": 8
+              },
+              "prerequisites": [
+                "Replace example values with a non-empty query and scope valid for the selected Zotero library; limit is capped at 12."
+              ],
+              "description": "JSON container for the semantic evidence search request."
+            }
+          ],
+          "schemaSource": "target-capability"
+        }
+      },
+      "outputBoundary": { "strategy": "fixed" },
+      "target": {
+        "kind": "capability",
+        "capability": "synthesis.search_semantic_evidence",
+        "method": "POST",
+        "path": "/bridge/v2/call"
+      },
+      "binding": "passthrough",
+      "approval": "none",
+      "effect": "read",
+      "category": "read",
+      "danger": "none",
+      "effects": [
+        {
+          "kind": "none",
+          "stateChanged": false,
+          "description": "Searches the published vector index without changing Zotero-managed data."
+        }
+      ],
+      "approvalContract": {
+        "kind": "none",
+        "timing": "none",
+        "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
+      },
+      "handleTransitions": [],
+      "recovery": [
+        {
+          "when": "The semantic search is limited or unavailable.",
+          "stateCheck": "none",
+          "requiresHandles": [],
+          "action": "Inspect coverage and issues; narrow the scope or retry only after the source owner is available.",
+          "nextCommand": "synthesis evidence semantic-search"
+        }
+      ],
+      "operationalAliases": [
+        "synthesis evidence semantic-search",
+        "synthesis",
+        "evidence",
+        "semantic-search",
+        "query",
+        "JSON_OR_FILE"
+      ],
+      "hiddenFromIntentSearch": false,
+      "pagination": "none",
+      "payloadSchemaSource": "target-capability"
+    },
+    "synthesis evidence context": {
+      "resultSchemaSource": "target-capability-envelope",
+      "inputs": {
+        "query": {
+          "token": "--query",
+          "required": true,
+          "requiredWhen": [],
+          "examples": [
+            {
+              "kind": "shape-only",
+              "value": {
+                "evidenceRef": {
+                  "publication": "publication-id",
+                  "identity": "source-identity",
+                  "fragmentId": "fragment-id",
+                  "sourceVersion": "source-version"
+                }
+              },
+              "prerequisites": [
+                "Use the evidence reference returned by a semantic evidence search; replace example identifiers with the current publication, identity, fragment and source version."
+              ],
+              "description": "JSON container for the semantic evidence context request."
+            }
+          ],
+          "schemaSource": "target-capability"
+        }
+      },
+      "outputBoundary": { "strategy": "fixed" },
+      "target": {
+        "kind": "capability",
+        "capability": "synthesis.read_semantic_context",
+        "method": "POST",
+        "path": "/bridge/v2/call"
+      },
+      "binding": "passthrough",
+      "approval": "none",
+      "effect": "read",
+      "category": "read",
+      "danger": "none",
+      "effects": [
+        {
+          "kind": "none",
+          "stateChanged": false,
+          "description": "Reads neighbouring fragments of one verified evidence source without changing Zotero-managed data."
+        }
+      ],
+      "approvalContract": {
+        "kind": "none",
+        "timing": "none",
+        "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
+      },
+      "handleTransitions": [],
+      "recovery": [
+        {
+          "when": "The evidence reference is stale or its source is no longer available.",
+          "stateCheck": "none",
+          "requiresHandles": [],
+          "action": "Preserve the structured reason and run a fresh semantic evidence search; do not substitute another source for the rejected reference.",
+          "nextCommand": "synthesis evidence semantic-search"
+        }
+      ],
+      "operationalAliases": [
+        "synthesis evidence context",
+        "synthesis",
+        "evidence",
+        "context",
+        "query",
+        "JSON_OR_FILE"
+      ],
+      "hiddenFromIntentSearch": false,
+      "pagination": "none",
+      "payloadSchemaSource": "target-capability"
+    },
     "synthesis topic list": {
       "resultSchemaSource": "target-capability-envelope",
       "inputs": {

@@ -270,7 +270,7 @@ Index creation and full rebuild SHALL require explicit user maintenance. Reliabl
 #### Scenario: Empty index is opened
 
 - **WHEN** the user opens Home or runs search without an index
-- **THEN** no build starts and searches use their independent lexical behavior
+- **THEN** no build starts. Existing lexical and hybrid searches keep their independent lexical behavior. Explicit semantic evidence search reports the missing index.
 
 ### Requirement: Semantic ranking SHALL respect hard scope and original vectors
 
@@ -313,6 +313,15 @@ Post-publication Discovery SHALL use Topic description and positive interests, e
 
 - **WHEN** Topic constraints or candidate material change
 - **THEN** a previously screened-out candidate can be reconsidered; explicit user rejection persists until explicit restore
+
+### Requirement: Workbench and agent semantic searches SHALL share retrieval
+
+Workbench semantic search SHALL reuse the agent evidence implementation for ranking and source verification. Workbench retains its result presentation, local threshold and source opening behavior.
+
+#### Scenario: A query is issued through either surface
+
+- **WHEN** effective scope and requested result count agree
+- **THEN** the surfaces return the same ordered, verified sources within their respective response budgets.
 
 ### Requirement: Inspect the published index in Synthesis Workbench
 

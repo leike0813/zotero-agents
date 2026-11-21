@@ -8,7 +8,7 @@
     "workerOperationRoster": "../../../../rust/synthesis-sidecar/crates/synthesis-protocol/src/lib.rs"
   },
   "expected": {
-    "crossProcessCapabilities": 147,
+    "crossProcessCapabilities": 149,
     "deterministicWorkerOperations": 15
   },
   "documents": [
@@ -1271,6 +1271,22 @@
       "domain": "retrieval",
       "requestSchemaRef": "schemas/retrieval.schema.json#/$defs/RetrievalExplorerClientRequest",
       "resultSchemaRef": "schemas/retrieval.schema.json#/$defs/RetrievalExplorerResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/sidecarError"
+    },
+    {
+      "capability": "client.searchSemanticEvidence",
+      "direction": "host-to-sidecar",
+      "domain": "retrieval",
+      "requestSchemaRef": "schemas/retrieval.schema.json#/$defs/SearchSemanticEvidenceClientRequest",
+      "resultSchemaRef": "schemas/retrieval.schema.json#/$defs/SemanticEvidenceSearchResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/sidecarError"
+    },
+    {
+      "capability": "client.readSemanticContext",
+      "direction": "host-to-sidecar",
+      "domain": "retrieval",
+      "requestSchemaRef": "schemas/retrieval.schema.json#/$defs/ReadSemanticContextClientRequest",
+      "resultSchemaRef": "schemas/retrieval.schema.json#/$defs/SemanticEvidenceContextResult",
       "errorSchemaRef": "schemas/common.schema.json#/$defs/sidecarError"
     },
     {

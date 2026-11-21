@@ -54,7 +54,7 @@ const RETRIEVAL_MAX_OPTIONS_KEY_CHARS: usize = 128;
 const RETRIEVAL_SOURCE_READ_PAGE_UTF16: usize = 65_536;
 const ANALYSIS_ROOT_FIELD: &str = "$";
 const RETRIEVAL_QUERY_LIFETIME_MS: u64 = 30_000;
-const RETRIEVAL_BUILD_LIFETIME_MS: u64 = 60_000;
+const RETRIEVAL_ENCODE_BATCH_DEADLINE_MS: u64 = 60_000;
 
 /// Reverse-Host embedding capability. Describe performs no network call and
 /// reports the identity only after an explicit synthetic connection test;
@@ -221,6 +221,7 @@ pub struct ScoredTopicFragment {
 pub struct RetrievalQueryOutcome {
     pub publication: String,
     pub(crate) target_has_sources: bool,
+    pub(crate) ready_source_kinds: BTreeSet<String>,
     pub results: Vec<ScoredFragment>,
     pub issues: Vec<Value>,
     pub limited: bool,
@@ -888,6 +889,11 @@ impl RetrievalApplication {
         Ok(RetrievalQueryOutcome {
             publication,
             target_has_sources: !groups.is_empty(),
+            ready_source_kinds: groups
+                .iter()
+                .filter(|group| group.status == "ready")
+                .filter_map(|group| source_kind_of(&group.source_json))
+                .collect(),
             results,
             issues,
             limited: unavailable > 0 || truncated,
@@ -1146,7 +1152,10 @@ impl RetrievalApplication {
                     Err(code) => {
                         if matches!(
                             code.as_str(),
-                            "operation_canceled" | "operation_cancelled" | "operation_timeout"
+                            "operation_canceled"
+                                | "operation_cancelled"
+                                | "operation_timeout"
+                                | "retrieval_encoding_batch_timeout"
                         ) {
                             return Err(code);
                         }
@@ -1171,7 +1180,10 @@ impl RetrievalApplication {
                 Err(code) => {
                     if matches!(
                         code.as_str(),
-                        "operation_canceled" | "operation_cancelled" | "operation_timeout"
+                        "operation_canceled"
+                            | "operation_cancelled"
+                            | "operation_timeout"
+                            | "retrieval_encoding_batch_timeout"
                     ) {
                         return Err(code);
                     }
@@ -1475,7 +1487,9 @@ impl RetrievalApplication {
                 self.sources
                     .list_sources(input.clone())
                     .map_err(|code| match code.as_str() {
-                        "invalid_request" | "basis_mismatch" | "conflict" => code,
+                        "invalid_request" | "basis_mismatch" | "conflict" | "operation_timeout" => {
+                            code
+                        }
                         _ => "source_unavailable".to_owned(),
                     })?;
             let current = page
@@ -1732,13 +1746,21 @@ impl RetrievalApplication {
         identity: &EncodingIdentity,
         inputs: &[String],
     ) -> Result<Vec<Vec<f32>>, String> {
-        let deadline = now_millis() + RETRIEVAL_BUILD_LIFETIME_MS;
-        let response = self.embeddings.encode(json!({
-            "identity": identity,
-            "purpose": "document",
-            "inputs": inputs,
-            "deadlineAtMs": deadline,
-        }))?;
+        let deadline = now_millis() + RETRIEVAL_ENCODE_BATCH_DEADLINE_MS;
+        let response = self
+            .embeddings
+            .encode(json!({
+                "identity": identity,
+                "purpose": "document",
+                "inputs": inputs,
+                "deadlineAtMs": deadline,
+            }))
+            .map_err(|code| match code.as_str() {
+                "operation_timeout" | "request_timeout" | "timeout" => {
+                    "retrieval_encoding_batch_timeout".into()
+                }
+                _ => code,
+            })?;
         validate_vectors(response, identity, inputs.len())
     }
 
@@ -3238,6 +3260,85 @@ mod tests {
             json!({"operation":"fragments","identity":"1:AAAA","publication":first["publication"]}),
         );
         assert_eq!(fragments["rows"][0]["preview"], "alpha");
+    }
+
+    #[test]
+    fn semantic_evidence_cites_verified_content_and_rejects_old_publications() {
+        let text = "Original evidence 😀";
+        let source = descriptor("AAAA", "title", "v1", text.encode_utf16().count());
+        let fixture = fixture("semantic-evidence", vec![(source, text.to_owned())]);
+        let application = &fixture.application;
+        let request = json!({"query":"evidence","libraryIds":[1]});
+        let search = || {
+            application
+                .search_semantic_evidence(request.clone(), &checkpoint())
+                .unwrap()
+        };
+        assert_eq!(search()["status"], "unavailable");
+
+        application
+            .maintain("build", maintenance(), &checkpoint())
+            .unwrap();
+        let answer = search();
+        assert_eq!(answer["status"], "completed");
+        let hit = &answer["results"][0];
+        assert_eq!(hit["content"], text);
+        assert_eq!(hit["itemRef"]["key"], "AAAA");
+        assert_eq!(hit["location"]["range"]["end"], text.encode_utf16().count());
+        let context = || {
+            application
+                .read_semantic_context(json!({"evidenceRef":hit["evidenceRef"]}), &checkpoint())
+                .unwrap()
+        };
+        assert_eq!(context()["results"][0]["content"], text);
+
+        application
+            .maintain("rebuild", maintenance(), &checkpoint())
+            .unwrap();
+        assert_eq!(context()["status"], "unavailable");
+        assert_eq!(context()["issues"][0], "basis_mismatch");
+    }
+
+    #[test]
+    fn semantic_context_returns_adjacent_ranges_without_query_encoding() {
+        let text = format!(
+            "{}{}{}",
+            "a".repeat(2048),
+            "b".repeat(2048),
+            "c".repeat(2048)
+        );
+        let source = descriptor("AAAA", "abstract", "v1", text.len());
+        let mut fixture = fixture("semantic-neighbors", vec![(source, text)]);
+        let app = &mut fixture.application;
+        app.maintain("build", maintenance(), &checkpoint()).unwrap();
+        let hit = &app
+            .search_semantic_evidence(json!({"query":"bbbbbb","libraryIds":[1]}), &checkpoint())
+            .unwrap()["results"][0];
+        assert_eq!(hit["location"]["range"]["start"], 2048);
+        let reference = hit["evidenceRef"].clone();
+
+        struct Offline;
+        impl RetrievalEmbeddingPort for Offline {
+            fn describe(&self) -> Result<Value, String> {
+                Ok(json!({"enabled":false}))
+            }
+            fn encode(&self, _: Value) -> Result<Value, String> {
+                panic!("reading stored context must not encode")
+            }
+        }
+        app.embeddings = Arc::new(Offline);
+        let context = app
+            .read_semantic_context(json!({"evidenceRef": reference}), &checkpoint())
+            .unwrap();
+        let rows = context["results"].as_array().unwrap();
+        assert_eq!(rows.len(), 3);
+        assert_eq!(
+            rows.iter()
+                .map(|row| row["location"]["range"]["start"].as_u64().unwrap())
+                .collect::<Vec<_>>(),
+            [0, 2048, 4096]
+        );
+        assert_eq!(rows[1]["match"], true);
     }
 
     #[test]

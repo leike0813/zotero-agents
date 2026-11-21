@@ -69,7 +69,9 @@ This section is generated from the executable Host Bridge capability and CLI com
 | `library.readiness_audit` | library | `none` | `object` | `library readiness audit`, `library readiness missing-analysis`, `library readiness missing-markdown`, `library readiness missing-pdf` | response:paged, mcp-mirror |
 | `library.search_items` | library | `none` | `object required` | `library item search` | response:paged, mcp-mirror |
 | `library.sync_snapshot` | library | `none` | `object required` | `library snapshot` | response:paged, mcp-mirror |
+| `synthesis.read_semantic_context` | library | `none` | `object required` | `synthesis evidence context` | response:limit-bounded, mcp-mirror |
 | `synthesis.search_evidence` | library | `none` | `object required` | `synthesis evidence search` | response:limit-bounded, mcp-mirror |
+| `synthesis.search_semantic_evidence` | library | `none` | `object required` | `synthesis evidence semantic-search` | response:limit-bounded, mcp-mirror |
 | `topics.export_research_bundle` | topics | `none` | `object required` | `synthesis topic export-research-bundle` | response:file-output, mcp-mirror |
 | `topics.find_by_paper_ref` | topics | `none` | `object` | `synthesis topic find-by-paper-ref` | response:selector-bounded, mcp-mirror |
 | `topics.get_context` | topics | `none` | `object` | `synthesis topic get-context` | response:file-output, mcp-mirror |
@@ -167,7 +169,9 @@ This section is generated from the executable Host Bridge capability and CLI com
 | `synthesis cache refresh-reference-sidecar` | `reference_sidecar.refresh` | capability | dangerous |
 | `synthesis cache status` | `GET /bridge/v2/synthesis/cache/status` | endpoint | - |
 | `synthesis concept query` | `concepts.query` | capability | - |
+| `synthesis evidence context` | `synthesis.read_semantic_context` | capability | - |
 | `synthesis evidence search` | `synthesis.search_evidence` | capability | - |
+| `synthesis evidence semantic-search` | `synthesis.search_semantic_evidence` | capability | - |
 | `synthesis graph get-layout` | `citation_graph.get_layout` | capability | cache-view |
 | `synthesis graph get-metrics` | `citation_graph.get_metrics` | capability | cache-view |
 | `synthesis graph get-slice` | `citation_graph.get_slice` | capability | cache-view |

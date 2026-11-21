@@ -1,7 +1,7 @@
 {
   "schema": "synthesis-production-client-capabilities.v1",
   "canonicalization": "sorted-newline-terminated",
-  "fingerprintSha256": "1095fe869a4acc037feefcab3a400ec4483b086a23d98982c3456f6ebfc81c78",
+  "fingerprintSha256": "560eb6591c3c41ecee04736c723e096959136e8f38d784080321fff99bddbfc2",
   "capabilities": [
     "client.searchTopics",
     "client.searchEvidence",
@@ -117,6 +117,8 @@
     "client.cleanupRetrievalIndex",
     "client.recommendSimilarPapers",
     "client.exploreRetrievalIndex",
+    "client.searchSemanticEvidence",
+    "client.readSemanticContext",
     "client.invalidateRetrievalSources"
   ]
 }

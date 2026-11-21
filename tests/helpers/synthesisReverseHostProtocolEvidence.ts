@@ -463,6 +463,8 @@ export function synthesisProductionDecoderDrivers(): SynthesisProductionDecoderD
         "client.cleanupRetrievalIndex",
         "client.recommendSimilarPapers",
         "client.exploreRetrievalIndex",
+        "client.searchSemanticEvidence",
+        "client.readSemanticContext",
         "client.invalidateRetrievalSources",
       ],
       package: "synthesis-sidecar",

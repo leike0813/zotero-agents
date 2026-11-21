@@ -67,6 +67,18 @@
       "cases": ["missing", "page", "invalid_args", "oversized", "expired"]
     },
     {
+      "id": "client.searchSemanticEvidence",
+      "access": "read",
+      "introducedAfterBaseline": true,
+      "cases": ["missing", "verified", "invalid_args", "oversized", "expired"]
+    },
+    {
+      "id": "client.readSemanticContext",
+      "access": "read",
+      "introducedAfterBaseline": true,
+      "cases": ["verified", "stale", "invalid_args", "oversized", "expired"]
+    },
+    {
       "id": "client.recommendSimilarPapers",
       "access": "read",
       "introducedAfterBaseline": true,

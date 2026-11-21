@@ -196,6 +196,47 @@ impl Repository {
         .collect::<Result<Vec<_>, _>>()
         .map_err(map_sqlite_error)
     }
+
+    /// Read citation locations only. Neighbor selection uses source offsets,
+    /// since fragment identifiers do not sort numerically.
+    pub fn retrieval_context_locations(
+        &self,
+        publication: &str,
+        identity: &str,
+        fragment: &str,
+        version: &str,
+    ) -> Result<Vec<(String, String, String)>, String> {
+        let mut stmt = self.connection()?.prepare(
+            "WITH hit AS (
+               SELECT f.publication_id,f.group_id,f.fragment_id,f.range_start FROM synt_retrieval_fragment f
+               JOIN synt_retrieval_group g USING (publication_id,group_id)
+               WHERE f.publication_id=?1 AND f.item_identity=?2 AND f.fragment_id=?3
+                 AND f.source_version=?4 AND g.source_version=?4 AND g.status='ready'
+             ), neighbors AS (
+               SELECT f.fragment_id, f.source_json, f.location_json, f.range_start
+               FROM hit JOIN synt_retrieval_fragment f USING (publication_id,group_id)
+               WHERE f.source_version=?4 AND f.item_identity=?2
+                 AND f.fragment_id IN (
+                   hit.fragment_id,
+                   (SELECT fragment_id FROM synt_retrieval_fragment
+                    WHERE publication_id=?1 AND group_id=hit.group_id AND source_version=?4
+                      AND range_start<hit.range_start ORDER BY range_start DESC, fragment_id LIMIT 1),
+                   (SELECT fragment_id FROM synt_retrieval_fragment
+                    WHERE publication_id=?1 AND group_id=hit.group_id AND source_version=?4
+                      AND range_start>hit.range_start ORDER BY range_start, fragment_id LIMIT 1)
+                 )
+             )
+             SELECT fragment_id,source_json,location_json FROM neighbors ORDER BY range_start,fragment_id"
+        ).map_err(map_sqlite_error)?;
+        stmt.query_map(
+            rusqlite::params![publication, identity, fragment, version],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .map_err(map_sqlite_error)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(map_sqlite_error)
+    }
+
     pub fn get_retrieval_state(&self) -> Result<Option<RetrievalStateRecord>, String> {
         self.connection()?
             .query_row(

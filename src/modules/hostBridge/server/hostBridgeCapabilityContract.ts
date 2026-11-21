@@ -6,6 +6,7 @@ import { ACQUISITION_SCHEMAS } from "../../../schemas/zoteroHostAcquisitionSchem
 import capabilityContractJson from "../../../../contracts/host-bridge/capabilities.v2.json";
 import capabilityContractSchema from "../../../../contracts/host-bridge/schemas/host-bridge-capabilities.v2.schema.json";
 import evidenceSearchSchema from "../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/search.schema.json";
+import retrievalSchema from "../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/retrieval.schema.json";
 import reverseHostSchema from "../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/reverse-host.schema.json";
 import topicDomainSchema from "../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/topic-domain.schema.json";
 import {
@@ -124,6 +125,7 @@ const ajv = new Ajv2020({
 ajv.addSchema(reverseHostSchema);
 ajv.addSchema(evidenceSearchSchema);
 ajv.addSchema(topicDomainSchema);
+ajv.addSchema(retrievalSchema);
 const validateContract = ajv.compile(
   capabilityContractSchema as Record<string, unknown>,
 );

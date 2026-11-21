@@ -730,6 +730,18 @@ pub struct EvidenceArgs {
 pub enum EvidenceCommand {
     #[command(about = "Search metadata, full-text, and analysis evidence")]
     Search(EvidenceSearchArgs),
+
+    #[command(
+        about = "Search the published vector index for citable semantic evidence",
+        long_about = "Call Zotero capability synthesis.search_semantic_evidence. --query is the JSON request container for the semantic evidence search and is forwarded without field translation. It requires a non-empty query of at most 4096 UTF-16 code units, optionally targets papers or topics, and accepts a limit of at most 12."
+    )]
+    SemanticSearch(SemanticEvidenceSearchArgs),
+
+    #[command(
+        about = "Read neighbouring fragments of one verified semantic evidence hit",
+        long_about = "Call Zotero capability synthesis.read_semantic_context. --query is the JSON request container that carries the evidenceRef returned by a semantic evidence search and is forwarded without field translation. A stale reference returns a structured reason instead of another source."
+    )]
+    Context(SemanticEvidenceContextArgs),
 }
 
 #[derive(Debug, Clone, Args)]
@@ -740,6 +752,30 @@ pub struct EvidenceSearchArgs {
         value_name = "JSON_OR_FILE",
         required = true,
         help = "Evidence search request as inline JSON, a file path, @file, or '-' for stdin"
+    )]
+    pub query: String,
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct SemanticEvidenceSearchArgs {
+    #[arg(
+        long,
+        alias = "input",
+        value_name = "JSON_OR_FILE",
+        required = true,
+        help = "Semantic evidence search request as inline JSON, a file path, @file, or '-' for stdin"
+    )]
+    pub query: String,
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct SemanticEvidenceContextArgs {
+    #[arg(
+        long,
+        alias = "input",
+        value_name = "JSON_OR_FILE",
+        required = true,
+        help = "Semantic evidence context request as inline JSON, a file path, @file, or '-' for stdin"
     )]
     pub query: String,
 }
@@ -2964,10 +3000,62 @@ mod tests {
                         input.query,
                         r#"{"query":"needle","libraryIds":[1],"limit":10}"#
                     ),
+                    EvidenceCommand::SemanticSearch(_) | EvidenceCommand::Context(_) => {
+                        panic!("expected Synthesis evidence search")
+                    }
                 },
                 _ => panic!("expected Synthesis evidence command"),
             },
             _ => panic!("expected Synthesis evidence search"),
+        }
+    }
+
+    #[test]
+    fn parses_synthesis_semantic_evidence_commands_with_json_query_container() {
+        let search = Cli::try_parse_from([
+            "zotero-bridge",
+            "synthesis",
+            "evidence",
+            "semantic-search",
+            "--query",
+            r#"{"query":"semantic needle","target":"paper","limit":8}"#,
+        ])
+        .unwrap();
+        let context = Cli::try_parse_from([
+            "zotero-bridge",
+            "synthesis",
+            "evidence",
+            "context",
+            "--query",
+            r#"{"evidenceRef":{"publication":"p","identity":"i","fragmentId":"f","sourceVersion":"v"}}"#,
+        ])
+        .unwrap();
+
+        match search.command {
+            Command::Synthesis(args) => match args.command {
+                SynthesisCommand::Evidence(args) => match args.command {
+                    EvidenceCommand::SemanticSearch(input) => assert_eq!(
+                        input.query,
+                        r#"{"query":"semantic needle","target":"paper","limit":8}"#
+                    ),
+                    _ => panic!("expected Synthesis semantic evidence search"),
+                },
+                _ => panic!("expected Synthesis evidence command"),
+            },
+            _ => panic!("expected Synthesis semantic evidence search"),
+        }
+        match context.command {
+            Command::Synthesis(args) => match args.command {
+                SynthesisCommand::Evidence(args) => match args.command {
+                    EvidenceCommand::Context(input) => assert_eq!(
+                        input.query,
+                        r#"{"evidenceRef":{"publication":"p","identity":"i","fragmentId":"f","sourceVersion":"v"}}"#
+                    ),
+                    _ => panic!("expected Synthesis semantic evidence context"),
+                },
+                _ => panic!("expected Synthesis evidence command"),
+            },
+            _ => panic!("expected Synthesis semantic evidence context"),
         }
     }
 

@@ -11,6 +11,7 @@ pub(super) fn retrieval_schema() -> &'static Value {
 
 fn pattern_matches(pattern: &str, text: &str) -> bool {
     match pattern {
+        "\\S" => text.chars().any(|ch| !ch.is_whitespace()),
         "^[A-Za-z0-9]+$" => {
             !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_alphanumeric())
         }

@@ -22,9 +22,10 @@ type Corpus = {
 const root = path.resolve(import.meta.dirname, "../..");
 
 export function inspectSynthesisTopicWorkbenchSurfaceParity() {
-  const corpus = readSynthesisProductionSurfaceCorpora(root).find(
+  const surface = readSynthesisProductionSurfaceCorpora(root).find(
     (surface) => surface.id === "topic-workbench",
-  )!.corpus as Corpus;
+  )!;
+  const corpus = surface.corpus as Corpus;
   const ids = corpus.operations.map((operation) => operation.id);
   const baselineOperations = corpus.operations.filter(
     (operation) => !operation.introducedAfterBaseline,
@@ -49,7 +50,7 @@ export function inspectSynthesisTopicWorkbenchSurfaceParity() {
     corpus.bounds.deadlineMs === 10000
       ? []
       : ["invalid corpus bounds"]),
-    ...(ids.length === 29 && new Set(ids).size === ids.length
+    ...(ids.length === surface.operations && new Set(ids).size === ids.length
       ? []
       : ["invalid operation count"]),
     ...baselineOperations

@@ -253,6 +253,16 @@ pub fn synthesis(config: &BridgeConfig, args: SynthesisArgs) -> Result<Value, Cl
                 "synthesis.search_evidence",
                 read_contract_json_arg("query", Some(input.query.as_str()))?,
             ),
+            EvidenceCommand::SemanticSearch(input) => call_declared_capability(
+                config,
+                "synthesis.search_semantic_evidence",
+                read_contract_json_arg("query", Some(input.query.as_str()))?,
+            ),
+            EvidenceCommand::Context(input) => call_declared_capability(
+                config,
+                "synthesis.read_semantic_context",
+                read_contract_json_arg("query", Some(input.query.as_str()))?,
+            ),
         },
         SynthesisCommand::Topic(args) => topics(config, args),
         SynthesisCommand::Schema(args) => schemas(config, args),

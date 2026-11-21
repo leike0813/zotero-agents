@@ -22,11 +22,23 @@ import type {
   SynthesisEvidenceSearchRequest,
   SynthesisEvidenceSearchResult,
 } from "./search";
+import type {
+  SynthesisSemanticEvidenceContextRequest,
+  SynthesisSemanticEvidenceContextResult,
+  SynthesisSemanticEvidenceSearchRequest,
+  SynthesisSemanticEvidenceSearchResult,
+} from "./retrieval";
 
 export interface SynthesisClient {
   searchEvidence(
     request: SynthesisEvidenceSearchRequest,
   ): Promise<SynthesisEvidenceSearchResult>;
+  searchSemanticEvidence(
+    request: SynthesisSemanticEvidenceSearchRequest,
+  ): Promise<SynthesisSemanticEvidenceSearchResult>;
+  readSemanticContext(
+    request: SynthesisSemanticEvidenceContextRequest,
+  ): Promise<SynthesisSemanticEvidenceContextResult>;
   readonly concepts: SynthesisConceptsClient;
   readonly graph: SynthesisGraphClient;
   readonly references: SynthesisReferencesClient;

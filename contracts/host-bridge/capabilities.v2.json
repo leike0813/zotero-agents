@@ -5974,6 +5974,27 @@
         "responseSizing": "limit-bounded"
       }
     },
+    "synthesis.read_semantic_context": {
+      "category": "library",
+      "summary": "Expand one verified semantic evidence hit into the neighbouring fragments of the same source. Returns current provenance, vector coverage and explicit issues.",
+      "inputSchema": {
+        "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/retrieval.schema.json#/$defs/SemanticEvidenceContextRequest"
+      },
+      "outputSchema": {
+        "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/retrieval.schema.json#/$defs/SemanticEvidenceContextResult"
+      },
+      "effect": "read",
+      "approval": "none",
+      "exposure": {
+        "public": true,
+        "debugOnly": false,
+        "dangerous": false,
+        "cacheView": false,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "limit-bounded"
+      }
+    },
     "synthesis.search_evidence": {
       "category": "library",
       "summary": "Search current Zotero library evidence using lexical and available vector retrieval. Returns verified source passages and query coverage.",
@@ -5982,6 +6003,27 @@
       },
       "outputSchema": {
         "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/EvidenceSearchResult"
+      },
+      "effect": "read",
+      "approval": "none",
+      "exposure": {
+        "public": true,
+        "debugOnly": false,
+        "dangerous": false,
+        "cacheView": false,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "limit-bounded"
+      }
+    },
+    "synthesis.search_semantic_evidence": {
+      "category": "library",
+      "summary": "Search the published vector index for citable semantic evidence over papers or topics. Returns verified excerpts with source provenance, vector coverage and explicit issues.",
+      "inputSchema": {
+        "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/retrieval.schema.json#/$defs/SemanticEvidenceSearchRequest"
+      },
+      "outputSchema": {
+        "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/retrieval.schema.json#/$defs/SemanticEvidenceSearchResult"
       },
       "effect": "read",
       "approval": "none",

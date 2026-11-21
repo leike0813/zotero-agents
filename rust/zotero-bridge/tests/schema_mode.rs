@@ -170,6 +170,78 @@ fn topic_search_schema_describes_full_result_cursor_boundary() {
 }
 
 #[test]
+fn semantic_evidence_commands_own_the_canonical_retrieval_requests() {
+    for (argv, definition) in [
+        (
+            &["synthesis", "evidence", "semantic-search"][..],
+            "SemanticEvidenceSearchRequest",
+        ),
+        (
+            &["synthesis", "evidence", "context"][..],
+            "SemanticEvidenceContextRequest",
+        ),
+    ] {
+        let mut args = argv.to_vec();
+        args.push("--schema");
+        let (_, output, _) = run(&args);
+        assert_eq!(
+            output["data"]["inputs"]["query"]["schema"]["$ref"],
+            format!(
+                "https://zotero-agents.local/synthesis/sidecar-protocol/v1/retrieval.schema.json#/$defs/{definition}"
+            )
+        );
+    }
+}
+
+#[test]
+fn semantic_evidence_commands_target_read_only_approved_capabilities() {
+    for (command, capability) in [
+        (
+            "synthesis evidence semantic-search",
+            "synthesis.search_semantic_evidence",
+        ),
+        (
+            "synthesis evidence context",
+            "synthesis.read_semantic_context",
+        ),
+    ] {
+        let (code, output, _) = run(&["surface", "describe", command]);
+        assert_eq!(code, 0);
+        let descriptor = &output["data"];
+        assert_eq!(descriptor["targets"][0]["target"], capability);
+        assert_eq!(descriptor["approvalContract"]["kind"], "none");
+        assert_eq!(descriptor["danger"], "none");
+        assert_eq!(descriptor["effects"][0]["stateChanged"], false);
+        assert_eq!(descriptor["outputBoundary"]["strategy"], "fixed");
+    }
+}
+
+#[test]
+fn semantic_evidence_commands_reject_requests_outside_the_shared_bounds() {
+    let (code, output, _) = run_executable(&[
+        "synthesis",
+        "evidence",
+        "semantic-search",
+        "--query",
+        r#"{"query":"needle","limit":13}"#,
+    ]);
+    assert_eq!(code, 7);
+    assert_eq!(output["error"]["code"], "command_input_invalid");
+    assert_eq!(output["error"]["details"]["argumentId"], "query");
+
+    let (code, output, _) = run_executable(&[
+        "synthesis",
+        "evidence",
+        "context",
+        "--query",
+        r#"{"evidenceRef":{"publication":"publication-id"}}"#,
+    ]);
+    assert_eq!(code, 7);
+    assert_eq!(output["error"]["code"], "command_input_invalid");
+    assert_eq!(output["error"]["details"]["argumentId"], "query");
+}
+
+#[test]
 fn enumeration_schemas_use_filter_while_search_keeps_query() {
     for command in [
         vec!["library", "items", "list", "--schema"],

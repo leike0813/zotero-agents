@@ -96,30 +96,18 @@ describe("Host Bridge agent surface contract", function () {
       "packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas",
     );
     const exampleAjv = new Ajv({ strict: false });
-    exampleAjv.addSchema(
-      JSON.parse(
-        fs.readFileSync(
-          path.join(synthesisProtocolRoot, "search.schema.json"),
-          "utf8",
+    for (const schemaName of [
+      "search.schema.json",
+      "reverse-host.schema.json",
+      "topic-domain.schema.json",
+      "retrieval.schema.json",
+    ]) {
+      exampleAjv.addSchema(
+        JSON.parse(
+          fs.readFileSync(path.join(synthesisProtocolRoot, schemaName), "utf8"),
         ),
-      ),
-    );
-    exampleAjv.addSchema(
-      JSON.parse(
-        fs.readFileSync(
-          path.join(synthesisProtocolRoot, "reverse-host.schema.json"),
-          "utf8",
-        ),
-      ),
-    );
-    exampleAjv.addSchema(
-      JSON.parse(
-        fs.readFileSync(
-          path.join(synthesisProtocolRoot, "topic-domain.schema.json"),
-          "utf8",
-        ),
-      ),
-    );
+      );
+    }
     const capabilities = JSON.parse(
       fs.readFileSync(
         path.join(root, "contracts/host-bridge/capabilities.v2.json"),

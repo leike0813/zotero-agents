@@ -472,8 +472,12 @@ application and routes are still under implementation.
 - An unreadable Topic in the selected scope fails the maintenance operation.
   The failure receipt and debug trace carry a stable reason such as
   `canonical_snapshot_incomplete` or `canonical_hash_mismatch`.
-- Cleanup after publication is a required tail with its own issue; its failure
-  never revokes a successful index.
+- Accepted build, rebuild and update can run across the former whole-operation
+  deadline. The public maintenance owner admits one retrieval operation per
+  data root. Individual source reads and embedding batches retain independent
+  deadlines and timed-out steps have separate receipt diagnostics.
+- Cleanup and Discovery use a separate post-publication budget. Their failure
+  records a tail issue and preserves the successful index.
 - Startup, queries, and Home reads never scan sources, encode missing content,
   or resume maintenance. Startup reconciliation keeps the existing
   continuation-required and external-effect-unknown classification and

@@ -874,7 +874,10 @@ function registerSynthesisWorkbenchRuntime(runtime: SynthesisWorkbenchRuntime) {
     if (readyTransition) {
       runtime.commandProgressUnavailableRetryAt = 0;
       releaseSynthesisServiceReadinessWaiters(runtime);
-      if (runtime.inFlightCommands.size) {
+      if (
+        runtime.inFlightCommands.size ||
+        isActiveRetrievalMaintenance(runtime.retrievalMaintenance)
+      ) {
         void refreshWorkbenchCommandProgress(runtime);
       }
     }
@@ -1277,16 +1280,23 @@ function ensureCommandProgressPolling(runtime: SynthesisWorkbenchRuntime) {
   }
   registerBackgroundRefreshTimer({
     owner: "synthesis-command-progress",
-    activationCondition: "synthesis command is in flight",
-    scopeKey: "in-flight synthesis commands",
-    allowedDataSources: ["synthesis command progress"],
-    maxReadShape: "current command progress snapshot only",
+    activationCondition:
+      "synthesis command is in flight or retrieval maintenance is active",
+    scopeKey: "in-flight synthesis commands and active retrieval maintenance",
+    allowedDataSources: [
+      "synthesis command progress",
+      "retrieval maintenance receipt",
+    ],
+    maxReadShape: "current command progress and retrieval maintenance receipt",
     requiresForegroundSurface: true,
     minimumIntervalMs: SYNTHESIS_WORKBENCH_COMMAND_PROGRESS_INTERVAL_MS,
     intervalMs: SYNTHESIS_WORKBENCH_COMMAND_PROGRESS_INTERVAL_MS,
   });
   runtime.commandProgressTimer = globalThis.setInterval(() => {
-    if (!runtime.inFlightCommands.size) {
+    if (
+      !runtime.inFlightCommands.size &&
+      !isActiveRetrievalMaintenance(runtime.retrievalMaintenance)
+    ) {
       clearCommandProgressPolling(runtime);
       return;
     }
@@ -1350,7 +1360,7 @@ async function refreshWorkbenchCommandProgress(
       });
       return;
     }
-    if (!runtime.snapshotInputLocked) {
+    if (runtime.inFlightCommands.size && !runtime.snapshotInputLocked) {
       const client = await getDefaultSynthesisClient();
       if (runtime.cleanedUp || synthesisServiceKnownUnavailable(runtime))
         return;
@@ -1447,7 +1457,10 @@ function runWorkbenchCommandOnce(
       })
       .finally(() => {
         runtime.inFlightCommands.delete(operation.key);
-        if (!runtime.inFlightCommands.size) {
+        if (
+          !runtime.inFlightCommands.size &&
+          !isActiveRetrievalMaintenance(runtime.retrievalMaintenance)
+        ) {
           clearCommandProgressPolling(runtime);
         }
         if (runtime.cleanedUp) return;
@@ -1591,6 +1604,26 @@ function getSynthesisRetrievalPorts(): SynthesisRetrievalPorts {
   });
 }
 
+export function setSynthesisRetrievalPortsForTests(
+  ports: {
+    settings?: Partial<SynthesisRetrievalPorts["settings"]>;
+    retrieval?: Partial<SynthesisRetrievalPorts["retrieval"]>;
+  } | null,
+) {
+  synthesisRetrievalPorts = ports
+    ? {
+        settings: {
+          ...createSynthesisEmbeddingSettingsPort(),
+          ...ports.settings,
+        },
+        retrieval: {
+          ...createNativeSynthesisRetrievalPort(),
+          ...ports.retrieval,
+        },
+      }
+    : undefined;
+}
+
 function retrievalRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -1656,16 +1689,29 @@ async function refreshRetrievalMaintenance(
   runtime: SynthesisWorkbenchRuntime,
 ): Promise<void> {
   const operation = runtime.retrievalMaintenance;
-  if (!operation) return;
-  if (operation.status !== "pending" && operation.status !== "running") return;
+  if (!isActiveRetrievalMaintenance(operation)) return;
   try {
     const { retrieval } = getSynthesisRetrievalPorts();
-    runtime.retrievalMaintenance = await retrieval.getOperation({
+    const refreshed = await retrieval.getOperation({
       operation_id: operation.operation_id,
     });
+    if (runtime.retrievalMaintenance === operation) {
+      runtime.retrievalMaintenance = refreshed;
+    }
   } catch {
     // Keep the last observed operation; the next refresh retries.
   }
+}
+
+/** A retrieval receipt that still owns work the Workbench has to observe. */
+function isActiveRetrievalMaintenance(
+  operation: SynthesisPublicMaintenanceOperation | null | undefined,
+): operation is SynthesisPublicMaintenanceOperation {
+  return (
+    operation?.status === "running" ||
+    (operation?.status === "pending" &&
+      operation.phase !== "continuation_required")
+  );
 }
 
 /**
@@ -1906,14 +1952,23 @@ export function projectRetrievalSnapshot(args: {
 async function refreshRetrievalSnapshot(
   runtime: SynthesisWorkbenchRuntime,
 ): Promise<void> {
-  await refreshRetrievalMaintenance(runtime);
   const { settings, retrieval } = getSynthesisRetrievalPorts();
   const prefs = settings.get();
   let native: SynthesisRetrievalState | null = null;
+  let durable: SynthesisPublicMaintenanceOperation | null | undefined;
+  const observedOperation = runtime.retrievalMaintenance;
   try {
     native = await retrieval.getState();
+    durable = native.maintenance;
   } catch {
     native = null;
+  }
+  if (durable === undefined) {
+    // Sidecars that do not publish the receipt in the state read stay
+    // observable through the operation read.
+    await refreshRetrievalMaintenance(runtime);
+  } else if (runtime.retrievalMaintenance === observedOperation) {
+    runtime.retrievalMaintenance = durable ?? undefined;
   }
   runtime.retrievalSnapshot = projectRetrievalSnapshot({
     prefs,
@@ -1924,6 +1979,9 @@ async function refreshRetrievalSnapshot(
       : null,
     maintenance: runtime.retrievalMaintenance ?? null,
   });
+  if (isActiveRetrievalMaintenance(runtime.retrievalMaintenance)) {
+    ensureCommandProgressPolling(runtime);
+  }
 }
 
 async function runRetrievalMaintenance(
@@ -1938,16 +1996,11 @@ async function runRetrievalMaintenance(
       : kind === "rebuild"
         ? await retrieval.rebuild(request)
         : await retrieval.update(request);
+  // The sidecar owns the accepted receipt and keeps the work alive past the
+  // command, so the Workbench observes the durable receipt instead of
+  // blocking on the operation.
   runtime.retrievalMaintenance = accepted;
-  await observePublicMaintenanceOperation(
-    runtime,
-    {
-      maintenance: {
-        getOperation: (operation) => retrieval.getOperation(operation),
-      },
-    },
-    accepted,
-  );
+  ensureCommandProgressPolling(runtime);
 }
 
 /**
@@ -1987,6 +2040,9 @@ async function controlRetrievalOperation(
         }
       : { action, operation_id: operationId };
   runtime.retrievalMaintenance = await retrieval.controlOperation(request);
+  if (isActiveRetrievalMaintenance(runtime.retrievalMaintenance)) {
+    ensureCommandProgressPolling(runtime);
+  }
 }
 
 function failOnDiagnostic<T>(result: T, operationId?: string): T {

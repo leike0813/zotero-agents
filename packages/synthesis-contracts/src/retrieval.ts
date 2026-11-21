@@ -1,6 +1,10 @@
 import { SynthesisClientError, type SynthesisJsonValue } from "./common.js";
+import type { SynthesisPublicMaintenanceOperation } from "./lifecycle.js";
 import { rebuildSynthesisProtocolDto } from "./protocolSchema.js";
 import type {
+  SynthesisEvidenceLocation,
+  SynthesisEvidenceSource,
+  SynthesisSearchStatus,
   SynthesisSearchIssue,
   SynthesisSearchSourceKind,
   SynthesisPortableItemRef,
@@ -11,6 +15,119 @@ export const SYNTHESIS_RETRIEVAL_SCHEMA_ID =
 
 export const SYNTHESIS_RETRIEVAL_DEFAULT_LIMIT = 25;
 export const SYNTHESIS_RETRIEVAL_MAX_RESULTS = 100;
+
+export type SynthesisSemanticEvidenceSearchRequest =
+  | {
+      query: string;
+      target?: "paper";
+      libraryIds?: number[];
+      collectionRef?: SynthesisPortableItemRef;
+      itemRefs?: SynthesisPortableItemRef[];
+      sourceKinds?: SynthesisSearchSourceKind[];
+      limit?: number;
+    }
+  | {
+      query: string;
+      target: "topic";
+      topicIds?: string[];
+      sections?: string[];
+      limit?: number;
+    };
+
+export type SynthesisSemanticEvidenceRef = {
+  publication: string;
+  identity: string;
+  fragmentId: string;
+  sourceVersion: string;
+};
+
+export type SynthesisSemanticEvidenceContextRequest = {
+  evidenceRef: SynthesisSemanticEvidenceRef;
+};
+
+export type SynthesisSemanticEvidencePassage = {
+  evidenceRef: SynthesisSemanticEvidenceRef;
+  content: string;
+  format: "text" | "markdown";
+  title?: string;
+  sourceVersion: string;
+  score?: number;
+  match?: boolean;
+} & (
+  | {
+      itemRef: SynthesisPortableItemRef;
+      source: SynthesisEvidenceSource;
+      location: SynthesisEvidenceLocation;
+    }
+  | {
+      topicId: string;
+      source: { kind: "topic"; section: string };
+      location: {
+        unit: "topic_section";
+        field: string;
+        range: SynthesisEvidenceLocation["range"];
+      };
+    }
+);
+
+export type SynthesisSemanticEvidenceSearchResult = {
+  status: SynthesisSearchStatus;
+  method: "vector" | null;
+  results: SynthesisSemanticEvidencePassage[];
+  coverage: {
+    vector: "complete" | "limited" | "unavailable";
+    sourceKinds?: Array<SynthesisSearchSourceKind | "topic">;
+  };
+  issues: string[];
+};
+
+export type SynthesisSemanticEvidenceContextResult =
+  SynthesisSemanticEvidenceSearchResult;
+
+export function rebuildSynthesisSemanticEvidenceSearchRequest(
+  value: unknown,
+): SynthesisSemanticEvidenceSearchRequest {
+  return rebuildRetrievalDto("SemanticEvidenceSearchRequest", value);
+}
+
+export function rebuildSynthesisSemanticEvidenceContextRequest(
+  value: unknown,
+): SynthesisSemanticEvidenceContextRequest {
+  return rebuildRetrievalDto("SemanticEvidenceContextRequest", value);
+}
+
+export function rebuildSynthesisSemanticEvidenceSearchResult(
+  value: unknown,
+): SynthesisSemanticEvidenceSearchResult {
+  return rebuildSemanticEvidenceResult("SemanticEvidenceSearchResult", value);
+}
+
+export function rebuildSynthesisSemanticEvidenceContextResult(
+  value: unknown,
+): SynthesisSemanticEvidenceContextResult {
+  return rebuildSemanticEvidenceResult("SemanticEvidenceContextResult", value);
+}
+
+function rebuildSemanticEvidenceResult(definition: string, value: unknown) {
+  const result = rebuildRetrievalDto<SynthesisSemanticEvidenceSearchResult>(
+    definition,
+    value,
+    "result",
+  );
+  if (
+    result.results.some(
+      ({ evidenceRef, sourceVersion, content, location }) =>
+        evidenceRef.sourceVersion !== sourceVersion ||
+        content.length !== location.range.end - location.range.start,
+    )
+  ) {
+    throw new SynthesisClientError(
+      "internal",
+      "Invalid semantic evidence provenance",
+    );
+  }
+  return result;
+}
 
 type ExplorerSourceKind = SynthesisSearchSourceKind | "topic";
 type ExplorerStatus = "ready" | "failed" | "missing" | "suspended";
@@ -141,6 +258,7 @@ export type SynthesisRetrievalProgress = {
 };
 
 export type SynthesisRetrievalState = {
+  maintenance?: SynthesisPublicMaintenanceOperation | null;
   enabled: boolean;
   status: SynthesisRetrievalStatus;
   activeIdentity: SynthesisEncodingIdentity | null;

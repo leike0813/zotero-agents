@@ -187,17 +187,20 @@ Command progress uses the normal 500 ms cadence only while reads are eligible.
 Known non-ready sidecar states suspend service-dependent progress and accepted
 maintenance-status reads. With no readiness observation, unavailable progress
 reads and transient maintenance reads retry no faster than every five seconds.
-A transition to ready resumes observation immediately. Cached content and the
-original maintenance observer deadline remain intact; accepted mutations are
-not replayed, and disposal stops subsequent reads and publications.
+A transition to ready resumes observation immediately. Cached content survives
+transient read failures. Workbench retrieves accepted vector build, rebuild and
+update receipts through retrieval state, including after the view is reopened.
+Other command observers retain their original deadlines. Disposal stops the
+view's subsequent reads without canceling accepted maintenance.
 
 The public-maintenance lifecycle module owns durable admission, dispatch,
 running transition, terminalization, typed receipt projection, cancel/retry/
 continue control, and restart reconciliation. Every detached dispatch catches
 panic and attempts durable terminalization. If the first terminal write fails,
 it is retried once with a stable failure code. A post-commit spawn failure
-terminalizes that same operation. Promotion checkpoints enforce the persisted
-deadline, and receipt reads remain pure.
+terminalizes that same operation. Promotion checkpoints enforce any persisted
+work deadline. Retrieval build, rebuild and update have bounded steps and no
+overall deadline. Receipt reads remain pure.
 Layout has a 120-second public work deadline, a 90-second direct worker phase,
 and a bounded client observation deadline beyond the public limit.
 

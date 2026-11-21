@@ -109,6 +109,8 @@ import {
   rebuildSynthesisTopicResolverRequest,
   rebuildSynthesisWorkbenchPaperDigestReadRequest,
   rebuildSynthesisWorkflowReviewRequest,
+  rebuildSynthesisSemanticEvidenceSearchRequest,
+  rebuildSynthesisSemanticEvidenceContextRequest,
 } from "../../packages/synthesis-contracts/src/index";
 import { getDefaultSynthesisClient } from "./synthesisClient/defaultClient";
 import { loadPublicTopicInventory } from "./synthesisClient/hostTopicContextAdapter";
@@ -2387,6 +2389,8 @@ async function debugSkillRunnerConnectionsSnapshot(input: unknown) {
 
 type SynthesisClientCapabilityMethod =
   | "searchEvidence"
+  | "searchSemanticEvidence"
+  | "readSemanticContext"
   | "searchTopics"
   | "listTopics"
   | "findTopicsByPaperRef"
@@ -2459,6 +2463,14 @@ function invokeSynthesisClientCapability(
     case "searchEvidence":
       return client.searchEvidence(
         rebuildSynthesisEvidenceSearchRequest(input),
+      );
+    case "searchSemanticEvidence":
+      return client.searchSemanticEvidence(
+        rebuildSynthesisSemanticEvidenceSearchRequest(input),
+      );
+    case "readSemanticContext":
+      return client.readSemanticContext(
+        rebuildSynthesisSemanticEvidenceContextRequest(input),
       );
     case "searchTopics":
       return client.topics.search(rebuildSynthesisTopicSearchRequest(input));
@@ -3005,6 +3017,11 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
     callSynthesisDebugClient(context, "debugSynthesisCleanInstallReset", input),
   ),
   synthesisCapability("synthesis.search_evidence", "searchEvidence"),
+  synthesisCapability(
+    "synthesis.search_semantic_evidence",
+    "searchSemanticEvidence",
+  ),
+  synthesisCapability("synthesis.read_semantic_context", "readSemanticContext"),
   synthesisCapability("topics.search", "searchTopics"),
   synthesisCapability("topics.list", "listTopics"),
   synthesisCapability("topics.find_by_paper_ref", "findTopicsByPaperRef"),

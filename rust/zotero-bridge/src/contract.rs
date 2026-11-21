@@ -21,12 +21,16 @@ const REVERSE_HOST_PROTOCOL_SCHEMA_JSON: &str =
 const TOPIC_DOMAIN_PROTOCOL_SCHEMA_JSON: &str = include_str!(
     "../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/topic-domain.schema.json"
 );
+const RETRIEVAL_PROTOCOL_SCHEMA_JSON: &str = include_str!(
+    "../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/retrieval.schema.json"
+);
 
 static CAPABILITY_CONTRACT: OnceLock<Result<Value, String>> = OnceLock::new();
 static COMMAND_CONTRACT: OnceLock<Result<Value, String>> = OnceLock::new();
 static SEARCH_PROTOCOL_SCHEMA: OnceLock<Result<Value, String>> = OnceLock::new();
 static REVERSE_HOST_PROTOCOL_SCHEMA: OnceLock<Result<Value, String>> = OnceLock::new();
 static TOPIC_DOMAIN_PROTOCOL_SCHEMA: OnceLock<Result<Value, String>> = OnceLock::new();
+static RETRIEVAL_PROTOCOL_SCHEMA: OnceLock<Result<Value, String>> = OnceLock::new();
 
 thread_local! {
     static CURRENT_COMMAND: RefCell<Option<String>> = const { RefCell::new(None) };
@@ -1308,6 +1312,8 @@ pub fn validate_command_result(value: &Value) -> Result<(), CliError> {
 }
 
 fn resolve_canonical_protocol_refs(schema: &Value) -> Result<Value, CliError> {
+    const RETRIEVAL_SCHEMA_ID: &str =
+        "https://zotero-agents.local/synthesis/sidecar-protocol/v1/retrieval.schema.json";
     const SEARCH_SCHEMA_ID: &str =
         "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json";
     const REVERSE_HOST_SCHEMA_ID: &str =
@@ -1333,7 +1339,18 @@ fn resolve_canonical_protocol_refs(schema: &Value) -> Result<Value, CliError> {
         })
         .as_ref()
         .map_err(|error| CliError::internal("canonical_schema_invalid", error.clone()))?;
+    let retrieval_schema = RETRIEVAL_PROTOCOL_SCHEMA
+        .get_or_init(|| {
+            serde_json::from_str(RETRIEVAL_PROTOCOL_SCHEMA_JSON).map_err(|e| e.to_string())
+        })
+        .as_ref()
+        .map_err(|error| CliError::internal("canonical_schema_invalid", error.clone()))?;
     let canonical_protocols = [
+        (
+            RETRIEVAL_SCHEMA_ID,
+            "retrieval.schema.json",
+            retrieval_schema,
+        ),
         (SEARCH_SCHEMA_ID, "search.schema.json", search_schema),
         (
             REVERSE_HOST_SCHEMA_ID,
@@ -1347,13 +1364,13 @@ fn resolve_canonical_protocol_refs(schema: &Value) -> Result<Value, CliError> {
         ),
     ];
 
-    fn is_canonical_protocol_ref(reference: &str, protocols: [(&str, &str, &Value); 3]) -> bool {
+    fn is_canonical_protocol_ref(reference: &str, protocols: [(&str, &str, &Value); 4]) -> bool {
         protocols.iter().any(|(document_id, relative_name, _)| {
             reference.starts_with(document_id) || reference.starts_with(relative_name)
         })
     }
 
-    fn rewrite_refs(value: &mut Value, protocols: [(&str, &str, &Value); 3]) {
+    fn rewrite_refs(value: &mut Value, protocols: [(&str, &str, &Value); 4]) {
         match value {
             Value::Array(values) => values
                 .iter_mut()
@@ -1375,7 +1392,7 @@ fn resolve_canonical_protocol_refs(schema: &Value) -> Result<Value, CliError> {
     }
 
     let mut resolved = schema.clone();
-    fn references_canonical_protocol(value: &Value, protocols: [(&str, &str, &Value); 3]) -> bool {
+    fn references_canonical_protocol(value: &Value, protocols: [(&str, &str, &Value); 4]) -> bool {
         match value {
             Value::Array(values) => values
                 .iter()

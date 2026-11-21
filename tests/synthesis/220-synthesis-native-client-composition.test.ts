@@ -2077,11 +2077,22 @@ describe("Synthesis native client composition", function () {
         workModel: "receipt",
         receipt: "public-maintenance-operation",
       });
-      assert.isAbove(
-        synthesisProductionOperationWorkDeadlineMs(capability),
-        synthesisProductionOperationDeadlineMs(capability),
-        capability,
-      );
+      const deadline = synthesisProductionOperationWorkDeadlineMs(capability);
+      if (
+        [
+          "client.buildRetrievalIndex",
+          "client.rebuildRetrievalIndex",
+          "client.updateRetrievalIndex",
+        ].includes(capability)
+      ) {
+        assert.isNull(deadline, capability);
+      } else {
+        assert.isAbove(
+          deadline!,
+          synthesisProductionOperationDeadlineMs(capability),
+          capability,
+        );
+      }
     }
     assert.equal(
       synthesisProductionOperationDeadlineMs(

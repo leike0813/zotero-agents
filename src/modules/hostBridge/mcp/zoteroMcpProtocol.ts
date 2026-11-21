@@ -40,6 +40,7 @@ import type {
 } from "../../zoteroHostCapabilityBroker";
 import type { WorkflowCallControl } from "../../../workflows/types";
 import evidenceSearchSchema from "../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/search.schema.json";
+import retrievalSchema from "../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/retrieval.schema.json";
 import reverseHostSchema from "../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/reverse-host.schema.json";
 import topicDomainSchema from "../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/topic-domain.schema.json";
 
@@ -920,12 +921,16 @@ const ZOTERO_MCP_ADMISSION_NOTICE =
  */
 function canonicalSearchRequestDefinition(reference: unknown) {
   if (typeof reference !== "string") return undefined;
-  for (const document of [evidenceSearchSchema, topicDomainSchema]) {
+  for (const document of [
+    evidenceSearchSchema,
+    topicDomainSchema,
+    retrievalSchema,
+  ]) {
     const prefix = `${document.$id}#/$defs/`;
     if (!reference.startsWith(prefix)) continue;
     const definitions = document.$defs as Record<string, unknown>;
     const definition = definitions[reference.slice(prefix.length)];
-    if (definition) return definition;
+    if (definition) return { document, definition };
   }
   return undefined;
 }
@@ -942,6 +947,7 @@ function mcpInputSchemaForCapability(
       evidenceSearchSchema,
       topicDomainSchema,
       reverseHostSchema,
+      retrievalSchema,
     ];
     const definitions: Record<string, unknown> = {};
     function localize(
@@ -966,7 +972,15 @@ function mcpInputSchemaForCapability(
           if (!target || !fragment?.startsWith("/$defs/"))
             throw new Error("Unresolved canonical search schema reference");
           const name = fragment.slice("/$defs/".length);
-          const qualified = `${target === evidenceSearchSchema ? "" : target === topicDomainSchema ? "Topic_" : "Host_"}${name}`;
+          const prefix =
+            target === evidenceSearchSchema
+              ? ""
+              : target === topicDomainSchema
+                ? "Topic_"
+                : target === retrievalSchema
+                  ? "Retrieval_"
+                  : "Host_";
+          const qualified = `${prefix}${name}`;
           if (!(qualified in definitions)) {
             const source = (target.$defs as Record<string, unknown>)[name];
             if (!source)
@@ -979,7 +993,10 @@ function mcpInputSchemaForCapability(
       );
     }
     return {
-      ...(localize(canonicalRequest, evidenceSearchSchema) as JsonObjectSchema),
+      ...(localize(
+        canonicalRequest.definition,
+        canonicalRequest.document,
+      ) as JsonObjectSchema),
       $schema: evidenceSearchSchema.$schema,
       $defs: definitions,
     } as JsonObjectSchema;

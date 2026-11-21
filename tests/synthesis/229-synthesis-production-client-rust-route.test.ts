@@ -1106,7 +1106,7 @@ describe("Synthesis Rust production client route", function () {
     assert.lengthOf(TOPIC_WORKBENCH_OPERATIONS, 21);
     assert.deepEqual(inspectSynthesisTopicWorkbenchSurfaceParity(), {
       ok: true,
-      operations: 29,
+      operations: 31,
       observables: 21,
       errors: [],
     });
@@ -7411,7 +7411,7 @@ describe("Synthesis Rust production client route", function () {
           };
         }
         if (capability === "library.evidence.sources") {
-          const scope = payload.scope;
+          const scope = { libraryIds: [1], ...payload.scope };
           const requestedRefs = Array.isArray(scope?.itemRefs)
             ? new Set(
                 scope.itemRefs.map(
@@ -7425,6 +7425,9 @@ describe("Synthesis Rust production client route", function () {
             : new Set(["metadata"]);
           const descriptors = papers.flatMap(({ key, title, abstractNote }) => {
             if (requestedRefs && !requestedRefs.has(`1:${key}`)) {
+              return [];
+            }
+            if (scope?.collectionRef?.key === "GRAPH" && key !== "RETRIEVAL2") {
               return [];
             }
             return [
@@ -7536,6 +7539,12 @@ describe("Synthesis Rust production client route", function () {
     try {
       const initial = await operation("client.getRetrievalState", { args: [] });
       assert.equal(initial.status, "missing");
+      assert.isNull(initial.maintenance);
+      const absent = await operation("client.searchSemanticEvidence", {
+        args: [{ query: "semantic search", libraryIds: [1] }],
+      });
+      assert.equal(absent.status, "unavailable");
+      assert.deepEqual(absent.issues, ["retrieval_index_missing"]);
       assert.equal(embeddingCalls.length, 0);
 
       const incompleteTopic = path.join(
@@ -7612,6 +7621,7 @@ describe("Synthesis Rust production client route", function () {
       const builtState = await operation("client.getRetrievalState", {
         args: [],
       });
+      assert.equal(builtState.maintenance.status, "completed");
       fs.rmdirSync(incompleteCurrent);
       fs.rmdirSync(incompleteTopic);
 
@@ -7632,6 +7642,44 @@ describe("Synthesis Rust production client route", function () {
         query: "semantic search",
       });
       assert.isNumber(semantic.rows[0].score);
+      const evidence = await harness.client.searchSemanticEvidence({
+        query: "semantic search",
+        libraryIds: [1],
+      });
+      assert.deepEqual(
+        evidence.results.map((row) => row.content),
+        semantic.rows.map((row) => row.preview),
+      );
+      assert.deepEqual(evidence.coverage.sourceKinds, ["metadata"]);
+      const translated = await harness.client.searchSemanticEvidence({
+        query: "查询语义检索方法",
+        limit: 1,
+      });
+      assert.deepEqual(
+        translated.results[0].evidenceRef,
+        evidence.results[0].evidenceRef,
+      );
+      const collection = await harness.client.searchSemanticEvidence({
+        query: "semantic search",
+        libraryIds: [1],
+        collectionRef: { libraryId: 1, key: "GRAPH" },
+      });
+      assert.deepEqual(
+        collection.results.map((row) =>
+          "itemRef" in row ? row.itemRef.key : row.topicId,
+        ),
+        ["RETRIEVAL2"],
+      );
+      const evidenceRef = evidence.results[0].evidenceRef;
+      const beforeContext = embeddingCalls.length;
+      const expanded = await operation("client.readSemanticContext", {
+        args: [{ evidenceRef }],
+      });
+      assert.equal(
+        expanded.results.find((row: { match?: boolean }) => row.match)?.content,
+        evidence.results[0].content,
+      );
+      assert.equal(embeddingCalls.length, beforeContext);
 
       const recommendation = await operation("client.recommendSimilarPapers", {
         args: [{ paperRef: { libraryId: 1, key: "RETRIEVAL1" }, limit: 5 }],
@@ -7708,6 +7756,9 @@ describe("Synthesis Rust production client route", function () {
       });
       assert.equal(rebuiltState.status, "ready");
       assert.notEqual(rebuiltState.publication, builtState.publication);
+      const stale = await harness.client.readSemanticContext({ evidenceRef });
+      assert.equal(stale.status, "unavailable");
+      assert.deepEqual(stale.issues, ["basis_mismatch"]);
 
       const beforeInvalidation = embeddingCalls.length;
       const invalidated = await operation("client.invalidateRetrievalSources", {
@@ -7768,6 +7819,8 @@ describe("Synthesis Rust production client route", function () {
     });
     const rejectedRequests = [
       ["client.getRetrievalState", { args: [{}] }],
+      ["client.searchSemanticEvidence", { args: [{ query: "" }] }],
+      ["client.readSemanticContext", { args: [{ evidenceRef: {} }] }],
       [
         "client.exploreRetrievalIndex",
         { args: [{ operation: "search", target: "paper", query: "" }] },
