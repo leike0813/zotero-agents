@@ -200,6 +200,26 @@ describe("synthesis workbench Home retrieval panel", function () {
     );
   });
 
+  it("shows persisted embedding performance warnings in Home retrieval status", function () {
+    const selection = selectionFor(
+      makeRetrieval({
+        connections: [
+          {
+            id: "c1",
+            tested: true,
+            performanceDiagnostics: [
+              { code: "slow", severity: "warning", message: "slow query" },
+              { code: "serial", severity: "warning", message: "serial mode" },
+            ],
+          },
+        ],
+      }),
+    );
+    assert.equal(selection.retrieval.performanceWarningCount, 2);
+    const { root } = renderHome(selection);
+    assert.include(root.textContent, "Issues 2");
+  });
+
   it("keeps build disabled until a tested pending identity exists", async function () {
     const untested = renderHome(
       selectionFor(makeRetrieval({ pendingIdentity: null })),
@@ -528,6 +548,31 @@ describe("synthesis workbench retrieval snapshot fallback", function () {
     };
   }
 
+  beforeEach(function () {
+    installSidebarDomGlobals(createSidebarDomEnvironment());
+  });
+
+  afterEach(function () {
+    document.body.innerHTML = "";
+    restoreSidebarDomGlobals();
+  });
+
+  function renderHome(selection: SynthesisWorkbenchHomeSelection) {
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+    const mount = document.createElement("div");
+    root.appendChild(mount);
+    render(
+      h(HomeRegion, {
+        selection,
+        t,
+        onAction: () => undefined,
+      }),
+      mount,
+    );
+    return { root };
+  }
+
   it("still publishes the Host settings when the native state read fails", function () {
     const snapshot = projectRetrievalSnapshot({
       prefs: prefsStatus() as never,
@@ -589,5 +634,90 @@ describe("synthesis workbench retrieval snapshot fallback", function () {
     assert.deepEqual(second.progress, first.progress);
     assert.deepEqual(second.issues, []);
     assert.lengthOf(second.connections, 1);
+
+    const { root } = renderHome(
+      projectSynthesisWorkbenchHomeSelection(
+        makeInput(second as unknown as Record<string, unknown>),
+      ),
+    );
+    assert.include(root.textContent, "Ready");
+  });
+
+  it("projects persisted embedding measurements and capacity into Workbench", function () {
+    const testedAt = "2026-10-07T00:00:00.000Z";
+    const prefs = {
+      ...prefsStatus(),
+      connectionTests: {
+        c1: {
+          ...prefsStatus().connectionTests.c1,
+          tested_at: testedAt,
+          configuration_key: "config-v1",
+          max_concurrency: 2,
+          performance: {
+            firstQuery: { latencyMs: 420, successCount: 1 },
+            warmQuery: { latencyMs: 180, successCount: 1 },
+            pairRounds: [
+              { latencyMs: 730, successCount: 2 },
+              { latencyMs: 810, successCount: 2 },
+            ],
+            slowestPairMs: 810,
+            documentBatch: { latencyMs: 1240, successCount: 8 },
+          },
+          diagnostics: [
+            {
+              code: "embedding_probe_pair_slow",
+              severity: "warning",
+              message: "pair threshold exceeded",
+            },
+          ],
+        },
+      },
+    };
+    const snapshot = projectRetrievalSnapshot({
+      prefs: prefs as never,
+      native: {
+        enabled: true,
+        status: "ready",
+        activeIdentity: pendingIdentity,
+        pendingIdentity,
+        activeScope: null,
+        pendingScope: null,
+        publication: "pub-measured",
+        progress: {
+          completedGroups: 3,
+          totalGroups: 3,
+          completedFragments: 30,
+          failedGroups: 0,
+          missingGroups: 0,
+        },
+        updatedAt: testedAt,
+        issues: [],
+      },
+      previous: null,
+      pendingIdentity,
+      maintenance: null,
+    });
+    assert.isTrue(snapshot.connections[0].tested);
+    assert.equal(snapshot.connections[0].maxConcurrency, 2);
+    assert.equal(
+      snapshot.connections[0].performance?.firstQuery.latencyMs,
+      420,
+    );
+    assert.lengthOf(snapshot.connections[0].performanceDiagnostics, 1);
+    const selection = projectSynthesisWorkbenchHomeSelection(
+      makeInput(snapshot as unknown as Record<string, unknown>),
+    );
+    assert.isDefined(selection.retrieval.performance);
+    const { root } = renderHome(selection);
+
+    assert.include(root.textContent, "Tested capacity: 2 concurrent requests");
+    assert.include(root.textContent, "First 420 ms (1/1)");
+    assert.include(root.textContent, "warm 180 ms (1/1)");
+    assert.include(root.textContent, "pairs 730 ms (2/2), 810 ms (2/2)");
+    assert.include(root.textContent, "slowest 810 ms");
+    assert.include(root.textContent, "8 documents 1240 ms (8/8)");
+    assert.include(root.textContent, testedAt);
+    assert.include(root.textContent, "Concurrent pair exceeded 4 s");
+    assert.include(root.textContent, "Synthetic results are estimates");
   });
 });

@@ -314,7 +314,7 @@ function paginationErrorResponse(
  * Bounded read searches own their own failure vocabulary. A rejected search
  * cursor is a basis failure of that search round, not a Synthesis maintenance
  * idempotency conflict, so these capabilities keep their typed code and reason
- * and are never reported as retryable.
+ * and cursor/basis failures are never reported as retryable.
  */
 const SYNTHESIS_READ_SEARCH_CAPABILITIES = new Set([
   "synthesis.search_evidence",
@@ -325,7 +325,9 @@ const SYNTHESIS_READ_SEARCH_CAPABILITIES = new Set([
  * Synthesis read failures map onto the bridge vocabulary by client error class
  * alone: a rejected search cursor keeps its own typed code, topic reads add
  * bounded protocol diagnostics, and no read failure is ever reported as a
- * maintenance idempotency conflict or as a retryable outcome.
+ * maintenance idempotency conflict. Only an explicitly classified transient
+ * transient transport, foreground admission pressure, or a readiness wait
+ * explicitly classified for retry is retryable.
  */
 function synthesisReadErrorResponse(
   context: HostBridgeCapabilityRouteContext,
@@ -366,6 +368,12 @@ function synthesisReadErrorResponse(
             : error.code === "unavailable" || error.code === "storage_busy"
               ? [503, "Service Unavailable", "capability"]
               : [500, "Internal Server Error", "internal"];
+  const retryable =
+    error.code === "unavailable" &&
+    error.details?.retryable === true &&
+    (reasonCode === "transport_unavailable" ||
+      reasonCode === "foreground_search_queue_full" ||
+      reasonCode === "service_not_ready");
   return context.respond(
     status,
     statusText,
@@ -381,9 +389,9 @@ function synthesisReadErrorResponse(
           : {}),
       },
       {
-        retryable: false,
+        retryable,
         stateChange: "unchanged",
-        safeNextActions: ["surface describe"],
+        safeNextActions: retryable ? ["retry command"] : ["surface describe"],
       },
     ),
     code,

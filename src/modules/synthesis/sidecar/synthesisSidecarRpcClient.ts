@@ -39,6 +39,108 @@ export type SynthesisSidecarRpcTransportErrors = {
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 let requestSequence = 0;
+const foregroundSearchAdmissions = new Map<
+  string,
+  { active: boolean; waiting: Array<(release: () => void) => void> }
+>();
+const MAX_FOREGROUND_SEARCH_QUEUE = 8;
+const FOREGROUND_SEARCH_CAPABILITIES = new Set([
+  "library.retrieval.execute",
+  "client.searchEvidence",
+  "client.searchTopics",
+  "client.searchSemanticEvidence",
+  "client.recommendSimilarPapers",
+]);
+
+export function isSynthesisSidecarForegroundSearch(
+  capability: string,
+  payload: unknown,
+) {
+  if (FOREGROUND_SEARCH_CAPABILITIES.has(capability)) return true;
+  if (capability !== "client.exploreRetrievalIndex") return false;
+  const envelope =
+    payload && typeof payload === "object" && !Array.isArray(payload)
+      ? (payload as Record<string, unknown>)
+      : {};
+  const args = Array.isArray(envelope.args) ? envelope.args : [];
+  const request =
+    args[0] && typeof args[0] === "object" && !Array.isArray(args[0])
+      ? (args[0] as Record<string, unknown>)
+      : {};
+  const meta =
+    envelope.meta &&
+    typeof envelope.meta === "object" &&
+    !Array.isArray(envelope.meta)
+      ? (envelope.meta as Record<string, unknown>)
+      : {};
+  const requestMeta =
+    request.meta &&
+    typeof request.meta === "object" &&
+    !Array.isArray(request.meta)
+      ? (request.meta as Record<string, unknown>)
+      : {};
+  return [
+    request.operation,
+    requestMeta.operation,
+    meta.operation,
+    envelope.operation,
+  ].some(
+    (operation) => operation === "search" || operation === "explorer.search",
+  );
+}
+
+function acquireForegroundSearchAdmission(
+  serviceInstanceId: string,
+  signal: AbortSignal | undefined,
+) {
+  let queue = foregroundSearchAdmissions.get(serviceInstanceId);
+  if (!queue) {
+    queue = { active: false, waiting: [] };
+    foregroundSearchAdmissions.set(serviceInstanceId, queue);
+  }
+  if (!queue.active) {
+    queue.active = true;
+    return Promise.resolve(() =>
+      releaseForegroundSearchAdmission(serviceInstanceId, queue!),
+    );
+  }
+  if (queue.waiting.length >= MAX_FOREGROUND_SEARCH_QUEUE) {
+    return Promise.reject(
+      new SynthesisSidecarRpcError("worker_unavailable", {
+        reason: "foreground_search_queue_full",
+        retryable: true,
+      }),
+    );
+  }
+  return new Promise<() => void>((resolve, reject) => {
+    const waiter = (release: () => void) => {
+      signal?.removeEventListener("abort", abort);
+      resolve(release);
+    };
+    const abort = () => {
+      const index = queue!.waiting.indexOf(waiter);
+      if (index >= 0) queue!.waiting.splice(index, 1);
+      signal?.removeEventListener("abort", abort);
+      reject(new Error("sidecar_rpc_canceled"));
+    };
+    queue!.waiting.push(waiter);
+    signal?.addEventListener("abort", abort, { once: true });
+    if (signal?.aborted) abort();
+  });
+}
+
+function releaseForegroundSearchAdmission(
+  serviceInstanceId: string,
+  queue: { active: boolean; waiting: Array<(release: () => void) => void> },
+) {
+  const next = queue.waiting.shift();
+  if (next) {
+    next(() => releaseForegroundSearchAdmission(serviceInstanceId, queue));
+  } else {
+    queue.active = false;
+    foregroundSearchAdmissions.delete(serviceInstanceId);
+  }
+}
 
 export class SynthesisSidecarRpcError extends Error {
   constructor(
@@ -110,6 +212,13 @@ export function normalizeSynthesisSidecarRpcError(
       violations.length
         ? { violations }
         : {}),
+      ...(typeof error.details.retryable === "boolean"
+        ? { retryable: error.details.retryable }
+        : error.code === "worker_unavailable" &&
+            (reason === "transport_unavailable" ||
+              reason === "foreground_search_queue_full")
+          ? { retryable: true }
+          : {}),
     },
   );
 }
@@ -282,9 +391,14 @@ export function createSynthesisSidecarRpcClient(options?: {
       if (args.signal?.aborted) {
         return fail(transportErrors.canceled);
       }
+      const deadline = composedSignal(
+        args.signal,
+        args.deadlineMs ?? defaultDeadlineMs,
+      );
       const requestId = nextRequestId(requestIdPrefix);
       const startedAt = now();
       const trace = createSynthesisSidecarTraceContext({ parent: args.trace });
+      let queueWaitMs: number | undefined;
       const record = (
         event: Parameters<typeof recordSynthesisSidecarTraceEvent>[0],
       ) => {
@@ -318,22 +432,33 @@ export function createSynthesisSidecarRpcClient(options?: {
             requestBytes: textEncoder.encode(requestSource).byteLength,
           },
         });
+        deadline.dispose();
         return fail("request_body_too_large");
       }
-      record({
-        context: trace,
-        source: "host",
-        boundary: "host-rpc",
-        phase: "request",
-        outcome: "started",
-        identities: { capability: args.capability },
-        metrics: { requestBytes: textEncoder.encode(requestSource).byteLength },
-      });
-      const deadline = composedSignal(
-        args.signal,
-        args.deadlineMs ?? defaultDeadlineMs,
-      );
+      let releaseAdmission: (() => void) | undefined;
       try {
+        if (isSynthesisSidecarForegroundSearch(args.capability, args.payload)) {
+          const admissionStartedAt = now();
+          releaseAdmission = await deadline.race(
+            acquireForegroundSearchAdmission(
+              args.connection.serviceInstanceId,
+              deadline.signal,
+            ),
+          );
+          queueWaitMs = Math.max(0, now() - admissionStartedAt);
+        }
+        record({
+          context: trace,
+          source: "host",
+          boundary: "host-rpc",
+          phase: "request",
+          outcome: "started",
+          identities: { capability: args.capability },
+          metrics: {
+            requestBytes: textEncoder.encode(requestSource).byteLength,
+            ...(queueWaitMs === undefined ? {} : { queueWaitMs }),
+          },
+        });
         const response = await deadline.race(
           fetchImpl(
             `${args.connection.baseUrl}${SYNTHESIS_SIDECAR_CALL_PATH}`,
@@ -486,6 +611,7 @@ export function createSynthesisSidecarRpcClient(options?: {
           reason: "transport_unavailable",
         });
       } finally {
+        releaseAdmission?.();
         deadline.dispose();
       }
     },

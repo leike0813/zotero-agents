@@ -80,6 +80,46 @@ async function rejects(promise: Promise<unknown>, reason?: string) {
 describe("Synthesis embedding provider", function () {
   this.timeout(20_000);
 
+  it("serializes untested endpoint aliases and removes a canceled waiting query", async function () {
+    let finish!: () => void;
+    let started!: () => void;
+    const firstStarted = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const blocked = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const fake = fakeClient(async () => {
+      started();
+      await blocked;
+      return {
+        status: 200,
+        text: openAiText([{ index: 0, embedding: [1, 0, 0] }]),
+      };
+    });
+    const controller = createCancellationController();
+    const args = {
+      identity,
+      purpose: "query" as const,
+      inputs: ["query"],
+      deadlineAtMs: deadline(),
+    };
+    const active = provider(fake.client).encode({
+      ...args,
+      services: [{ connection: connection() }],
+    });
+    await firstStarted;
+    const waiting = provider(fake.client).encode({
+      ...args,
+      services: [{ connection: connection({ id: "alias" }) }],
+      signal: controller.signal,
+    });
+    controller.abort();
+    finish();
+    await Promise.all([active, rejects(waiting)]);
+    assert.lengthOf(fake.calls, 1);
+  });
+
   it("resolves service roots, API roots and full endpoints without losing proxy or query components", function () {
     for (const [protocol, baseUrl, expected] of [
       ["openai", "https://svc", "https://svc/v1/embeddings"],
@@ -642,15 +682,115 @@ describe("Synthesis embedding provider", function () {
   });
 
   it("reports actual dimensions from a synthetic probe", async function () {
-    const fake = fakeClient(() => ({
-      status: 200,
-      text: JSON.stringify({ embeddings: [[1, 0]] }),
-    }));
+    let active = 0;
+    let maxActive = 0;
+    const fake = fakeClient(async (args) => {
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      await Promise.resolve();
+      const count = JSON.parse(args.body).input.length;
+      active -= 1;
+      return {
+        status: 200,
+        text: JSON.stringify({
+          embeddings: Array.from({ length: count }, () => [1, 0]),
+        }),
+      };
+    });
     const probe = await provider(fake.client).probe({
-      connection: connection({ protocol: "ollama" }),
+      connection: connection({
+        protocol: "ollama",
+        baseUrl: "http://probe-provider",
+      }),
     });
     assert.equal(probe.dimensions, 2);
-    assert.lengthOf(fake.calls, 2);
+    assert.lengthOf(fake.calls, 8);
+    assert.equal(maxActive, 2);
+    assert.equal(probe.maxConcurrency, 2);
+    assert.deepEqual(probe.measurements?.firstQuery.successCount, 1);
+    assert.deepEqual(probe.measurements?.warmQuery.successCount, 1);
+    assert.deepEqual(
+      probe.measurements?.pairRounds.map((round) => round.successCount),
+      [2, 2],
+    );
+    assert.isAtLeast(probe.measurements?.slowestPairMs ?? 0, 0);
+    assert.equal(probe.measurements?.documentBatch.successCount, 8);
+    assert.isEmpty(probe.diagnostics);
+  });
+
+  it("keeps pair overload as a serial-capacity warning after successful baseline probes", async function () {
+    const fake = fakeClient((args) =>
+      args.body.includes("pair 0 b")
+        ? { status: 503, text: "busy" }
+        : {
+            status: 200,
+            text: JSON.stringify({
+              embeddings: Array.from(
+                { length: JSON.parse(args.body).input.length },
+                () => [1, 0],
+              ),
+            }),
+          },
+    );
+    const result = await provider(fake.client).probe({
+      connection: connection({
+        protocol: "ollama",
+        baseUrl: "http://probe-overload",
+      }),
+    });
+    assert.equal(result.maxConcurrency, 1);
+    assert.equal(result.measurements?.pairRounds[0]?.successCount, 1);
+    assert.isTrue(
+      result.diagnostics?.some(
+        (entry) => entry.code === "embedding_probe_pair_failed",
+      ),
+    );
+  });
+
+  it("warns on latency thresholds without failing the connection probe", async function () {
+    let time = 0;
+    let requests = 0;
+    const fake = fakeClient(async (args) => {
+      const count = JSON.parse(args.body).input.length;
+      time += requests++ === 0 ? 16_000 : count === 8 ? 9_000 : 3_000;
+      return {
+        status: 200,
+        text: JSON.stringify({
+          embeddings: Array.from({ length: count }, () => [1, 0]),
+        }),
+      };
+    });
+    const result = await createSynthesisEmbeddingProvider({
+      client: fake.client,
+      now: () => time,
+    }).probe({
+      connection: connection({
+        protocol: "ollama",
+        baseUrl: "http://probe-slow",
+      }),
+    });
+    assert.equal(result.maxConcurrency, 1);
+    assert.equal(result.measurements?.warmQuery.successCount, 1);
+    assert.isTrue(
+      result.diagnostics?.some(
+        (entry) => entry.code === "embedding_probe_cold_query_slow",
+      ),
+    );
+    assert.isTrue(
+      result.diagnostics?.some(
+        (entry) => entry.code === "embedding_probe_warm_query_slow",
+      ),
+    );
+    assert.isTrue(
+      result.diagnostics?.some(
+        (entry) => entry.code === "embedding_probe_pair_slow",
+      ),
+    );
+    assert.isTrue(
+      result.diagnostics?.some(
+        (entry) => entry.code === "embedding_probe_document_batch_slow",
+      ),
+    );
   });
 
   it("skips to the next service when a response fails float32 validation", async function () {
@@ -715,6 +855,39 @@ describe("Synthesis embedding provider", function () {
     });
     assert.deepEqual(delays, [2000]);
     assert.lengthOf(result.vectors, 1);
+  });
+
+  it("recovers a query from overload and serializes subsequent requests to the tested endpoint", async function () {
+    let attempts = 0;
+    let active = 0;
+    let peak = 0;
+    const fake = fakeClient(async () => {
+      if (++attempts === 1) return { status: 429, text: "" };
+      peak = Math.max(peak, ++active);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      active--;
+      return {
+        status: 200,
+        text: openAiText([{ index: 0, embedding: [1, 0, 0] }]),
+      };
+    });
+    const service = {
+      connection: connection({ baseUrl: "http://overload" }),
+      maxConcurrency: 2 as const,
+      performanceTestedAt: "2026-01-01T00:00:00Z",
+    };
+    const encode = () =>
+      provider(fake.client).encode({
+        identity,
+        inputs: ["query"],
+        purpose: "query",
+        services: [service],
+        deadlineAtMs: deadline(),
+      });
+    await encode();
+    await Promise.all(Array.from({ length: 6 }, encode));
+    assert.equal(peak, 1);
+    assert.equal(attempts, 8);
   });
 
   it("cancels a retry wait when the request is aborted", async function () {

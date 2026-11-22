@@ -221,6 +221,21 @@ function acpChatInjectedSkillTargetKey(target: AcpChatInjectedSkillTarget) {
   return `${target.relativeRoot}\u0000${target.skillId}`;
 }
 
+async function materializeAcpChatInjectedSkill(args: {
+  sourceDir: string;
+  targetDir: string;
+  previouslyOwned: boolean;
+}) {
+  const targetExists = await runtimePathExists(args.targetDir);
+  if (targetExists && !args.previouslyOwned) {
+    throw new Error("refusing to replace an unowned workspace Skill directory");
+  }
+  await copyRuntimeDirectory({
+    sourceDir: args.sourceDir,
+    targetDir: args.targetDir,
+  });
+}
+
 function resolveManagedAcpChatInjectedSkillDir(args: {
   workspaceDir: string;
   relativeRoot: string;
@@ -398,16 +413,13 @@ export async function materializeAcpChatInjectedSkills(args: {
     workspaceDir,
     manifestPath,
   });
+  const previouslyOwnedTargets = new Set(
+    previousTargets.map(acpChatInjectedSkillTargetKey),
+  );
   const desiredRoots = new Set(injectionPlan.relativeSkillRoots);
   const nextTargets = new Map<string, AcpChatInjectedSkillTarget>();
   for (const target of previousTargets) {
     nextTargets.set(acpChatInjectedSkillTargetKey(target), target);
-  }
-  for (const relativeRoot of injectionPlan.relativeSkillRoots) {
-    for (const skillId of ACP_CHAT_INJECTED_SKILL_IDS) {
-      const target = { relativeRoot, skillId };
-      nextTargets.set(acpChatInjectedSkillTargetKey(target), target);
-    }
   }
   const ownershipCommitted = await writeAcpChatInjectedSkillsManifest({
     sessionRuntime: args.sessionRuntime,
@@ -481,9 +493,12 @@ export async function materializeAcpChatInjectedSkills(args: {
           continue;
         }
         try {
-          await copyRuntimeDirectory({
+          await materializeAcpChatInjectedSkill({
             sourceDir: entry.sourceDir,
             targetDir,
+            previouslyOwned: previouslyOwnedTargets.has(
+              acpChatInjectedSkillTargetKey(target),
+            ),
           });
           nextTargets.set(acpChatInjectedSkillTargetKey(target), target);
           targetDirs.push(targetDir);
@@ -520,7 +535,9 @@ export async function materializeAcpChatInjectedSkills(args: {
       continue;
     }
     try {
-      await removeRuntimePath(targetDir);
+      if (!(await removeRuntimePath(targetDir))) {
+        throw new Error("owned stale workspace Skill directory was not removed");
+      }
       nextTargets.delete(acpChatInjectedSkillTargetKey(target));
     } catch (error) {
       nextTargets.set(acpChatInjectedSkillTargetKey(target), target);

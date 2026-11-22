@@ -269,6 +269,64 @@ describe("host bridge server phase 1", function () {
     );
   });
 
+  it("surfaces retryable only for transient Synthesis transport failures", async function () {
+    const outcomes = [
+      {
+        details: { sidecarReason: "transport_unavailable", retryable: true },
+        retryable: true,
+      },
+      {
+        details: {
+          sidecarReason: "foreground_search_queue_full",
+          retryable: true,
+        },
+        retryable: true,
+      },
+      {
+        details: { reason: "service_not_ready", retryable: true },
+        retryable: true,
+      },
+      {
+        details: { sidecarReason: "sidecar_busy", retryable: true },
+        retryable: false,
+      },
+    ];
+    let failureIndex = 0;
+    const token = configureHostBridgeServerForTests({
+      token: "topic-search-transient-token",
+      resolveSynthesisClient: () =>
+        createSynthesisClientFromPort({
+          async searchTopics() {
+            const failure = outcomes[failureIndex++]!;
+            throw new SynthesisClientError(
+              "unavailable",
+              "Synthesis transport is temporarily unavailable",
+              failure.details,
+            );
+          },
+        }),
+    });
+
+    const call = async () =>
+      parseRawHttpResponse(
+        await handleHostBridgeHttpRequestForTests({
+          method: "POST",
+          path: "/bridge/v2/call",
+          headers: { authorization: `Bearer ${token}` },
+          body: JSON.stringify({
+            capability: "topics.search",
+            input: { query: "graph" },
+          }),
+        }),
+      );
+    for (const failure of outcomes) {
+      const parsed = await call();
+      assert.strictEqual(parsed.status, 503);
+      assert.strictEqual(parsed.json.error.code, "capability_failed");
+      assert.strictEqual(parsed.json.error.retryable, failure.retryable);
+    }
+  });
+
   for (const failure of [
     {
       code: "invalid_request",

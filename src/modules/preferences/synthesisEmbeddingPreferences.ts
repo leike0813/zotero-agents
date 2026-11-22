@@ -36,6 +36,11 @@ type HookResult = {
     ok?: boolean;
     dimensions?: number;
     latency_ms?: number;
+    tested_at?: string;
+    max_concurrency?: 1 | 2;
+    performance?: NonNullable<
+      SynthesisEmbeddingPrefsStatus["connectionTest"]
+    >["performance"];
     diagnostics?: Array<{ code?: string; message?: string }>;
   };
 };
@@ -50,8 +55,11 @@ const PROTOCOLS: SynthesisRetrievalProtocol[] = [
   "voyage",
   "gemini",
 ];
-const LOCAL = (key: string, fallback: string) =>
-  getStringOrFallback(key, fallback);
+const LOCAL = (
+  key: string,
+  fallback: string,
+  args?: Record<string, unknown>,
+) => getStringOrFallback(key, fallback, { args });
 
 const defaultAuth = (protocol: SynthesisRetrievalProtocol) =>
   protocol === "gemini"
@@ -114,6 +122,7 @@ export function bindSynthesisEmbeddingPreferences(window: Window) {
   const includeTopics = query<HTMLInputElement>("include-topics");
   const saveTestButton = query<XUL.Button>("save-test");
   const statusText = query<HTMLElement>("status");
+  const performanceText = query<HTMLElement>("performance-status");
 
   const cleanups: Array<() => void> = [];
   const drafts = new Map<string, Draft>();
@@ -583,6 +592,46 @@ export function bindSynthesisEmbeddingPreferences(window: Window) {
       (id) => drafts.has(id) && id !== primaryId,
     );
     if (enabled) enabled.checked = status.enabled === true;
+    const performance = status.connectionTests[selectedId];
+    if (performanceText) {
+      const measures = performance?.performance;
+      performanceText.textContent = performance
+        ? [
+            ...(performance.diagnostics || []).map((entry) => entry.message),
+            ...(measures
+              ? [
+                  LOCAL(
+                    "pref-retrieval-performance-measurements",
+                    "First { $first } ms ({ $firstSuccess }/1); warm { $warm } ms ({ $warmSuccess }/1); pairs { $pairOne } ms ({ $pairOneSuccess }/2) and { $pairTwo } ms ({ $pairTwoSuccess }/2), slowest { $slowest } ms; 8 docs { $documents } ms ({ $documentSuccess }/8)",
+                    {
+                      first: Math.round(measures.firstQuery.latencyMs),
+                      firstSuccess: measures.firstQuery.successCount,
+                      warm: Math.round(measures.warmQuery.latencyMs),
+                      warmSuccess: measures.warmQuery.successCount,
+                      pairOne: Math.round(measures.pairRounds[0]?.latencyMs ?? 0),
+                      pairOneSuccess: measures.pairRounds[0]?.successCount ?? 0,
+                      pairTwo: Math.round(measures.pairRounds[1]?.latencyMs ?? 0),
+                      pairTwoSuccess: measures.pairRounds[1]?.successCount ?? 0,
+                      slowest: Math.round(measures.slowestPairMs),
+                      documents: Math.round(measures.documentBatch.latencyMs),
+                      documentSuccess: measures.documentBatch.successCount,
+                    },
+                  ),
+                ]
+              : []),
+            `${LOCAL("pref-retrieval-capacity", "Capacity")}: ${performance.max_concurrency ?? 1}`,
+            `${LOCAL("pref-retrieval-tested", "Tested")}: ${performance.tested_at}`,
+          ].join(" · ")
+        : "";
+      performanceText.setAttribute(
+        "data-severity",
+        performance?.diagnostics?.some((entry) => entry.severity === "error")
+          ? "error"
+          : performance?.diagnostics?.length
+            ? "warning"
+            : "info",
+      );
+    }
     sourceKindsState.clear();
     for (const kind of status.pendingScope?.sourceKinds || [
       "metadata",
@@ -782,7 +831,8 @@ export function bindSynthesisEmbeddingPreferences(window: Window) {
         const details =
           response.test?.ok !== true
             ? ""
-            : ` · ${response.test.dimensions} · ${response.test.latency_ms} ms`;
+            : ` · ${response.test.dimensions} · ${response.test.latency_ms} ms · ${LOCAL("pref-retrieval-capacity", "Capacity")} ${response.test.max_concurrency ?? 1}`;
+        const warnings = diagnosticText(response);
         setStatus(
           response.test?.ok !== true
             ? [
@@ -792,7 +842,7 @@ export function bindSynthesisEmbeddingPreferences(window: Window) {
               ]
                 .filter(Boolean)
                 .join(" ")
-            : `${LOCAL("pref-retrieval-test-success", "Connection OK")}${details}`,
+            : `${LOCAL("pref-retrieval-test-success", "Connection OK")}${details}${warnings ? ` · ${warnings}` : ""}`,
         );
       } else {
         setStatus(LOCAL("pref-retrieval-save-success", "Saved"));

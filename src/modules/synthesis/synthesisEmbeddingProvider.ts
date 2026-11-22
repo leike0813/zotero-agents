@@ -27,6 +27,7 @@ import {
   discoverSynthesisEmbeddingModelsWithClient,
   inspectSynthesisEmbeddingModelWithClient,
 } from "./synthesisEmbeddingDiscovery";
+import { withEmbeddingAdmission } from "./synthesisEmbeddingAdmission";
 export type {
   SynthesisEmbeddingDiscoveryResult,
   SynthesisEmbeddingModel,
@@ -78,11 +79,22 @@ export type SynthesisEmbeddingHttpClient = {
 export type SynthesisEmbeddingService = {
   connection: SynthesisRetrievalConnection;
   credential?: string;
+  maxConcurrency?: 1 | 2;
+  performanceTestedAt?: string;
 };
 
 export type SynthesisEmbeddingProbeResult = {
   dimensions: number;
   latencyMs: number;
+  maxConcurrency?: 1 | 2;
+  diagnostics?: Array<{ code: string; severity: "warning"; message: string }>;
+  measurements?: {
+    firstQuery: { latencyMs: number; successCount: number };
+    warmQuery: { latencyMs: number; successCount: number };
+    pairRounds: Array<{ latencyMs: number; successCount: number }>;
+    slowestPairMs: number;
+    documentBatch: { latencyMs: number; successCount: number };
+  };
 };
 
 export const SYNTHESIS_EMBEDDING_SYNTHETIC_QUERY =
@@ -212,7 +224,20 @@ export const SYNTHESIS_EMBEDDING_PRESETS: SynthesisEmbeddingPreset[] = [
 
 const RETRY_BASE_DELAY_MS = 250;
 const DOCUMENT_ATTEMPT_BUDGET = 3;
-const DEFAULT_PROBE_TIMEOUT_MS = 15_000;
+const DEFAULT_PROBE_TIMEOUT_MS = 60_000;
+const PROBE_LIMITS = {
+  coldQuery: 15_000,
+  warmQuery: 2_000,
+  pairRound: 4_000,
+  documentBatch: 8_000,
+};
+const SYNTHETIC_DOCUMENT_SENTENCE =
+  "This synthetic literature record contains an abstract, citation context, metadata fields, keywords, methods, findings, and source evidence for semantic retrieval.";
+const SYNTHETIC_DOCUMENT_BATCH = Array.from(
+  { length: 8 },
+  (_, index) =>
+    `Synthetic literature record ${index + 1}. ${Array(6).fill(SYNTHETIC_DOCUMENT_SENTENCE).join(" ")}`,
+);
 
 export function createSynthesisEmbeddingHttpClient(): SynthesisEmbeddingHttpClient {
   return {
@@ -319,12 +344,12 @@ function openAiVectors(
   try {
     parsed = JSON.parse(text);
   } catch {
-    return { retryable: true, reason: "embedding_response_invalid" };
+    return { retryable: false, reason: "embedding_response_invalid" };
   }
   const data = (parsed as { data?: unknown })?.data;
   if (!Array.isArray(data) || data.length !== count) {
     return {
-      retryable: true,
+      retryable: false,
       reason: "embedding_association_invalid",
     };
   }
@@ -340,7 +365,7 @@ function openAiVectors(
       !Array.isArray(record?.embedding)
     ) {
       return {
-        retryable: true,
+        retryable: false,
         reason: "embedding_association_invalid",
       };
     }
@@ -348,7 +373,7 @@ function openAiVectors(
   }
   if (byIndex.some((vector) => vector === undefined)) {
     return {
-      retryable: true,
+      retryable: false,
       reason: "embedding_association_invalid",
     };
   }
@@ -364,7 +389,7 @@ function ollamaVectors(
   try {
     parsed = JSON.parse(text);
   } catch {
-    return { retryable: true, reason: "embedding_response_invalid" };
+    return { retryable: false, reason: "embedding_response_invalid" };
   }
   let embeddings =
     protocol === "tei"
@@ -378,14 +403,14 @@ function ollamaVectors(
     );
   if (!Array.isArray(embeddings) || embeddings.length !== count) {
     return {
-      retryable: true,
+      retryable: false,
       reason: "embedding_association_invalid",
     };
   }
   for (const vector of embeddings) {
     if (!Array.isArray(vector)) {
       return {
-        retryable: true,
+        retryable: false,
         reason: "embedding_response_invalid",
       };
     }
@@ -449,6 +474,7 @@ export type SynthesisEmbeddingProvider = {
     inputs: string[];
     deadlineAtMs: number;
     services: SynthesisEmbeddingService[];
+    recordQueueWait?: (ms: number) => void;
     signal?: CancellationSignal;
   }): Promise<SynthesisEmbeddingEncodeResult>;
   probe(args: {
@@ -557,13 +583,14 @@ export function createSynthesisEmbeddingProvider(options?: {
     const totalBudget =
       request.purpose === "document"
         ? DOCUMENT_ATTEMPT_BUDGET
-        : services.length;
+        : Math.max(2, services.length);
     let attempts = 0;
     let lastFailure: AssociationFailure | undefined;
     let lastError: SynthesisClientError | undefined;
     for (let serviceIndex = 0; serviceIndex < services.length; serviceIndex++) {
       const service = services[serviceIndex];
-      let retrySameService = request.purpose === "document";
+      let retrySameService =
+        request.purpose === "document" || services.length === 1;
       for (;;) {
         if (args.signal?.aborted) {
           throw new SynthesisClientError(
@@ -586,12 +613,38 @@ export function createSynthesisEmbeddingProvider(options?: {
                 Math.floor(remaining / (services.length - serviceIndex)),
               )
             : remaining;
-        const vectors = await requestVectors({
-          service,
-          prefixedInputs,
-          timeoutMs,
+        const attemptDeadline = now() + timeoutMs;
+        const vectors = await withEmbeddingAdmission({
+          endpoint: embeddingEndpoint(service.connection),
+          query: request.purpose === "query",
+          limit: service.maxConcurrency ?? 1,
+          testedAt: service.performanceTestedAt,
+          deadline: Math.min(attemptDeadline, request.deadlineAtMs),
+          now,
           signal: args.signal,
-          purpose: request.purpose,
+          run: async (left, overloaded) => {
+            args.recordQueueWait?.(Math.max(0, timeoutMs - left));
+            const result = await requestVectors({
+              service,
+              prefixedInputs,
+              timeoutMs: Math.min(timeoutMs, left),
+              signal: args.signal,
+              purpose: request.purpose,
+            });
+            if (
+              isFailure(result) &&
+              ["embedding_http_429", "embedding_http_503"].includes(
+                result.reason,
+              )
+            )
+              overloaded(result.retryAfterMs);
+            return result;
+          },
+        }).catch((error: unknown): AssociationFailure => {
+          if (args.signal?.aborted || now() >= request.deadlineAtMs) throw error;
+          if (error instanceof SynthesisClientError && error.code === "timeout")
+            return { retryable: true, reason: "embedding_admission_timeout" };
+          throw error;
         });
         if (args.signal?.aborted || now() >= request.deadlineAtMs) {
           throw new SynthesisClientError(
@@ -623,8 +676,7 @@ export function createSynthesisEmbeddingProvider(options?: {
         if (!vectors.retryable || !retrySameService || !budgetLeft) {
           break;
         }
-        // One same-service retry for documents, then the next selected service:
-        // at most three total attempts including fallback under one deadline.
+        // Prefer a compatible fallback for queries when one is available.
         retrySameService = false;
         const remainingForDelay = request.deadlineAtMs - now();
         const delay = Math.min(
@@ -703,67 +755,195 @@ export function createSynthesisEmbeddingProvider(options?: {
       connection: args.connection,
       credential: args.credential,
     };
-    const vectorsFor = async (purpose: SynthesisEmbeddingEncodePurpose) => {
-      const remaining = deadlineAtMs - now();
-      if (remaining <= 0) {
-        throw new SynthesisClientError(
-          "timeout",
-          "Embedding connection test exceeded its deadline",
+    return withEmbeddingAdmission({
+      endpoint: embeddingEndpoint(args.connection),
+      query: true,
+      limit: 2,
+      exclusive: true,
+      deadline: deadlineAtMs,
+      now,
+      signal: args.signal,
+      run: async (_remaining, overloaded) => {
+        const vectorsFor = async (
+          purpose: SynthesisEmbeddingEncodePurpose,
+          inputs = [
+            purpose === "query"
+              ? SYNTHESIS_EMBEDDING_SYNTHETIC_QUERY
+              : SYNTHESIS_EMBEDDING_SYNTHETIC_DOCUMENT,
+          ],
+        ) => {
+          const remaining = deadlineAtMs - now();
+          if (remaining <= 0 || args.signal?.aborted)
+            throw new SynthesisClientError(
+              "timeout",
+              "Embedding connection test exceeded its deadline",
+            );
+          const prefix =
+            purpose === "query"
+              ? args.connection.queryPrefix
+              : args.connection.documentPrefix;
+          const vectors = await requestVectors({
+            service,
+            prefixedInputs: inputs.map((input) => prefix + input),
+            timeoutMs: remaining,
+            signal: args.signal,
+            purpose,
+          });
+          if (isFailure(vectors)) {
+            if (
+              vectors.reason === "embedding_http_429" ||
+              vectors.reason === "embedding_http_503"
+            )
+              overloaded(vectors.retryAfterMs);
+            throw new SynthesisClientError(
+              "unavailable",
+              "Embedding connection test failed",
+              { reason: vectors.reason },
+            );
+          }
+          assertSynthesisEmbeddingVectors(
+            vectors,
+            vectors[0]?.length ?? 0,
+            inputs.length,
+          );
+          return vectors;
+        };
+        const diagnostics: NonNullable<
+          SynthesisEmbeddingProbeResult["diagnostics"]
+        > = [];
+        const warnIfSlow = (
+          code: string,
+          message: string,
+          elapsed: number,
+          limit: number,
+        ) => {
+          if (elapsed <= limit) return false;
+          diagnostics.push({ code, severity: "warning", message });
+          return true;
+        };
+        let maxConcurrency: 1 | 2 = 2;
+        const firstStartedAt = now();
+        const queryVectors = await vectorsFor("query");
+        const firstQuery = {
+          latencyMs: now() - firstStartedAt,
+          successCount: 1,
+        };
+        if (
+          warnIfSlow(
+            "embedding_probe_cold_query_slow",
+            "First query exceeded 15 seconds.",
+            firstQuery.latencyMs,
+            PROBE_LIMITS.coldQuery,
+          )
+        )
+          maxConcurrency = 1;
+        const documentVectors = await vectorsFor("document");
+        const warmStartedAt = now();
+        await vectorsFor("query", [
+          "zotero-agents embedding synthetic warm query",
+        ]);
+        const warmQuery = { latencyMs: now() - warmStartedAt, successCount: 1 };
+        if (
+          warnIfSlow(
+            "embedding_probe_warm_query_slow",
+            "Warm query exceeded 2 seconds.",
+            warmQuery.latencyMs,
+            PROBE_LIMITS.warmQuery,
+          )
+        )
+          maxConcurrency = 1;
+        const dimensions = queryVectors[0].length;
+        if (
+          args.connection.dimensions !== undefined &&
+          dimensions !== args.connection.dimensions
+        )
+          throw new SynthesisClientError(
+            "unavailable",
+            "Embedding dimensions do not match configuration",
+          );
+        const pairRounds: Array<{ latencyMs: number; successCount: number }> =
+          [];
+        for (let round = 0; round < 2; round += 1) {
+          const roundStartedAt = now();
+          const pair = await Promise.allSettled([
+            vectorsFor("query", [
+              `zotero-agents embedding synthetic pair ${round} a`,
+            ]),
+            vectorsFor("query", [
+              `zotero-agents embedding synthetic pair ${round} b`,
+            ]),
+          ]);
+          const successCount = pair.filter(
+            (entry) => entry.status === "fulfilled",
+          ).length;
+          const latencyMs = now() - roundStartedAt;
+          pairRounds.push({ latencyMs, successCount });
+          for (const entry of pair) {
+            if (entry.status === "fulfilled")
+              assertSynthesisEmbeddingVectors(entry.value, dimensions, 1);
+          }
+          if (successCount !== 2) {
+            maxConcurrency = 1;
+            diagnostics.push({
+              code: "embedding_probe_pair_failed",
+              severity: "warning",
+              message: `Concurrent query pair ${round + 1} succeeded ${successCount}/2 requests; using serial requests.`,
+            });
+          }
+          if (latencyMs > PROBE_LIMITS.pairRound) {
+            maxConcurrency = 1;
+            diagnostics.push({
+              code: "embedding_probe_pair_slow",
+              severity: "warning",
+              message: `Concurrent query pair ${round + 1} exceeded 4 seconds; using serial requests.`,
+            });
+          }
+        }
+        const batchStartedAt = now();
+        const batchVectors = await vectorsFor(
+          "document",
+          SYNTHETIC_DOCUMENT_BATCH,
         );
-      }
-      const prefix =
-        purpose === "query"
-          ? args.connection.queryPrefix
-          : args.connection.documentPrefix;
-      const input = SYNTHESIS_EMBEDDING_SYNTHETIC_QUERY;
-      const vectors = await requestVectors({
-        service,
-        prefixedInputs: [
-          prefix +
-            (purpose === "query"
-              ? input
-              : SYNTHESIS_EMBEDDING_SYNTHETIC_DOCUMENT),
-        ],
-        timeoutMs: remaining,
-        signal: args.signal,
-        purpose,
-      });
-      if (args.signal?.aborted || now() >= deadlineAtMs)
-        throw new SynthesisClientError(
-          "timeout",
-          "Embedding test exceeded its budget",
+        const documentBatch = {
+          latencyMs: now() - batchStartedAt,
+          successCount: batchVectors.length,
+        };
+        if (
+          warnIfSlow(
+            "embedding_probe_document_batch_slow",
+            "Eight-document batch exceeded 8 seconds.",
+            documentBatch.latencyMs,
+            PROBE_LIMITS.documentBatch,
+          )
+        )
+          maxConcurrency = 1;
+        for (const vector of [...documentVectors, ...batchVectors]) {
+          if (vector.length !== dimensions)
+            throw new SynthesisClientError(
+              "internal",
+              "Embedding connection test returned inconsistent dimensions",
+            );
+        }
+        assertSynthesisEmbeddingVectors(queryVectors, dimensions);
+        assertSynthesisEmbeddingVectors(documentVectors, dimensions);
+        const slowestPairMs = Math.max(
+          ...pairRounds.map((round) => round.latencyMs),
         );
-      if (isFailure(vectors)) {
-        throw new SynthesisClientError(
-          "unavailable",
-          "Embedding connection test failed",
-          { reason: vectors.reason },
-        );
-      }
-      return vectors;
-    };
-    const queryVectors = await vectorsFor("query");
-    const documentVectors = await vectorsFor("document");
-    const dimensions = queryVectors[0].length;
-    if (
-      args.connection.dimensions !== undefined &&
-      dimensions !== args.connection.dimensions
-    )
-      throw new SynthesisClientError(
-        "unavailable",
-        "Embedding dimensions do not match configuration",
-      );
-    for (const vector of [...queryVectors, ...documentVectors]) {
-      if (vector.length !== dimensions) {
-        throw new SynthesisClientError(
-          "internal",
-          "Embedding connection test returned inconsistent dimensions",
-        );
-      }
-    }
-    assertSynthesisEmbeddingVectors(queryVectors, dimensions);
-    assertSynthesisEmbeddingVectors(documentVectors, dimensions);
-    return { dimensions, latencyMs: Math.max(0, now() - startedAt) };
+        return {
+          dimensions,
+          latencyMs: Math.max(0, now() - startedAt),
+          maxConcurrency,
+          diagnostics,
+          measurements: {
+            firstQuery,
+            warmQuery,
+            pairRounds,
+            slowestPairMs,
+            documentBatch,
+          },
+        };
+      },
+    });
   }
 
   return { encode, probe };

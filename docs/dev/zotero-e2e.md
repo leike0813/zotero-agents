@@ -1,6 +1,22 @@
 # Zotero E2E 测试
 
-运行 `ZOTERO_TEST_GREP='System E2E runner foundation|retrieval-semantic-search-01' npm run test:zotero:e2e` 可验证工作台语义搜索。用例在隔离库中创建三篇含 Markdown 全文的中文论文、一份受管分析笔记和一个主题，通过工作台发布四类来源，重开页面后检索并打开论文和主题。回环嵌入服务为同义问句延迟 11.5 秒，另以 HTTP 401 验证错误码能传到页面。
+运行 `ZOTERO_TEST_GREP='System E2E runner foundation|retrieval-semantic-search-01' npm run test:zotero:e2e` 可验证工作台语义搜索。用例在隔离库中创建三篇含 Markdown 全文的中文论文、一份受管分析笔记和一个主题，通过工作台发布四类来源，重开页面后检索并打开论文和主题。回环嵌入服务为同义问句延迟 11.5 秒，另以 HTTP 401 验证错误码能传到页面。ACP Chat 使用现有受控 ACP fixture 和真实 Chat prompt；fixture 从 ACP Chat 注入的 Host Bridge profile/token 对本机 MCP `/mcp` 执行真实 `tools/call`，并按 1/3/6 并发，ACP transcript 必须显示完成的 tool call。用例以当前 ACP Chat 注入诊断、Skill ownership manifest 和 Skill 副本 SHA-256 核对 `zotero-bridge-cli` 当前副本。首次 ACP burst 是索引发布后的冷搜索，后续 ACP burst 与真实 Bridge CLI、MCP HTTP、Workbench 生产 client 的 burst 是热搜索；全部路由检查签名 evidence ref、完成状态和 sidecar 健康，耗时写入 `retrieval-search-bursts.json`。ACP fixture 只把合成条目 query/ref 发往本机 Bridge；不会读取或远发真实文库内容。
+
+默认使用本地回环 mock，不访问外部 embedding 服务。显式 opt-in 的 Ollama 校准只能使用 runner 的 `foundation-v1` Committed Seed 和本用例生成的合成条目；禁止 gold 或外部数据目录。该模式会把合成条目的文本发送到 `192.168.13.111:11434` 的 `qwen3-embedding:4b`：
+
+```powershell
+$env:ZOTERO_E2E_RETRIEVAL_LIVE_OLLAMA = '1'
+$env:ZOTERO_TEST_GREP = 'System E2E runner foundation|retrieval-semantic-search-01'
+npm run test:zotero:e2e
+```
+
+若要检查 mock 路径，保持 live 标志未设置并运行：
+
+```powershell
+Remove-Item Env:ZOTERO_E2E_RETRIEVAL_LIVE_OLLAMA -ErrorAction SilentlyContinue
+$env:ZOTERO_TEST_GREP = 'System E2E runner foundation|retrieval-semantic-search-01'
+npm run test:zotero:e2e
+```
 
 用 Private Gold Source 运行同一用例时，真实库副本须包含一份至少 262,145 个 UTF-16 单元的引文分析。用例验收全库四来源重建、长分析高位片段回查，以及从检索结果打开论文和主题。`large-analysis-retrieval.json` 在运行 manifest 同目录记录耗时、长度、预览偏移和打开状态。
 

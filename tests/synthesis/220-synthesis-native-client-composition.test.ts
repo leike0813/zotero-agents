@@ -127,6 +127,186 @@ const lifecycleTransferStatus = {
   lastActivityAtMs: 2,
 };
 
+describe("Synthesis foreground sidecar admission", function () {
+  it("serializes one search per service instance, lets control RPC pass, and cancels queued work", async function () {
+    const firstFetch = deferred<Response>();
+    const calls: string[] = [];
+    const requestIds: string[] = [];
+    const rpc = createSynthesisSidecarRpcClient({
+      fetch: (async (_input, init) => {
+        const body = JSON.parse(String(init?.body)) as {
+          requestId: string;
+          capability: string;
+        };
+        calls.push(body.capability);
+        requestIds.push(body.requestId);
+        if (body.capability === "library.retrieval.execute") {
+          return firstFetch.promise;
+        }
+        return new Response(JSON.stringify({
+          ok: true,
+          requestId: body.requestId,
+          serviceInstanceId: "service",
+          data: {},
+        }));
+      }) as typeof fetch,
+    });
+    const connection = {
+      baseUrl: "http://127.0.0.1:32001",
+      profileId: "profile",
+      clientToken: "token",
+      serviceInstanceId: "service",
+    };
+    const execute = (capability: "library.retrieval.execute" | "client.getRetrievalState", signal?: AbortSignal) =>
+      rpc.call({
+        connection,
+        capability,
+        payload: {},
+        signal,
+        rebuildResult: (value) => value,
+      });
+    const first = execute("library.retrieval.execute");
+    await Promise.resolve();
+    const canceled = new AbortController();
+    const queued = execute("library.retrieval.execute", canceled.signal);
+    const control = execute("client.getRetrievalState");
+    await control;
+    canceled.abort();
+    const queuedFailure = await queued.then(
+      () => assert.fail("A canceled queued search must be rejected"),
+      (error: unknown) => error,
+    );
+    assert.instanceOf(queuedFailure, SynthesisSidecarRpcError);
+    assert.equal((queuedFailure as SynthesisSidecarRpcError).code, "worker_canceled");
+    assert.deepEqual(calls, ["client.getRetrievalState", "library.retrieval.execute"]);
+    firstFetch.resolve(new Response(JSON.stringify({
+      ok: true,
+      requestId: requestIds[1],
+      serviceInstanceId: "service",
+      data: {},
+    })));
+    await first;
+  });
+
+  it("bounds the pending search queue per service instance", async function () {
+    const firstFetch = deferred<Response>();
+    const requestIds: string[] = [];
+    let fetchCount = 0;
+    const rpc = createSynthesisSidecarRpcClient({
+      fetch: (async (_input, init) => {
+        const body = JSON.parse(String(init?.body)) as { requestId: string };
+        requestIds.push(body.requestId);
+        fetchCount += 1;
+        if (fetchCount === 1) return firstFetch.promise;
+        return new Response(JSON.stringify({
+          ok: true,
+          requestId: body.requestId,
+          serviceInstanceId: "service",
+          data: {},
+        }));
+      }) as typeof fetch,
+    });
+    const args = {
+      connection: {
+        baseUrl: "http://127.0.0.1:32001",
+        profileId: "profile",
+        clientToken: "token",
+        serviceInstanceId: "service",
+      },
+      capability: "library.retrieval.execute" as const,
+      payload: {},
+      rebuildResult: (value: unknown) => value,
+    };
+    const first = rpc.call(args);
+    const waiting = Array.from({ length: 8 }, () => rpc.call(args));
+    const overflow = await rpc.call(args).then(
+      () => assert.fail("The ninth pending search must be rejected"),
+      (error: unknown) => error,
+    );
+    assert.instanceOf(overflow, SynthesisSidecarRpcError);
+    assert.equal((overflow as SynthesisSidecarRpcError).details.reason, "foreground_search_queue_full");
+    assert.equal((overflow as SynthesisSidecarRpcError).details.retryable, true);
+    firstFetch.resolve(new Response(JSON.stringify({
+      ok: true,
+      requestId: requestIds[0],
+      serviceInstanceId: "service",
+      data: {},
+    })));
+    await Promise.all([first, ...waiting]);
+    assert.equal(fetchCount, 9);
+  });
+
+  it("admits all six search routes through one instance queue and traces queue wait", async function () {
+    setDebugModeOverrideForTests(true);
+    setSynthesisSidecarDiagnosticsSourceOverrideForTests(true);
+    resetSynthesisSidecarTraceForTests();
+    const firstFetch = deferred<Response>();
+    const calls: string[] = [];
+    const requestIds: string[] = [];
+    const rpc = createSynthesisSidecarRpcClient({
+      fetch: (async (_input, init) => {
+        const body = JSON.parse(String(init?.body)) as {
+          requestId: string;
+          capability: string;
+        };
+        calls.push(body.capability);
+        requestIds.push(body.requestId);
+        if (calls.length === 1) return firstFetch.promise;
+        return new Response(JSON.stringify({
+          ok: true,
+          requestId: body.requestId,
+          serviceInstanceId: "service",
+          data: {},
+        }));
+      }) as typeof fetch,
+    });
+    const connection = {
+      baseUrl: "http://127.0.0.1:32001",
+      profileId: "profile",
+      clientToken: "token",
+      serviceInstanceId: "service",
+    };
+    const searches = [
+      ["library.retrieval.execute", {}],
+      ["client.searchEvidence", { args: [{}] }],
+      ["client.searchTopics", { args: [{}] }],
+      ["client.searchSemanticEvidence", { args: [{}] }],
+      ["client.recommendSimilarPapers", { args: [{}] }],
+      ["client.exploreRetrievalIndex", { args: [{ operation: "search" }] }],
+    ] as const;
+    const pending = searches.map(([capability, payload]) =>
+      rpc.call({
+        connection,
+        capability,
+        payload,
+        rebuildResult: (value) => value,
+      }),
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.lengthOf(calls, 1);
+    firstFetch.resolve(new Response(JSON.stringify({
+      ok: true,
+      requestId: requestIds[0],
+      serviceInstanceId: "service",
+      data: {},
+    })));
+    await Promise.all(pending);
+    assert.lengthOf(calls, searches.length);
+    const events = readSynthesisSidecarTraceSnapshot().traces.flatMap(
+      (trace) => trace.events,
+    );
+    assert.equal(
+      events.filter((event) => typeof event.metrics?.queueWaitMs === "number")
+        .length,
+      searches.length,
+    );
+    resetSynthesisSidecarTraceForTests();
+    setDebugModeOverrideForTests(undefined);
+    setSynthesisSidecarDiagnosticsSourceOverrideForTests(undefined);
+  });
+});
+
 describe("private Library lexical composition", function () {
   it("invalidates an enhanced continuation when Host embedding is disabled", async function () {
     const previous = getPref("synthesisEmbeddingEnabled");
@@ -1978,9 +2158,9 @@ describe("Synthesis native client composition", function () {
       "client.searchSemanticEvidence",
       "client.recommendSimilarPapers",
     ] as const) {
-      assert.isAbove(
+      assert.equal(
         synthesisProductionOperationDeadlineMs(capability),
-        90_000,
+        300_000,
       );
     }
     assert.equal(
@@ -3513,6 +3693,193 @@ describe("private Library retrieval failure audit", function () {
       classification: "timeout",
       sidecarCode: "worker_timeout",
     });
+  });
+
+  it("rechecks health and retries one transient read-only transport failure", async function () {
+    let connection = readyConnection;
+    let healthChecks = 0;
+    let recoveries = 0;
+    const dispatchedConnections: string[] = [];
+    const deadlines: number[] = [];
+    const port = createNativeSynthesisLibraryRetrievalPort({
+      getReadyConnection: () => connection,
+      observeHealth: async () => {
+        healthChecks += 1;
+        return { lifecycle: "unavailable", serviceInstanceId: "service" } as never;
+      },
+      recoverReadyConnection: async () => {
+        recoveries += 1;
+        connection = {
+          ...readyConnection,
+          discovery: {
+            ...readyConnection.discovery,
+            serviceInstanceId: "replacement",
+          },
+        };
+      },
+      rpcClient: {
+        async call(args) {
+          deadlines.push(args.deadlineMs!);
+          dispatchedConnections.push(args.connection.serviceInstanceId);
+          if (dispatchedConnections.length === 1) {
+            await new Promise((resolve) => setTimeout(resolve, 20));
+            throw new SynthesisSidecarRpcError("worker_unavailable", {
+              reason: "transport_unavailable",
+            });
+          }
+          return args.rebuildResult(retrievalExecution);
+        },
+      },
+    });
+
+    const result = await port.execute({ query: "evidence", libraryIds: [1] });
+
+    assert.equal(result.publication, "publication:1");
+    assert.equal(healthChecks, 1);
+    assert.equal(recoveries, 1);
+    assert.deepEqual(dispatchedConnections, ["service", "replacement"]);
+    assert.isBelow(deadlines[1]!, deadlines[0]!);
+  });
+
+  it("rechecks and retries a generic production search within its original deadline", async function () {
+    let connection = readyConnection;
+    let healthChecks = 0;
+    let recoveries = 0;
+    const capabilities: string[] = [];
+    const deadlines: number[] = [];
+    const composition = createNativeSynthesisClientComposition({
+      getReadyConnection: () => connection,
+      observeHealth: async () => {
+        healthChecks += 1;
+        return { lifecycle: "unavailable", serviceInstanceId: "service" } as never;
+      },
+      recoverReadyConnection: async () => {
+        recoveries += 1;
+        connection = {
+          ...readyConnection,
+          discovery: {
+            ...readyConnection.discovery,
+            serviceInstanceId: "replacement",
+          },
+        };
+      },
+      rpcClient: {
+        async call(args) {
+          capabilities.push(args.capability);
+          deadlines.push(args.deadlineMs!);
+          if (capabilities.length === 1) {
+            await new Promise((resolve) => setTimeout(resolve, 20));
+            throw new SynthesisSidecarRpcError("worker_unavailable", {
+              reason: "transport_unavailable",
+            });
+          }
+          return args.rebuildResult({
+            results: [],
+            status: "completed",
+            method: "lexical",
+            coverage: {
+              kind: "library",
+              sources: {
+                metadata: { status: "complete", sourcesScanned: 0 },
+                fulltext: { status: "complete", sourcesScanned: 0 },
+                analysis: { status: "complete", sourcesScanned: 0 },
+              },
+            },
+            issues: [],
+            nextCursor: null,
+            hasMore: false,
+            total: 0,
+          });
+        },
+      },
+    });
+
+    const result = await composition.client.searchEvidence({
+      query: "search evidence",
+      libraryIds: [1],
+    });
+
+    assert.equal(result.status, "completed");
+    assert.deepEqual(capabilities, [
+      "client.searchEvidence",
+      "client.searchEvidence",
+    ]);
+    assert.equal(healthChecks, 1);
+    assert.equal(recoveries, 1);
+    assert.isBelow(deadlines[1]!, deadlines[0]!);
+    await composition.dispose();
+  });
+
+  it("does not immediately retry a full foreground queue", async function () {
+    let calls = 0;
+    let healthChecks = 0;
+    const composition = createNativeSynthesisClientComposition({
+      getReadyConnection: () => readyConnection,
+      observeHealth: async () => {
+        healthChecks += 1;
+        return { lifecycle: "ready", serviceInstanceId: "service" } as never;
+      },
+      rpcClient: {
+        async call() {
+          calls += 1;
+          throw new SynthesisSidecarRpcError("worker_unavailable", {
+            reason: "foreground_search_queue_full",
+            retryable: true,
+          });
+        },
+      },
+    });
+    const failure = await composition.client
+      .searchEvidence({ query: "queue admission", libraryIds: [1] })
+      .then(
+        () => assert.fail("A full foreground queue should remain rejected"),
+        (error: unknown) => error,
+      );
+
+    assert.instanceOf(failure, SynthesisClientError);
+    assert.equal(
+      (failure as SynthesisClientError).details?.retryable,
+      true,
+    );
+    assert.equal((failure as SynthesisClientError).details?.sidecarReason, "foreground_search_queue_full");
+    assert.equal(calls, 1);
+    assert.equal(healthChecks, 0);
+    await composition.dispose();
+  });
+
+  it("classifies service_not_ready after readiness wait by supervisor state", async function () {
+    for (const state of [
+      {
+        lifecycle: "unavailable",
+        recoveryState: "scheduled",
+        retryable: true,
+      },
+      { lifecycle: "incompatible", recoveryState: "manual-recovery-required", retryable: false },
+    ] as const) {
+      const composition = createNativeSynthesisClientComposition({
+        getReadyConnection: () => null,
+        recoverReadyConnection: async () => undefined,
+        observeHealth: async () => state as never,
+        rpcClient: {
+          async call() {
+            assert.fail("A missing ready connection must not dispatch RPC");
+          },
+        },
+      });
+      const failure = await composition.client
+        .searchEvidence({ query: "not ready", libraryIds: [1] })
+        .then(
+          () => assert.fail("An unavailable service must be rejected"),
+          (error: unknown) => error,
+        );
+      assert.instanceOf(failure, SynthesisClientError);
+      assert.equal((failure as SynthesisClientError).details?.reason, "service_not_ready");
+      assert.equal(
+        (failure as SynthesisClientError).details?.retryable,
+        state.retryable,
+      );
+      await composition.dispose();
+    }
   });
 
   it("audits a rejected result once with its schema diagnostics", async function () {

@@ -232,6 +232,8 @@
 
 - 向量嵌入配置的协议、端点、模型发现和凭据由 Host 持有；首选项与 Workbench 保存共用 `submitSynthesisEmbeddingSettings`。索引身份绑定模型、实际维度、前缀及生效的 query/document 参数 `encodingOptionsKey`，连接测试另绑定请求配置和凭据版本；地址或密钥变化需重测，编码变化需显式重建。发现、保存与合成测试均不启动索引维护。
 
+- 同一嵌入端点的查询与文档编码共享并发配额。调整排队、重试或测速时，按 [Synthesis 运行与重建](docs/synthesis-layer/runtime-and-rebuild.md) 验证慢响应、并发请求与排队取消。前台排队和恢复耗时计入操作总时限。
+
 - 向量构建、重建和增量更新由持久维护回执管理，按来源组保存进度，时限只约束单步 I/O 和发布后尾部任务。Workbench 重开后从检索状态读回任务。改动生命周期或语义取证时，先读 [Synthesis 运行与重建](docs/synthesis-layer/runtime-and-rebuild.md) 和 [Broker 检索适配边界](docs/components/zotero-host-capability-broker-ssot.md)。语义证据读共用已发布索引与当前来源校验，检索不可用时返回原因。
 
 - 页面源码分别由 `src/dashboard/` 与 `src/synthesis/` 持有，HTML 提供固定区域容器；构建产物不得恢复为 `addon/` 下的手写页面实现。

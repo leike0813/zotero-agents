@@ -18,6 +18,7 @@ import {
 } from "../sidecar/synthesisSidecarTrace";
 
 type HandlerContext = {
+  recordQueueWait?: (ms: number) => void;
   requestId: string;
   operationId: string;
   deadlineAtMs: number;
@@ -116,6 +117,7 @@ export function createSynthesisReverseHostBroker(options: BrokerOptions) {
     signal?: CancellationSignal,
   ) {
     const startedAt = options.now();
+    let queueWaitMs = 0;
     const trace = createSynthesisSidecarTraceContext({ parent: call.trace });
     const record = (
       event: Parameters<typeof recordSynthesisSidecarTraceEvent>[0],
@@ -145,6 +147,13 @@ export function createSynthesisReverseHostBroker(options: BrokerOptions) {
           requestId: call.requestId,
           operationId: call.operationId,
           deadlineAtMs: call.deadlineAtMs,
+          ...(call.capability === "retrieval.embedding.encode"
+            ? {
+                recordQueueWait: (ms: number) => {
+                  queueWaitMs += ms;
+                },
+              }
+            : {}),
           ...(signal ? { signal } : {}),
         }),
         call.payload,
@@ -158,6 +167,7 @@ export function createSynthesisReverseHostBroker(options: BrokerOptions) {
         identities: { capability: call.capability },
         metrics: {
           durationMs: Math.max(0, options.now() - startedAt),
+          ...(queueWaitMs ? { queueWaitMs } : {}),
           responseBytes: textEncoder.encode(JSON.stringify(result)).byteLength,
         },
       });
@@ -193,7 +203,10 @@ export function createSynthesisReverseHostBroker(options: BrokerOptions) {
           capability: call.capability,
           ...(reason ? { reason } : {}),
         },
-        metrics: { durationMs: Math.max(0, options.now() - startedAt) },
+        metrics: {
+          durationMs: Math.max(0, options.now() - startedAt),
+          ...(queueWaitMs ? { queueWaitMs } : {}),
+        },
       });
       throw error;
     }

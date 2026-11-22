@@ -1847,6 +1847,71 @@ const EMPTY_RETRIEVAL_STATE: SynthesisRetrievalState = {
   issues: [],
 };
 
+function projectEmbeddingPerformanceDisplay(
+  test: SynthesisEmbeddingPrefsStatus["connectionTests"][string],
+) {
+  const performance = test.performance;
+  if (!performance || !test.max_concurrency) return undefined;
+
+  const measurementsArgs = {
+    first: performance.firstQuery.latencyMs,
+    firstSuccess: performance.firstQuery.successCount,
+    warm: performance.warmQuery.latencyMs,
+    warmSuccess: performance.warmQuery.successCount,
+    pairOne: performance.pairRounds[0]?.latencyMs ?? 0,
+    pairOneSuccess: performance.pairRounds[0]?.successCount ?? 0,
+    pairTwo: performance.pairRounds[1]?.latencyMs ?? 0,
+    pairTwoSuccess: performance.pairRounds[1]?.successCount ?? 0,
+    slowest: performance.slowestPairMs,
+    documents: performance.documentBatch.latencyMs,
+    documentSuccess: performance.documentBatch.successCount,
+    tested: test.tested_at,
+  };
+  const messages: Record<string, [string, string]> = {
+    embedding_probe_cold_query_slow: [
+      "synthesis-retrieval-performance-first-slow",
+      "First query exceeded 15 s",
+    ],
+    embedding_probe_warm_query_slow: [
+      "synthesis-retrieval-performance-warm-slow",
+      "Warm query exceeded 2 s",
+    ],
+    embedding_probe_pair_slow: [
+      "synthesis-retrieval-performance-pair-slow",
+      "Concurrent pair exceeded 4 s",
+    ],
+    embedding_probe_pair_failed: [
+      "synthesis-retrieval-performance-pair-failed",
+      "Concurrent pair had failed requests",
+    ],
+    embedding_probe_document_batch_slow: [
+      "synthesis-retrieval-performance-batch-slow",
+      "8-document batch exceeded 8 s",
+    ],
+  };
+
+  return {
+    capacity: getStringOrFallback(
+      "synthesis-retrieval-performance-capacity",
+      `Tested capacity: ${test.max_concurrency} concurrent requests`,
+      { args: { capacity: test.max_concurrency } },
+    ),
+    measurements: getStringOrFallback(
+      "synthesis-retrieval-performance-measurements",
+      `First ${measurementsArgs.first} ms (${measurementsArgs.firstSuccess}/1); warm ${measurementsArgs.warm} ms (${measurementsArgs.warmSuccess}/1); pairs ${measurementsArgs.pairOne} ms (${measurementsArgs.pairOneSuccess}/2), ${measurementsArgs.pairTwo} ms (${measurementsArgs.pairTwoSuccess}/2), slowest ${measurementsArgs.slowest} ms; 8 documents ${measurementsArgs.documents} ms (${measurementsArgs.documentSuccess}/8); tested ${measurementsArgs.tested}`,
+      { args: measurementsArgs },
+    ),
+    reliability: localize(
+      "synthesis-retrieval-performance-reliability",
+      "Synthetic results are estimates; live latency and service load may vary.",
+    ),
+    warnings: test.diagnostics.flatMap((diagnostic) => {
+      const message = messages[diagnostic.code];
+      return message ? [localize(message[0], message[1])] : [];
+    }),
+  };
+}
+
 /**
  * Assembles the Home retrieval snapshot from the Host settings and the native
  * state. A failed native read keeps the previously loaded native facts, and
@@ -1942,6 +2007,26 @@ export function projectRetrievalSnapshot(args: {
         connection.dimensions ??
         args.prefs.connectionTests[connection.id]?.dimensions,
       tested: args.prefs.connectionTests[connection.id]?.ok === true,
+      ...(args.prefs.connectionTests[connection.id]?.ok &&
+      args.prefs.connectionTests[connection.id]?.configuration_key &&
+      args.prefs.connectionTests[connection.id]?.performance &&
+      Number.isFinite(
+        Date.parse(args.prefs.connectionTests[connection.id]?.tested_at || ""),
+      )
+        ? {
+            maxConcurrency:
+              args.prefs.connectionTests[connection.id]?.max_concurrency,
+            performanceTestedAt:
+              args.prefs.connectionTests[connection.id]?.tested_at,
+            performanceDiagnostics: args.prefs.connectionTests[
+              connection.id
+            ]?.diagnostics.filter((entry) => entry.severity === "warning"),
+            performance: args.prefs.connectionTests[connection.id]?.performance,
+            performanceDisplay: projectEmbeddingPerformanceDisplay(
+              args.prefs.connectionTests[connection.id]!,
+            ),
+          }
+        : {}),
     })),
     primaryConnectionId: args.prefs.primaryConnectionId,
     fallbackConnectionIds: args.prefs.fallbackConnectionIds,

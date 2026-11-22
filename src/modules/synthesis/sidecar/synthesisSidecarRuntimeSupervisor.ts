@@ -152,6 +152,7 @@ type Session = {
   teardown?: Promise<void>;
   stableFailureCode?: string;
   exitCode?: number | null;
+  healthCheck?: Promise<void>;
   stdoutTail: string;
   stderrTail: string;
   stdoutLineBuffer: string;
@@ -813,39 +814,83 @@ export function createSynthesisProductionRuntimeSupervisor(
     if (healthIntervalMs <= 0 || !ownsSession(current, launchGeneration)) {
       return;
     }
-    const timer = setTimer(async () => {
+    const timer = setTimer(() => {
       if (healthTimer !== timer) return;
       if (!current.connection || !ownsSession(current, launchGeneration)) {
         return;
       }
       healthTimer = null;
-      try {
-        const health = await controlClient.health(current.connection);
+      void checkHealth(current, launchGeneration).then(() => {
+        if (ownsSession(current, launchGeneration)) scheduleHealth(current);
+      });
+    }, healthIntervalMs);
+    healthTimer = timer;
+  };
+
+  const checkHealth = (current: Session, launchGeneration: number) => {
+    if (current.healthCheck) return current.healthCheck;
+    let check!: Promise<void>;
+    check = (async () => {
+      if (!current.connection || !ownsSession(current, launchGeneration)) {
+        return;
+      }
+      for (let attempt = 0; attempt < 2; attempt += 1) {
         if (!ownsSession(current, launchGeneration)) return;
-        publish({
-          ...narrowSynthesisSidecarHealth(health),
-          healthObservedAt: new Date(now()).toISOString(),
-        });
-        if (health.computePool.state === "degraded") {
+        if (current.exited) {
+          await fail("sidecar_process_exited", current, launchGeneration);
+          return;
+        }
+        try {
+          const health = await controlClient.health(current.connection);
+          if (!ownsSession(current, launchGeneration)) return;
+          if (current.exited) {
+            await fail("sidecar_process_exited", current, launchGeneration);
+            return;
+          }
+          publish({
+            ...narrowSynthesisSidecarHealth(health),
+            healthObservedAt: new Date(now()).toISOString(),
+          });
+          if (health.computePool.state === "degraded") {
+            await fail(
+              "sidecar_compute_pool_degraded",
+              current,
+              launchGeneration,
+            );
+          }
+          return;
+        } catch (error) {
+          if (!ownsSession(current, launchGeneration)) return;
+          if (current.exited) {
+            await fail("sidecar_process_exited", current, launchGeneration);
+            return;
+          }
+          const code = normalizeSynthesisSidecarControlFailure(error);
+          const identityMismatch = code.includes("identity_mismatch");
+          const transient =
+            code === "sidecar_control_timeout" ||
+            error instanceof TypeError ||
+            /(?:transport|network|fetch|connection|connect|socket|timed_out|timeout)/i.test(
+              code,
+            );
+          if (attempt === 0 && transient) continue;
           await fail(
-            "sidecar_compute_pool_degraded",
+            identityMismatch
+              ? "sidecar_health_identity_mismatch"
+              : "sidecar_health_failed",
             current,
             launchGeneration,
+            undefined,
+            code,
           );
           return;
         }
-        scheduleHealth(current);
-      } catch (error) {
-        await fail(
-          "sidecar_health_failed",
-          current,
-          launchGeneration,
-          undefined,
-          normalizeSynthesisSidecarControlFailure(error),
-        );
       }
-    }, healthIntervalMs);
-    healthTimer = timer;
+    })().finally(() => {
+      if (current.healthCheck === check) current.healthCheck = undefined;
+    });
+    current.healthCheck = check;
+    return check;
   };
 
   async function launch(launchGeneration = generation) {
@@ -1189,29 +1234,7 @@ export function createSynthesisProductionRuntimeSupervisor(
       ) {
         return { ...snapshot };
       }
-      try {
-        const health = await controlClient.health(current.connection);
-        if (!ownsSession(current, launchGeneration)) return { ...snapshot };
-        publish({
-          ...narrowSynthesisSidecarHealth(health),
-          healthObservedAt: new Date(now()).toISOString(),
-        });
-        if (health.computePool.state === "degraded") {
-          await fail(
-            "sidecar_compute_pool_degraded",
-            current,
-            launchGeneration,
-          );
-        }
-      } catch (error) {
-        await fail(
-          "sidecar_health_failed",
-          current,
-          launchGeneration,
-          undefined,
-          normalizeSynthesisSidecarControlFailure(error),
-        );
-      }
+      await checkHealth(current, launchGeneration);
       return { ...snapshot };
     },
   };

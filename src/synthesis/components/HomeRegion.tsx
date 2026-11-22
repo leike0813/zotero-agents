@@ -84,6 +84,26 @@ export type SynthesisWorkbenchHomeRetrievalSelection = {
   publication: string;
   progress: Omit<SynthesisRetrievalProgress, "completedFragments">;
   issueCount: number;
+  performanceWarningCount: number;
+  performance?: {
+    firstQueryMs: number;
+    firstQuerySuccesses: number;
+    warmQueryMs: number;
+    warmQuerySuccesses: number;
+    pairRoundMs: number[];
+    pairRoundSuccesses: number[];
+    slowestPairMs: number;
+    documentBatchMs: number;
+    documentSuccesses: number;
+    maxConcurrency: 1 | 2;
+    testedAt: string;
+    display: {
+      capacity: string;
+      measurements: string;
+      reliability: string;
+      warnings: string[];
+    };
+  };
   configured: boolean;
   maintenance?: SynthesisWorkbenchHomeRetrievalMaintenance;
 };
@@ -196,6 +216,10 @@ function percentOf(value: unknown): number {
 
 function recordArray(value: unknown): Array<Record<string, unknown>> {
   return Array.isArray(value) ? value.filter(isRecord) : [];
+}
+
+function recordOf(value: unknown): Record<string, unknown> {
+  return isRecord(value) ? value : {};
 }
 
 function stringList(value: unknown): string[] {
@@ -354,6 +378,53 @@ export function narrowSynthesisWorkbenchHomeRetrieval(
   const status = textOf(row.status);
   const activeScope = narrowRetrievalScope(row.activeScope);
   const pendingScope = narrowRetrievalScope(row.pendingScope);
+  const primaryId = textOf(row.primaryConnectionId);
+  const primary = recordArray(row.connections).find(
+    (connection) => connection.id === primaryId,
+  );
+  const metrics = isRecord(primary?.performance)
+    ? primary.performance
+    : undefined;
+  const rounds = Array.isArray(metrics?.pairRounds)
+    ? metrics.pairRounds.filter(isRecord)
+    : [];
+  const display = recordOf(primary?.performanceDisplay);
+  const testedAt = textOf(primary?.performanceTestedAt);
+  const maxConcurrency = primary?.maxConcurrency;
+  const performance =
+    primary?.tested === true &&
+    metrics &&
+    textOf(display.capacity) &&
+    textOf(display.measurements) &&
+    textOf(display.reliability) &&
+    (maxConcurrency === 1 || maxConcurrency === 2) &&
+    Number.isFinite(Date.parse(testedAt))
+      ? {
+          firstQueryMs: countOf(recordOf(metrics.firstQuery).latencyMs),
+          firstQuerySuccesses: countOf(
+            recordOf(metrics.firstQuery).successCount,
+          ),
+          warmQueryMs: countOf(recordOf(metrics.warmQuery).latencyMs),
+          warmQuerySuccesses: countOf(recordOf(metrics.warmQuery).successCount),
+          pairRoundMs: rounds.map((round) => countOf(round.latencyMs)),
+          pairRoundSuccesses: rounds.map((round) =>
+            countOf(round.successCount),
+          ),
+          slowestPairMs: countOf(metrics.slowestPairMs),
+          documentBatchMs: countOf(recordOf(metrics.documentBatch).latencyMs),
+          documentSuccesses: countOf(
+            recordOf(metrics.documentBatch).successCount,
+          ),
+          maxConcurrency: maxConcurrency as 1 | 2,
+          testedAt,
+          display: {
+            capacity: textOf(display.capacity),
+            measurements: textOf(display.measurements),
+            reliability: textOf(display.reliability),
+            warnings: stringList(display.warnings),
+          },
+        }
+      : undefined;
   return {
     enabled: row.enabled === true,
     status: status === "ready" || status === "paused" ? status : "missing",
@@ -363,6 +434,15 @@ export function narrowSynthesisWorkbenchHomeRetrieval(
     publication: textOf(row.publication),
     progress: narrowRetrievalProgress(row.progress),
     issueCount: recordArray(row.issues).length,
+    performanceWarningCount: recordArray(row.connections).reduce(
+      (count, connection) =>
+        count +
+        (connection.tested === true
+          ? recordArray(connection.performanceDiagnostics).length
+          : 0),
+      0,
+    ),
+    performance,
     configured: recordArray(row.connections).length > 0,
     maintenance: narrowRetrievalMaintenance(row.maintenance),
   };

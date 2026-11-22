@@ -393,6 +393,7 @@ describe("Host Bridge agent surface contract", function () {
         | Record<string, unknown>
         | undefined;
       if (
+        !Array.isArray(resultSchema.oneOf) &&
         resultProperties &&
         ["capability", "approval", "data"].every((field) =>
           Object.prototype.hasOwnProperty.call(resultProperties, field),
@@ -497,6 +498,90 @@ describe("Host Bridge agent surface contract", function () {
         "fixed",
         command,
       );
+    }
+  });
+
+  it("uses strict result schemas for Synthesis cache and index status", function () {
+    const registry = loadHostBridgeCommandContracts();
+    const cases = [
+      {
+        command: "synthesis cache status",
+        schemaId: "host-bridge.synthesis-cache-status.v1",
+        extra: {},
+      },
+      {
+        command: "synthesis index status",
+        schemaId: "host-bridge.synthesis-index-status.v1",
+        extra: { indexes: ["library", "reference", "topic", "graph"] },
+      },
+    ];
+    const validate = new Ajv({ strict: false });
+    for (const { command, schemaId, extra } of cases) {
+      const schema = registry.commands[command].resultSchema;
+      const branches = schema.oneOf as
+        | Array<Record<string, any>>
+        | undefined;
+      const statusSchema =
+        branches?.find((branch) =>
+          branch.required?.includes("schema"),
+        ) || schema;
+      assert.deepEqual(statusSchema.required, [
+        "schema",
+        "generatedAt",
+        "status",
+        "readOnly",
+        "cacheView",
+        "supportedInvalidateScopes",
+        ...(command === "synthesis index status" ? ["indexes"] : []),
+      ]);
+      assert.strictEqual(schema.additionalProperties, false);
+      const check = validate.compile(schema);
+      assert.isTrue(
+        check({
+          schema: schemaId,
+          generatedAt: "2026-11-22T00:00:00.000Z",
+          status: "available",
+          readOnly: true,
+          cacheView: true,
+          supportedInvalidateScopes: ["topic", "graph", "index"],
+          ...extra,
+        }),
+        `${command}: ${JSON.stringify(check.errors)}`,
+      );
+      assert.isFalse(
+        check({
+          schema: schemaId,
+          generatedAt: "2026-11-22T00:00:00.000Z",
+          status: "available",
+          readOnly: true,
+          cacheView: true,
+          supportedInvalidateScopes: ["topic", "graph", "index"],
+          ...extra,
+          unexpected: true,
+        }),
+      );
+      if (command === "synthesis cache status") {
+        assert.isTrue(
+          check({
+            capability: "synthesis.operation.get",
+            approval: "none",
+            data: { operationId: "op-1", status: "running" },
+          }),
+        );
+        assert.isFalse(
+          check({
+            schema: schemaId,
+            generatedAt: "2026-11-22T00:00:00.000Z",
+            status: "available",
+            readOnly: true,
+            cacheView: true,
+            supportedInvalidateScopes: ["topic", "graph", "index"],
+            capability: "synthesis.operation.get",
+            approval: "none",
+            data: {},
+          }),
+        );
+      }
     }
   });
 

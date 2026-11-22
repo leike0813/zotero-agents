@@ -412,8 +412,10 @@ describe("Synthesis production runtime supervisor", function () {
   ]) {
     it(`persists the safe health cause ${expected} without recording raw errors`, async function () {
       let failHealth = false;
+      let observedHealthCalls = 0;
       const { supervisor } = sessionSupervisorHarness({
         health: async () => {
+          observedHealthCalls += 1;
           if (failHealth) throw new Error(failure);
         },
       });
@@ -430,6 +432,10 @@ describe("Synthesis production runtime supervisor", function () {
           .at(-1);
         assert.equal(incident?.details?.code, "sidecar_health_failed");
         assert.equal(incident?.details?.controlFailureCode, expected);
+        assert.equal(
+          observedHealthCalls,
+          expected === "sidecar_control_timeout" ? 3 : 2,
+        );
         assert.notInclude(JSON.stringify(incident), "secret");
         assert.notInclude(JSON.stringify(incident), "C:/private");
       } finally {
@@ -528,10 +534,7 @@ describe("Synthesis production runtime supervisor", function () {
         stderr: (attempt) =>
           attempt === 1 ? oldStderr.promise : Promise.resolve(""),
         health: async () => {
-          if (failHealth) {
-            failHealth = false;
-            throw new Error("sidecar_control_timeout");
-          }
+          if (failHealth) throw new Error("sidecar_control_timeout");
         },
         handshake: (serviceId) => {
           if (serviceId === "service-2") {
@@ -546,6 +549,7 @@ describe("Synthesis production runtime supervisor", function () {
       await waitForStatus(supervisor, "ready");
       failHealth = true;
       await supervisor.observeHealth();
+      failHealth = false;
       restart();
       await handshakeStarted.promise;
       oldStderr.resolve("");
@@ -621,6 +625,114 @@ describe("Synthesis production runtime supervisor", function () {
       assert.equal(supervisor.getSnapshot().status, "stopped");
     } finally {
       release.resolve();
+      await supervisor.stop();
+    }
+  });
+
+  it("rechecks one transient periodic health failure and shares the probe with readers", async function () {
+    const firstRecheckEntered = deferred<void>();
+    const releaseFirstRecheck = deferred<void>();
+    let rejectNextHealth = false;
+    let healthCalls = 0;
+    const { supervisor, healthTimers, children } = sessionSupervisorHarness({
+      useDefaultHealthInterval: true,
+      health: async () => {
+        healthCalls += 1;
+        if (rejectNextHealth) {
+          rejectNextHealth = false;
+          firstRecheckEntered.resolve();
+          await releaseFirstRecheck.promise;
+          throw new Error("sidecar_control_timeout");
+        }
+      },
+    });
+    try {
+      supervisor.start();
+      await waitForStatus(supervisor, "ready");
+      rejectNextHealth = true;
+      healthTimers[0]!.run();
+      await firstRecheckEntered.promise;
+      const sharedRead = supervisor.observeHealth();
+      releaseFirstRecheck.resolve();
+      await sharedRead;
+      await waitForCondition(
+        () => healthTimers.length === 2,
+        "the periodic probe should schedule one successor after recovery",
+      );
+
+      assert.equal(healthCalls, 3);
+      assert.equal(supervisor.getSnapshot().status, "ready");
+      assert.equal(supervisor.getSnapshot().restartCount, 0);
+      assert.lengthOf(children, 1);
+      assert.lengthOf(healthTimers, 2);
+      assert.isFalse(healthTimers[1]?.canceled);
+    } finally {
+      releaseFirstRecheck.resolve();
+      await supervisor.stop();
+    }
+  });
+
+  it("fails immediately on health identity mismatch without retrying", async function () {
+    let healthCalls = 0;
+    const { supervisor } = sessionSupervisorHarness({
+      health: async () => {
+        healthCalls += 1;
+        if (healthCalls > 1) {
+          throw new Error("sidecar_health_identity_mismatch");
+        }
+      },
+    });
+    try {
+      supervisor.start();
+      await waitForStatus(supervisor, "ready");
+      await supervisor.observeHealth();
+
+      assert.equal(healthCalls, 2);
+      assert.equal(supervisor.getSnapshot().restartCount, 0);
+      assert.equal(
+        supervisor.getSnapshot().reasonCode,
+        "sidecar_health_identity_mismatch",
+      );
+    } finally {
+      await supervisor.stop();
+    }
+  });
+
+  it("does not recheck health after the current sidecar process exits", async function () {
+    const healthEntered = deferred<void>();
+    const releaseHealth = deferred<void>();
+    let healthCalls = 0;
+    const { supervisor, children } = sessionSupervisorHarness({
+      health: async () => {
+        healthCalls += 1;
+        if (healthCalls > 1) {
+          healthEntered.resolve();
+          await releaseHealth.promise;
+          throw new TypeError("fetch failed");
+        }
+      },
+    });
+    try {
+      supervisor.start();
+      await waitForStatus(supervisor, "ready");
+      const observing = supervisor.observeHealth();
+      await healthEntered.promise;
+      children[0]!.close();
+      await waitForSnapshot(
+        supervisor,
+        (snapshot) => snapshot.status === "unavailable",
+      );
+      releaseHealth.resolve();
+      await observing;
+
+      assert.equal(healthCalls, 2);
+      assert.equal(supervisor.getSnapshot().restartCount, 1);
+      assert.equal(
+        supervisor.getSnapshot().reasonCode,
+        "sidecar_process_exited",
+      );
+    } finally {
+      releaseHealth.resolve();
       await supervisor.stop();
     }
   });

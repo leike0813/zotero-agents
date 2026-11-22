@@ -45,12 +45,14 @@ import {
 } from "../../../packages/synthesis-contracts/src";
 import {
   createSynthesisSidecarRpcClient,
+  isSynthesisSidecarForegroundSearch,
   normalizeSynthesisSidecarRpcError,
   SynthesisSidecarRpcError,
   type SynthesisSidecarRpcConnection,
 } from "../synthesis/sidecar/synthesisSidecarRpcClient";
 import {
   SYNTHESIS_PRODUCTION_RPC_TRANSPORT_ERRORS,
+  synthesisProductionOperationDeadlineMs,
   synthesisProductionOperationPolicy,
   synthesisProductionTransportDeadlineMs,
 } from "../synthesis/production/synthesisProductionRpcPolicy";
@@ -64,7 +66,10 @@ import {
   createSynthesisSidecarTraceContext,
   recordSynthesisSidecarTraceEvent,
 } from "../synthesis/sidecar/synthesisSidecarTrace";
-import { getReadySynthesisProductionControlConnection } from "../synthesis/sidecar/synthesisSidecarRuntimeSupervisor";
+import {
+  getReadySynthesisProductionControlConnection,
+  observeSynthesisWorkbenchSidecarStatus,
+} from "../synthesis/sidecar/synthesisSidecarRuntimeSupervisor";
 import { getSynthesisEmbeddingPrefsConfig } from "../synthesis/synthesisEmbeddingPrefs";
 import {
   createSynthesisClientFromPort,
@@ -98,6 +103,18 @@ type NativeRpcClient = Pick<
   ReturnType<typeof createSynthesisSidecarRpcClient>,
   "call"
 >;
+
+function defaultSearchRecovery(options?: {
+  getReadyConnection?: () => NativeControlConnection | null;
+}) {
+  return options?.getReadyConnection
+    ? undefined
+    : async () => {
+        await (
+          await import("../synthesis/production/synthesisProductionOwner")
+        ).recoverDefaultSynthesisProductionOwnerIfEligible();
+      };
+}
 
 type NativeOperationScope = {
   deadlineAtMs: number;
@@ -282,6 +299,7 @@ export type NativeSynthesisLibraryRetrievalPort =
 export function createNativeSynthesisRetrievalPort(options?: {
   getReadyConnection?: () => NativeControlConnection | null;
   recoverReadyConnection?: () => Promise<void>;
+  observeHealth?: typeof observeSynthesisWorkbenchSidecarStatus;
   rpcClient?: NativeRpcClient;
 }) {
   const getReadyConnection =
@@ -301,7 +319,13 @@ export function createNativeSynthesisRetrievalPort(options?: {
     const native = createNativePort({
       owner,
       getReadyConnection,
-      recoverReadyConnection: options?.recoverReadyConnection,
+      recoverReadyConnection:
+        options?.recoverReadyConnection ?? defaultSearchRecovery(options),
+      observeHealth:
+        options?.observeHealth ??
+        (options?.getReadyConnection
+          ? undefined
+          : observeSynthesisWorkbenchSidecarStatus),
       rpcClient,
     }) as unknown as Record<string, (...args: unknown[]) => Promise<unknown>>;
     return rebuild(await native[capability.slice("client.".length)]!(...args));
@@ -365,10 +389,19 @@ export function createNativeSynthesisRetrievalPort(options?: {
 
 export function createNativeSynthesisLibraryRetrievalPort(options?: {
   getReadyConnection?: () => NativeControlConnection | null;
+  recoverReadyConnection?: () => Promise<void>;
+  observeHealth?: typeof observeSynthesisWorkbenchSidecarStatus;
   rpcClient?: NativeRpcClient;
 }): NativeSynthesisLibraryRetrievalPort {
   const getReadyConnection =
     options?.getReadyConnection ?? getReadySynthesisProductionControlConnection;
+  const recoverReadyConnection =
+    options?.recoverReadyConnection ?? defaultSearchRecovery(options);
+  const observeHealth =
+    options?.observeHealth ??
+    (options?.getReadyConnection
+      ? undefined
+      : observeSynthesisWorkbenchSidecarStatus);
   let rpcClient = options?.rpcClient;
   const retrieval = createNativeSynthesisRetrievalPort(options);
   return {
@@ -378,32 +411,101 @@ export function createNativeSynthesisLibraryRetrievalPort(options?: {
       });
       try {
         const payload = rebuildSynthesisLibraryLexicalExecutionRequest(request);
-        const connection = getReadyConnection();
-        if (!connection) throw unavailable("service_not_ready");
+        const deadlineAtMs =
+          Date.now() +
+          synthesisProductionOperationDeadlineMs("library.retrieval.execute");
+        let connection = getReadyConnection();
+        if (!connection && recoverReadyConnection) {
+          await waitForBoundedPromise(recoverReadyConnection(), {
+            signal: control?.signal,
+            timeoutMs: Math.max(0, deadlineAtMs - Date.now()),
+            phase: "synthesis-search-readiness",
+          });
+          connection = getReadyConnection();
+        }
+        if (!connection) {
+          const status = observeHealth ? await observeHealth() : undefined;
+          throw serviceNotReadyError(status);
+        }
         rpcClient ??= createSynthesisSidecarRpcClient({
           transportErrors: SYNTHESIS_PRODUCTION_RPC_TRANSPORT_ERRORS,
         });
-        const result = await rpcClient.call({
-          connection: rpcConnection(connection),
-          capability: "library.retrieval.execute",
-          payload,
-          signal: control?.signal as AbortSignal | undefined,
-          deadlineMs: synthesisProductionTransportDeadlineMs(
-            "library.retrieval.execute",
-          ),
-          rebuildResult(value) {
-            return rebuildSynthesisProtocolDto<
-              NativeSynthesisLibraryLexicalResult & {
-                publication: string | null;
-              }
-            >({
-              schemaId: SYNTHESIS_SEARCH_SCHEMA_ID,
-              definition: "LibraryRetrievalExecutionResult",
-              direction: "result",
-              value,
+        let attempt = 0;
+        let result: NativeSynthesisLibraryLexicalResult & {
+          publication: string | null;
+        };
+        for (;;) {
+          const remainingMs = deadlineAtMs - Date.now();
+          if (remainingMs <= 0) throw unavailable("operation_timeout");
+          try {
+            result = await rpcClient.call({
+              connection: rpcConnection(connection),
+              capability: "library.retrieval.execute",
+              payload,
+              signal: control?.signal as AbortSignal | undefined,
+              deadlineMs: Math.min(
+                remainingMs,
+                synthesisProductionTransportDeadlineMs(
+                  "library.retrieval.execute",
+                ),
+              ),
+              rebuildResult(value) {
+                return rebuildSynthesisProtocolDto<
+                  NativeSynthesisLibraryLexicalResult & {
+                    publication: string | null;
+                  }
+                >({
+                  schemaId: SYNTHESIS_SEARCH_SCHEMA_ID,
+                  definition: "LibraryRetrievalExecutionResult",
+                  direction: "result",
+                  value,
+                });
+              },
             });
-          },
-        });
+            break;
+          } catch (error) {
+            const normalized = normalizeRpcError(error);
+            if (
+              attempt > 0 ||
+              normalized.details?.retryable !== true ||
+              normalized.details?.sidecarReason !== "transport_unavailable"
+            ) {
+              throw normalized;
+            }
+            try {
+              const status = observeHealth
+                ? await waitForBoundedPromise(observeHealth(), {
+                    signal: control?.signal,
+                    timeoutMs: Math.max(0, deadlineAtMs - Date.now()),
+                    phase: "synthesis-search-health-recheck",
+                  })
+                : undefined;
+              if (
+                status &&
+                (status.lifecycle !== "ready" ||
+                  status.serviceInstanceId !==
+                    connection.discovery.serviceInstanceId)
+              ) {
+                if (!recoverReadyConnection) throw normalized;
+                await waitForBoundedPromise(
+                  Promise.resolve(recoverReadyConnection()).then(
+                    () => undefined,
+                  ),
+                  {
+                    signal: control?.signal,
+                    timeoutMs: Math.max(0, deadlineAtMs - Date.now()),
+                    phase: "synthesis-search-recovery",
+                  },
+                );
+              }
+            } catch {
+              throw normalized;
+            }
+            const recoveredConnection = getReadyConnection();
+            if (recoveredConnection) connection = recoveredConnection;
+            attempt += 1;
+          }
+        }
         audit.succeeded(result);
         return result;
       } catch (error) {
@@ -687,6 +789,20 @@ function unavailable(reason: string): SynthesisClientError {
   );
 }
 
+function serviceNotReadyError(
+  status?: Awaited<ReturnType<typeof observeSynthesisWorkbenchSidecarStatus>>,
+) {
+  const retryable =
+    status?.lifecycle === "starting" ||
+    (status?.lifecycle === "unavailable" &&
+      status.recoveryState === "scheduled");
+  return new SynthesisClientError(
+    "unavailable",
+    "The native Synthesis owner is unavailable",
+    { reason: "service_not_ready", retryable },
+  );
+}
+
 function normalizeRpcError(error: unknown) {
   if (error instanceof SynthesisClientError) {
     return error;
@@ -701,6 +817,7 @@ function createNativePort(args: {
   owner: NativeOperationOwner;
   getReadyConnection: () => NativeControlConnection | null;
   recoverReadyConnection?: () => Promise<void>;
+  observeHealth?: typeof observeSynthesisWorkbenchSidecarStatus;
   rpcClient: NativeRpcClient;
 }): SynthesisClientPort {
   const capabilities = new Set<string>(
@@ -785,7 +902,10 @@ function createNativePort(args: {
               connection = args.getReadyConnection();
             }
             if (!connection) {
-              throw unavailable("service_not_ready");
+              const status = args.observeHealth
+                ? await scope.wait(args.observeHealth())
+                : undefined;
+              throw serviceNotReadyError(status);
             }
             let staged: { sessionId: string } | undefined;
             const policy = synthesisProductionOperationPolicy(operation);
@@ -847,18 +967,54 @@ function createNativePort(args: {
             }
             let result: unknown;
             const deadlineAtMs = scope.deadlineAtMs;
-            const callOptions = scope.callOptions();
-            result = await scope.wait(
-              args.rpcClient.call({
-                connection: rpcConnection(connection),
-                capability: operation,
-                payload,
-                rebuildResult: (value) =>
-                  toSynthesisJsonValue(value, "$.nativeSynthesisResult"),
-                ...callOptions,
-                trace,
-              }),
-            );
+            let attempt = 0;
+            for (;;) {
+              scope.checkActive();
+              try {
+                result = await scope.wait(
+                  args.rpcClient.call({
+                    connection: rpcConnection(connection),
+                    capability: operation,
+                    payload,
+                    rebuildResult: (value) =>
+                      toSynthesisJsonValue(value, "$.nativeSynthesisResult"),
+                    ...scope.callOptions(),
+                    trace,
+                  }),
+                );
+                break;
+              } catch (error) {
+                const normalized = normalizeRpcError(error);
+                if (
+                  attempt > 0 ||
+                  normalized.details?.retryable !== true ||
+                  normalized.details?.sidecarReason !==
+                    "transport_unavailable" ||
+                  !isSynthesisSidecarForegroundSearch(operation, payload)
+                ) {
+                  throw normalized;
+                }
+                try {
+                  const status = args.observeHealth
+                    ? await scope.wait(args.observeHealth())
+                    : undefined;
+                  if (
+                    status &&
+                    (status.lifecycle !== "ready" ||
+                      status.serviceInstanceId !==
+                        connection.discovery.serviceInstanceId)
+                  ) {
+                    if (!args.recoverReadyConnection) throw normalized;
+                    await scope.wait(args.recoverReadyConnection());
+                  }
+                } catch {
+                  throw normalized;
+                }
+                const recoveredConnection = args.getReadyConnection();
+                if (recoveredConnection) connection = recoveredConnection;
+                attempt += 1;
+              }
+            }
             scope.checkActive();
             if (
               policy.resultPlane === "locator" &&
@@ -942,6 +1098,7 @@ function createNativePort(args: {
 export function createNativeSynthesisClientComposition(options?: {
   getReadyConnection?: () => NativeControlConnection | null;
   recoverReadyConnection?: () => Promise<void>;
+  observeHealth?: typeof observeSynthesisWorkbenchSidecarStatus;
   rpcClient?: NativeRpcClient;
   exportDeliveryPort?: import("../../../packages/synthesis-contracts/src/index").SynthesisHostExportDeliveryPort;
 }): {
@@ -961,7 +1118,13 @@ export function createNativeSynthesisClientComposition(options?: {
   const nativePort = createNativePort({
     owner,
     getReadyConnection,
-    recoverReadyConnection: options?.recoverReadyConnection,
+    recoverReadyConnection:
+      options?.recoverReadyConnection ?? defaultSearchRecovery(options),
+    observeHealth:
+      options?.observeHealth ??
+      (options?.getReadyConnection
+        ? undefined
+        : observeSynthesisWorkbenchSidecarStatus),
     rpcClient,
   });
   const hostAdapter = createHostTopicContextAdapter(
@@ -988,6 +1151,7 @@ export function createNativeSynthesisClientComposition(options?: {
 export function createNativeSynthesisEvidenceRetrievalPort(options?: {
   getReadyConnection?: () => NativeControlConnection | null;
   recoverReadyConnection?: () => Promise<void>;
+  observeHealth?: typeof observeSynthesisWorkbenchSidecarStatus;
   rpcClient?: NativeRpcClient;
 }): NativeSynthesisEvidenceRetrievalPort {
   const getReadyConnection =
@@ -1001,7 +1165,13 @@ export function createNativeSynthesisEvidenceRetrievalPort(options?: {
     createNativePort({
       owner: createNativeOperationOwner(),
       getReadyConnection,
-      recoverReadyConnection: options?.recoverReadyConnection,
+      recoverReadyConnection:
+        options?.recoverReadyConnection ?? defaultSearchRecovery(options),
+      observeHealth:
+        options?.observeHealth ??
+        (options?.getReadyConnection
+          ? undefined
+          : observeSynthesisWorkbenchSidecarStatus),
       rpcClient,
     }),
   );

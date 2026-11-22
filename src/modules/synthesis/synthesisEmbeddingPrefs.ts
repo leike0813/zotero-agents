@@ -54,6 +54,8 @@ export type SynthesisEmbeddingConnectionTestResult = {
   model_id?: string;
   dimensions?: number;
   latency_ms?: number;
+  max_concurrency?: 1 | 2;
+  performance?: import("./synthesisEmbeddingProvider").SynthesisEmbeddingProbeResult["measurements"];
   diagnostics: SynthesisEmbeddingDiagnostic[];
 };
 
@@ -85,7 +87,10 @@ export type SynthesisEmbeddingPrefsSaveInput = {
 export type SynthesisHostEmbeddingPort = {
   describe(): Promise<SynthesisEmbeddingDescribeResult>;
   encode(
-    request: SynthesisEmbeddingEncodeRequest & { signal?: CancellationSignal },
+    request: SynthesisEmbeddingEncodeRequest & {
+      signal?: CancellationSignal;
+      recordQueueWait?: (ms: number) => void;
+    },
   ): Promise<SynthesisEmbeddingEncodeResult>;
 };
 
@@ -727,8 +732,11 @@ export async function testSynthesisEmbeddingConnection(
       model_id: connection.modelId,
       dimensions: probe.dimensions,
       latency_ms: probe.latencyMs,
-      diagnostics:
-        credentialRead.ok ||
+      max_concurrency: probe.maxConcurrency,
+      performance: probe.measurements,
+      diagnostics: [
+        ...(probe.diagnostics ?? []),
+        ...(credentialRead.ok ||
         credentialRead.code === "embedding_credential_missing"
           ? []
           : [
@@ -737,7 +745,8 @@ export async function testSynthesisEmbeddingConnection(
                 "warning",
                 credentialRead.message,
               ),
-            ],
+            ]),
+      ],
     };
   } catch (error) {
     const message =
@@ -821,6 +830,7 @@ export function getSynthesisEmbeddingConnectionIdentity(
 
 function resolveServices(identity: SynthesisEncodingIdentity) {
   const config = getSynthesisEmbeddingPrefsConfig();
+  const tests = readConnectionTests();
   const ordered = [
     ...(config.primaryConnectionId ? [config.primaryConnectionId] : []),
     ...config.fallbackConnectionIds,
@@ -832,7 +842,24 @@ function resolveServices(identity: SynthesisEncodingIdentity) {
     seen.add(id);
     const connection = config.connections.find((entry) => entry.id === id);
     if (!connection || connection.modelId !== identity.modelId) continue;
-    services.push({ connection });
+    const test = tests[id];
+    const tested =
+      test?.ok === true &&
+      test.configuration_key === configurationKey(connection) &&
+      test.identity_key === encodingKey(connection);
+    const testedCapacity =
+      tested &&
+      (test.max_concurrency === 1 || test.max_concurrency === 2) &&
+      Number.isFinite(Date.parse(test.tested_at));
+    services.push({
+      connection,
+      ...(testedCapacity
+        ? {
+            maxConcurrency: test.max_concurrency,
+            performanceTestedAt: test.tested_at,
+          }
+        : {}),
+    });
   }
   return services;
 }
@@ -870,7 +897,7 @@ export function createSynthesisEmbeddingHostPort(options?: {
       const services = resolveServices(request.identity);
       const compatibleServices = await Promise.all(
         services.map(async (service) => ({
-          connection: service.connection,
+          ...service,
           credential: await readCredential(service.connection.id),
         })),
       );
@@ -881,6 +908,7 @@ export function createSynthesisEmbeddingHostPort(options?: {
         deadlineAtMs: request.deadlineAtMs,
         services: compatibleServices,
         signal: request.signal,
+        recordQueueWait: request.recordQueueWait,
       });
     },
   };

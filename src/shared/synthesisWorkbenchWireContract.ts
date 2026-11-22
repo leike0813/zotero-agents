@@ -514,6 +514,22 @@ export type SynthesisWorkbenchRetrievalExplorer = Partial<
 export type SynthesisWorkbenchRetrievalConnectionSnapshot =
   SynthesisRetrievalConnection & {
     tested: boolean;
+    maxConcurrency?: 1 | 2;
+    performanceTestedAt?: string;
+    performanceDiagnostics?: SynthesisWorkbenchSyncDiagnostic[];
+    performance?: {
+      firstQuery: { latencyMs: number; successCount: number };
+      warmQuery: { latencyMs: number; successCount: number };
+      pairRounds: Array<{ latencyMs: number; successCount: number }>;
+      slowestPairMs: number;
+      documentBatch: { latencyMs: number; successCount: number };
+    };
+    performanceDisplay?: {
+      capacity: string;
+      measurements: string;
+      reliability: string;
+      warnings: string[];
+    };
   };
 
 /**

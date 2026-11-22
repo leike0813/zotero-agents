@@ -277,6 +277,12 @@ export function createSynthesisProductionOwner(
     const current = supervisor;
     const snapshot = current?.getSnapshot();
     if (
+      current &&
+      (snapshot?.status === "starting" || snapshot?.status === "ready")
+    ) {
+      return start();
+    }
+    if (
       stopped ||
       !current ||
       !hasBeenReady ||
@@ -602,6 +608,17 @@ export async function recoverDefaultSynthesisProductionOwner() {
   }
   defaultProductionOwnerTask = null;
   return startDefaultSynthesisProductionOwner();
+}
+
+export async function recoverDefaultSynthesisProductionOwnerIfEligible() {
+  if (!defaultProductionOwner) {
+    if (defaultProductionOwnerTask) {
+      await defaultProductionOwnerTask;
+    } else {
+      return startDefaultSynthesisProductionOwner();
+    }
+  }
+  return defaultProductionOwner?.recoverIfEligible() ?? null;
 }
 
 export async function stopDefaultSynthesisProductionOwner() {

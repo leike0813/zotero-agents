@@ -51,7 +51,13 @@ function fakeClient() {
   const client: SynthesisEmbeddingHttpClient = {
     async request(args) {
       calls.push(args.body);
-      return { status: 200, text: JSON.stringify({ embeddings: [[1, 0]] }) };
+      const count = JSON.parse(args.body).input.length;
+      return {
+        status: 200,
+        text: JSON.stringify({
+          embeddings: Array.from({ length: count }, () => [1, 0]),
+        }),
+      };
     },
   };
   return { calls, client };
@@ -277,9 +283,14 @@ describe("Synthesis embedding preferences", function () {
         },
       },
     });
-    await testSynthesisEmbeddingConnection({ client: fakeClient().client });
+    const newerClient = fakeClient();
+    const newer = testSynthesisEmbeddingConnection({
+      client: newerClient.client,
+    });
+    await Promise.resolve();
+    assert.lengthOf(newerClient.calls, 0);
     finish();
-    await old;
+    await Promise.all([old, newer]);
     assert.isNotNull(
       getSynthesisEmbeddingConnectionIdentity(EMBEDDING_CONNECTION.id),
     );
@@ -412,7 +423,29 @@ describe("Synthesis embedding preferences", function () {
     assert.isTrue(tested.ok);
     assert.equal(tested.dimensions, 2);
     assert.equal(tested.model_id, EMBEDDING_CONNECTION.modelId);
-    assert.lengthOf(fake.calls, 2);
+    assert.lengthOf(fake.calls, 8);
+    assert.equal(tested.max_concurrency, 2);
+    assert.isString(tested.tested_at);
+    assert.deepEqual(tested.diagnostics, []);
+    assert.deepEqual(
+      tested.performance?.pairRounds.map((round) => round.successCount),
+      [2, 2],
+    );
+    assert.equal(tested.performance?.documentBatch.successCount, 8);
+    assert.equal(
+      getSynthesisEmbeddingPrefsStatus().connectionTests[
+        EMBEDDING_CONNECTION.id
+      ]?.max_concurrency,
+      2,
+    );
+    const storedTest =
+      getSynthesisEmbeddingPrefsStatus().connectionTests[
+        EMBEDDING_CONNECTION.id
+      ];
+    assert.equal(storedTest?.performance?.firstQuery.successCount, 1);
+    assert.equal(storedTest?.performance?.warmQuery.successCount, 1);
+    assert.equal(storedTest?.performance?.pairRounds.length, 2);
+    assert.equal(storedTest?.performance?.documentBatch.successCount, 8);
 
     const identity = getSynthesisEmbeddingConnectionIdentity(
       EMBEDDING_CONNECTION.id,
@@ -424,7 +457,20 @@ describe("Synthesis embedding preferences", function () {
       documentPrefix: EMBEDDING_CONNECTION.documentPrefix,
     });
 
-    const port = createSynthesisEmbeddingHostPort({ provider });
+    let encodedServices: Array<{
+      maxConcurrency?: 1 | 2;
+      performanceTestedAt?: string;
+    }> = [];
+    const observedProvider = {
+      probe: provider.probe,
+      encode: (args: Parameters<typeof provider.encode>[0]) => {
+        encodedServices = args.services;
+        return provider.encode(args);
+      },
+    };
+    const port = createSynthesisEmbeddingHostPort({
+      provider: observedProvider,
+    });
     assert.deepEqual(await port.describe(), { enabled: true, identity });
     const encoded = await port.encode({
       identity: identity!,
@@ -433,8 +479,10 @@ describe("Synthesis embedding preferences", function () {
       deadlineAtMs: Date.now() + 60_000,
     });
     assert.deepEqual(encoded.vectors, [[1, 0]]);
+    assert.equal(encodedServices[0].maxConcurrency, 2);
+    assert.equal(encodedServices[0].performanceTestedAt, tested.tested_at);
     assert.equal(
-      (JSON.parse(fake.calls[2]) as { input: string[] }).input[0],
+      (JSON.parse(fake.calls[8]) as { input: string[] }).input[0],
       "q: alpha",
     );
   });
@@ -448,6 +496,44 @@ describe("Synthesis embedding preferences", function () {
     assert.isNull(
       getSynthesisEmbeddingConnectionIdentity(EMBEDDING_CONNECTION.id),
     );
+  });
+
+  it("persists pair failures as warnings and restricts the service to serial capacity", async function () {
+    const connection = {
+      ...EMBEDDING_CONNECTION,
+      id: "probe-pair-failure",
+      baseUrl: "http://prefs-probe-pair-failure",
+    };
+    saveSynthesisEmbeddingPrefs({
+      connections: [connection],
+      primaryConnectionId: connection.id,
+    });
+    const tested = await testSynthesisEmbeddingConnection({
+      connectionId: connection.id,
+      client: {
+        async request(args) {
+          const inputs = JSON.parse(args.body).input as string[];
+          if (args.body.includes("pair 0 b"))
+            return { status: 503, text: "busy" };
+          return {
+            status: 200,
+            text: JSON.stringify({ embeddings: inputs.map(() => [1, 0]) }),
+          };
+        },
+      },
+    });
+    assert.isTrue(tested.ok);
+    assert.equal(tested.max_concurrency, 1);
+    assert.isTrue(
+      tested.diagnostics.some(
+        (entry) => entry.code === "embedding_probe_pair_failed",
+      ),
+    );
+    const persisted =
+      getSynthesisEmbeddingPrefsStatus().connectionTests[connection.id];
+    assert.isTrue(persisted?.ok);
+    assert.equal(persisted?.performance?.pairRounds[0]?.successCount, 1);
+    assert.equal(persisted?.max_concurrency, 1);
   });
 
   it("invalidates a stored test result when the encoding config changes", async function () {

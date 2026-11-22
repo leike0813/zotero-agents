@@ -1,4 +1,6 @@
 import { appendFileSync, readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { dirname, resolve } from "node:path";
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 
@@ -136,6 +138,90 @@ async function runBridgeWrite(text) {
   return JSON.stringify({ operationId: input.operationId, code, output, error });
 }
 
+async function runSemanticSearchTools(text) {
+  const payloadText = text.match(/^system-e2e:semantic-search (.+)$/m)?.[1];
+  if (!payloadText) throw new Error("semantic search payload is missing");
+  const payload = JSON.parse(payloadText);
+  const profilePath = String(process.env.ZOTERO_BRIDGE_PROFILE || "").trim();
+  const token = String(process.env.ZOTERO_BRIDGE_TOKEN || "").trim();
+  if (!profilePath || !token) throw new Error("Host Bridge MCP credentials unavailable");
+  const profile = JSON.parse(readFileSync(profilePath, "utf8"));
+  const endpoint = String(profile.endpoint || "")
+    .replace(/\/bridge\/v2\/?$/, "/mcp");
+  if (!endpoint || !/^https?:\/\//.test(endpoint)) {
+    throw new Error("Host Bridge MCP endpoint is invalid");
+  }
+  const skillPath = String(payload.skillPath || "").trim();
+  if (!skillPath) throw new Error("current injected Skill path is missing");
+  const resolvedSkillPath = resolve(dirname(profilePath), "..", skillPath);
+  const skillText = readFileSync(resolvedSkillPath, "utf8");
+  const skill = {
+    id: String(payload.skillId || ""),
+    path: skillPath,
+    sha256: createHash("sha256").update(skillText).digest("hex"),
+  };
+  const size = Number(payload.size);
+  if (![1, 3, 6].includes(size)) throw new Error("unsupported semantic search burst size");
+  const calls = await Promise.all(Array.from({ length: size }, async (_, index) => {
+    const startedAt = Date.now();
+    const toolCallId = `semantic-search-${Date.now()}-${index}`;
+    emitUpdate({
+      sessionUpdate: "tool_call",
+      toolCallId,
+      title: "Search semantic evidence",
+      kind: "other",
+      status: "in_progress",
+      rawInput: { tool: "synthesis.search_semantic_evidence" },
+    });
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${token}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: `acp-semantic-${Date.now()}-${index}`,
+        method: "tools/call",
+        params: {
+          name: "synthesis.search_semantic_evidence",
+          arguments: payload.request,
+        },
+      }),
+    });
+    const envelope = await response.json();
+    const data = envelope.result?.structuredContent?.data;
+    if (!response.ok || envelope.error || !data) {
+      throw new Error(`semantic MCP call failed (${response.status})`);
+    }
+    const call = {
+      httpStatus: response.status,
+      status: data.status,
+      method: data.method,
+      coverage: data.coverage,
+      issues: data.issues,
+      evidenceRefs: (data.results || []).map((result) => result.evidenceRef),
+      elapsedMs: Date.now() - startedAt,
+    };
+    emitUpdate({
+      sessionUpdate: "tool_call_update",
+      toolCallId,
+      status: "completed",
+      result: JSON.stringify(call),
+    });
+    return call;
+  }));
+  const result = {
+    calls,
+    skill,
+    size,
+  };
+  if (evidencePath) {
+    appendFileSync(evidencePath, `${JSON.stringify({ semanticSearch: result })}\n`, "utf8");
+  }
+  return JSON.stringify(result);
+}
+
 async function handleRequest(request) {
   record(request);
   if (request.method === "initialize") {
@@ -182,6 +268,19 @@ async function handleRequest(request) {
       return;
     }
     const text = promptText(request.params);
+    if (text.includes("system-e2e:semantic-search ")) {
+      try {
+        emitAssistantText(await runSemanticSearchTools(text));
+      } catch (error) {
+        emitAssistantText(JSON.stringify({ error: String(error) }));
+      }
+      writeMessage({
+        jsonrpc: "2.0",
+        id: request.id,
+        result: { stopReason: "end_turn" },
+      });
+      return;
+    }
     if (text.includes("system-e2e:approval-write")) {
       let result;
       try {

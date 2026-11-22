@@ -351,6 +351,9 @@ export function createSynthesisReverseHostHandlers(
       return ports.embeddingPort.encode({
         ...request,
         deadlineAtMs: Math.min(request.deadlineAtMs, context.deadlineAtMs),
+        ...(context.recordQueueWait
+          ? { recordQueueWait: context.recordQueueWait }
+          : {}),
         ...(context.signal ? { signal: context.signal } : {}),
       });
     },

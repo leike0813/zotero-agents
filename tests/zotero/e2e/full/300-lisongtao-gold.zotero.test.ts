@@ -1,6 +1,7 @@
 import { assert } from "chai";
 import { config } from "../../../../package.json";
 import { SYNTHESIS_EVIDENCE_SOURCE_MAX_UTF16 } from "../../../../packages/synthesis-contracts/src/search";
+import type { SynthesisSemanticEvidenceSearchRequest } from "../../../../packages/synthesis-contracts/src/retrieval";
 import {
   listSidecarDiscoveries,
   readSystemE2ESidecarConnection,
@@ -21,6 +22,24 @@ import {
   getContentPackageStatus,
   installContentPackageFromFeed,
 } from "../../../../src/modules/workflow/catalog/contentPackageSubscription";
+import { resolveHostBridgeCliBinary } from "../../../../src/modules/hostBridge/cli/hostBridgeCliResolver";
+import { getHostBridgeToken } from "../../../../src/modules/hostBridge/server/hostBridgeAuth";
+import { getHostBridgeServerStatus } from "../../../../src/modules/hostBridge/server/hostBridgeServer";
+import {
+  createBackendsPrefsDocument,
+  loadBackendsRegistry,
+} from "../../../../src/backends/registry";
+import type { BackendInstance } from "../../../../src/backends/types";
+import { materializeHostBridgePluginSkillBundle } from "../../../../src/modules/hostBridge/cli/hostBridgePluginSkillBundle";
+import {
+  connectAcpConversation,
+  deleteActiveAcpConversation,
+  disconnectAcpConversation,
+  sendAcpConversationPrompt,
+  setActiveAcpBackend,
+} from "../../../../src/modules/acp/chat/acpSessionManager";
+import { getAcpConversationSnapshot } from "../../../../src/modules/acp/chat/acpChatWorkspaceDataPlane";
+import { executeOneShotSubprocess } from "../../../../src/platform/subprocess";
 import { clearPref, getPref, setPref } from "../../../../src/utils/prefs";
 import { setDebugModeOverrideForTests } from "../../../../src/modules/debugMode";
 import {
@@ -30,6 +49,8 @@ import {
 
 import {
   ensureRuntimeDirectoryExclusive,
+  getRuntimePersistencePaths,
+  removeRuntimePath,
   reserveRuntimeTemporaryDirectory,
   writeRuntimeTextFile,
 } from "../../../../src/modules/runtimePersistence";
@@ -141,6 +162,121 @@ async function observeNativeSidecarHealth(
     healthObservedAt: status.healthObservedAt,
     serviceInstanceId: status.serviceInstanceId,
   };
+}
+
+function assertSignedEvidenceResults(
+  result: any,
+  item: Zotero.Item,
+  publication: string,
+) {
+  assert.equal(result.status, "completed");
+  assert.equal(result.method, "vector");
+  assert.equal(result.coverage.vector, "complete");
+  assert.isEmpty(result.issues);
+  assert.isNotEmpty(result.results);
+  for (const passage of result.results) {
+    assert.isString(passage.evidenceRef.publication);
+    assert.equal(passage.evidenceRef.publication, publication);
+    assert.isNotEmpty(passage.evidenceRef.identity);
+    assert.isNotEmpty(passage.evidenceRef.fragmentId);
+    assert.isNotEmpty(passage.evidenceRef.sourceVersion);
+    assert.equal(passage.evidenceRef.identity, `${item.libraryID}:${item.key}`);
+    assert.equal(passage.evidenceRef.sourceVersion, passage.sourceVersion);
+  }
+}
+
+async function runSemanticSearchBursts(
+  request: SynthesisSemanticEvidenceSearchRequest,
+  item: Zotero.Item,
+  publication: string,
+  workbenchClientSearch: () => Promise<unknown>,
+  startsWarm = false,
+) {
+  const cli = await resolveHostBridgeCliBinary();
+  if (!cli.available) throw new Error(cli.code);
+  const bridge = getHostBridgeServerStatus();
+  assert.equal(bridge.status, "running");
+  const mcpEndpoint = bridge.endpoint.replace(/\/bridge\/v2\/?$/, "/mcp");
+  const token = getHostBridgeToken();
+  const invokeCli = async () => {
+    const result = await executeOneShotSubprocess({
+      command: cli.binaryPath,
+      args: [
+        "synthesis",
+        "evidence",
+        "semantic-search",
+        "--query",
+        JSON.stringify(request),
+      ],
+      timeoutMs: 120_000,
+    });
+    assert.equal(result.outcome, "exited");
+    assert.equal(result.exitCode, 0, result.stderr);
+    const envelope = JSON.parse(result.stdout);
+    assert.isTrue(envelope.ok, JSON.stringify(envelope.error));
+    assertSignedEvidenceResults(
+      envelope.data?.data ?? envelope.data,
+      item,
+      publication,
+    );
+  };
+  const invokeMcp = async () => {
+    const response = await fetch(mcpEndpoint, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${token}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: `semantic-search-${Date.now()}-${Math.random()}`,
+        method: "tools/call",
+        params: {
+          name: "synthesis.search_semantic_evidence",
+          arguments: request,
+        },
+      }),
+    });
+    assert.equal(response.status, 200);
+    const envelope = await response.json();
+    assert.isUndefined(envelope.error, JSON.stringify(envelope.error));
+    assertSignedEvidenceResults(
+      envelope.result?.structuredContent?.data,
+      item,
+      publication,
+    );
+  };
+  const invokeWorkbenchClient = async () =>
+    assertSignedEvidenceResults(
+      await workbenchClientSearch(),
+      item,
+      publication,
+    );
+  const bursts = [] as Array<{
+    route: string;
+    size: number;
+    temperature: "cold" | "warm";
+    elapsedMs: number;
+  }>;
+  let firstSearch = !startsWarm;
+  for (const [route, invoke] of [
+    ["cli", invokeCli],
+    ["mcp", invokeMcp],
+    ["workbench-client", invokeWorkbenchClient],
+  ] as const) {
+    for (const size of [1, 3, 6]) {
+      const startedAt = Date.now();
+      await Promise.all(Array.from({ length: size }, () => invoke()));
+      bursts.push({
+        route,
+        size,
+        temperature: firstSearch ? "cold" : "warm",
+        elapsedMs: Date.now() - startedAt,
+      });
+      firstSearch = false;
+    }
+  }
+  return bursts;
 }
 
 async function waitForAutomaticHealthAfter(
@@ -384,13 +520,30 @@ describe("Synthesis E2E gold library", function () {
     undefined,
     "retrieval-semantic-search-01 builds every selected retrieval source from real preferences and searches synthetic Chinese papers",
     async function () {
-      const embeddingEndpoint = readDiagnosticsEnv(
-        "ZOTERO_SYSTEM_E2E_EVENT_URL",
-      ).replace(/\/events$/, "/embeddings");
-      assert.match(
-        embeddingEndpoint,
-        /^http:\/\/127\.0\.0\.1:\d+\/embeddings$/,
-      );
+      const liveOllama =
+        readDiagnosticsEnv("ZOTERO_E2E_RETRIEVAL_LIVE_OLLAMA") === "1";
+      const useGold = Boolean(readDiagnosticsEnv("ZOTERO_E2E_GOLD_ID"));
+      if (liveOllama) {
+        assert.isFalse(useGold, "live Ollama requires the synthetic seed");
+        assert.notEqual(readDiagnosticsEnv("ZOTERO_E2E_FIXTURE"), "gold");
+        assert.equal(
+          readDiagnosticsEnv("ZOTERO_E2E_FIXTURE_ID"),
+          "foundation-v1",
+          "live Ollama only accepts the committed synthetic E2E seed",
+        );
+      }
+      const embeddingEndpoint = liveOllama
+        ? "http://192.168.13.111:11434/v1/embeddings"
+        : readDiagnosticsEnv("ZOTERO_SYSTEM_E2E_EVENT_URL").replace(
+            /\/events$/,
+            "/embeddings",
+          );
+      if (!liveOllama) {
+        assert.match(
+          embeddingEndpoint,
+          /^http:\/\/127\.0\.0\.1:\d+\/embeddings$/,
+        );
+      }
       const oldPrefs = (
         [
           "synthesisEmbeddingEnabled",
@@ -406,8 +559,8 @@ describe("Synthesis E2E gold library", function () {
         protocol: "openai" as const,
         baseUrl: embeddingEndpoint,
         embeddingUrl: embeddingEndpoint,
-        modelId: "zotero-e2e-fixture",
-        dimensions: 3,
+        modelId: liveOllama ? "qwen3-embedding:4b" : "zotero-e2e-fixture",
+        dimensions: liveOllama ? 2560 : 3,
         queryPrefix: "",
         documentPrefix: "",
         discovery: { protocol: "none" as const },
@@ -416,7 +569,6 @@ describe("Synthesis E2E gold library", function () {
       const items: Zotero.Item[] = [];
       let topicClient: NativeSidecarComposition | undefined;
       let topicId: string | undefined;
-      const useGold = Boolean(readDiagnosticsEnv("ZOTERO_E2E_GOLD_ID"));
       const mainWindow = Zotero.getMainWindow() as _ZoteroTypes.MainWindow;
       const plugin = (Zotero as any)[config.addonInstance];
       let preferences: Window | undefined;
@@ -663,8 +815,240 @@ describe("Synthesis E2E gold library", function () {
         const rebuildMs = Date.now() - buildStarted;
         const currentPublication = await retrieval.getState();
         assert.equal(currentPublication.status, "ready");
-        assert.isString(currentPublication.publication);
-        assert.notEqual(currentPublication.publication, previousPublication);
+        if (typeof currentPublication.publication !== "string") {
+          throw new Error("retrieval_publication_missing");
+        }
+        const publication = currentPublication.publication;
+        assert.notEqual(publication, previousPublication);
+        const searchRequest: SynthesisSemanticEvidenceSearchRequest = {
+          query: "利用卫星影像评估土壤含水量",
+          target: "paper",
+          itemRefs: [{ libraryId: items[0].libraryID, key: items[0].key }],
+          sourceKinds: ["metadata", "fulltext", "analysis"],
+          limit: 8,
+        };
+        const previousBackendsConfig = getPref("backendsConfigJson");
+        const configuredBackends = await loadBackendsRegistry();
+        const workflowDir = readDiagnosticsEnv("ZOTERO_TEST_WORKFLOW_DIR");
+        const acpFixturePath = PathUtils.join(
+          PathUtils.parent(workflowDir),
+          "tests",
+          "fixtures",
+          "acp",
+          "acp-composer-reply-agent.mjs",
+        );
+        const acpEvidencePath = PathUtils.join(
+          fixture.path,
+          "acp-semantic.ndjson",
+        );
+        const acpBackendId = `e2e-semantic-acp-${Date.now()}`;
+        const acpBackend: BackendInstance = {
+          id: acpBackendId,
+          displayName: "System E2E semantic search ACP fixture",
+          type: "acp",
+          baseUrl: "local://retrieval-semantic-search-01",
+          command: readDiagnosticsEnv("ZOTERO_SYSTEM_E2E_NODE_PATH"),
+          args: [acpFixturePath],
+          env: { ZOTERO_ACP_COMPOSER_E2E_EVIDENCE: acpEvidencePath },
+          auth: { kind: "none" },
+          acp: { agentFamily: "codex" },
+        };
+        let acpConversationId = "";
+        let acpWorkspaceDir = "";
+        let acpSearchBursts: Array<{
+          size: number;
+          temperature: "cold" | "warm";
+          elapsedMs: number;
+          toolElapsedMs: number[];
+        }> = [];
+        try {
+          assert.isTrue(await IOUtils.exists(acpFixturePath));
+          assert.isNotEmpty(acpBackend.command);
+          const skillBundle = await materializeHostBridgePluginSkillBundle();
+          assert.isTrue(
+            skillBundle.ok,
+            skillBundle.ok ? undefined : skillBundle.error,
+          );
+          setPref(
+            "backendsConfigJson",
+            JSON.stringify(
+              createBackendsPrefsDocument([
+                ...configuredBackends.backends,
+                acpBackend,
+              ]),
+            ),
+          );
+          await setActiveAcpBackend({ backendId: acpBackendId });
+          await connectAcpConversation({ backendId: acpBackendId });
+          let acpSnapshot = getAcpConversationSnapshot(acpBackendId);
+          acpConversationId = acpSnapshot.conversationId;
+          acpWorkspaceDir = acpSnapshot.agentWorkspaceDir;
+          assert.isNotEmpty(acpConversationId);
+          assert.isNotEmpty(acpSnapshot.sessionId);
+          assert.equal(acpSnapshot.status, "connected");
+          const injected = acpSnapshot.diagnostics.find(
+            (entry) => entry.kind === "acp_chat_injected_skills_ready",
+          ) as
+            | { raw?: { targetDirsBySkill?: Record<string, string[]> } }
+            | undefined;
+          assert.isOk(injected, "ACP Chat must report injected Skill targets");
+          const skillId = "zotero-bridge-cli";
+          const skillDir = injected!.raw?.targetDirsBySkill?.[skillId]?.[0];
+          assert.isNotEmpty(skillDir, "current ACP Chat Skill copy is missing");
+          const skillFile = PathUtils.join(skillDir!, "SKILL.md");
+          assert.isTrue(await IOUtils.exists(skillFile));
+          const injectionManifest = JSON.parse(
+            await IOUtils.readUTF8(
+              PathUtils.join(
+                getRuntimePersistencePaths().acpChatRoot,
+                "injected-skills-manifest.json",
+              ),
+            ),
+          );
+          const relativeSkillRoot = PathUtils.relative(
+            acpWorkspaceDir,
+            skillDir!,
+          ).replace(/\\/g, "/");
+          const relativeSkillFile = PathUtils.relative(
+            acpWorkspaceDir,
+            skillFile,
+          ).replace(/\\/g, "/");
+          assert.isTrue(
+            injectionManifest.targets.some(
+              (target: { relativeRoot: string; skillId: string }) =>
+                target.skillId === skillId &&
+                relativeSkillRoot.startsWith(`${target.relativeRoot}/`),
+            ),
+            "selected ACP Skill copy must be owned by the current injection manifest",
+          );
+          const bridgeBeforeAcp = getHostBridgeServerStatus();
+          assert.equal(bridgeBeforeAcp.status, "running");
+          for (const size of [1, 3, 6]) {
+            const startedAt = Date.now();
+            await sendAcpConversationPrompt({
+              backendId: acpBackendId,
+              conversationId: acpConversationId,
+              message: `system-e2e:semantic-search ${JSON.stringify({
+                size,
+                skillId,
+                skillPath: relativeSkillFile,
+                request: searchRequest,
+              })}`,
+            });
+            acpSnapshot = getAcpConversationSnapshot(
+              acpBackendId,
+              acpConversationId,
+            );
+            assert.equal(acpSnapshot.status, "connected");
+            assert.isFalse(acpSnapshot.busy);
+            const assistantResult = [...acpSnapshot.items]
+              .reverse()
+              .find(
+                (entry) =>
+                  entry.kind === "message" && entry.role === "assistant",
+              );
+            assert.isOk(assistantResult, "ACP agent returned no tool result");
+            const result = JSON.parse(
+              (assistantResult as { text: string }).text,
+            );
+            assert.equal(result.size, size);
+            assert.equal(result.skill.id, skillId);
+            assert.equal(result.skill.path, relativeSkillFile);
+            assert.isNotEmpty(result.skill.sha256);
+            assert.lengthOf(result.calls, size);
+            for (const call of result.calls) {
+              assert.equal(call.status, "completed");
+              assert.equal(call.httpStatus, 200);
+              assert.equal(call.method, "vector");
+              assert.equal(call.coverage.vector, "complete");
+              assert.isEmpty(call.issues);
+              assert.isNotEmpty(call.evidenceRefs);
+              for (const ref of call.evidenceRefs) {
+                assert.equal(ref.publication, publication);
+                assert.equal(
+                  ref.identity,
+                  `${items[0].libraryID}:${items[0].key}`,
+                );
+                assert.isNotEmpty(ref.fragmentId);
+                assert.isNotEmpty(ref.sourceVersion);
+              }
+            }
+            const toolCalls = acpSnapshot.items.filter(
+              (entry) => entry.kind === "tool_call",
+            );
+            assert.isAtLeast(toolCalls.length, size);
+            assert.isTrue(
+              toolCalls.every((entry) => entry.state === "completed"),
+              "ACP Chat must project each real MCP call as a tool call",
+            );
+            acpSearchBursts.push({
+              size,
+              temperature: acpSearchBursts.length ? "warm" : "cold",
+              elapsedMs: Date.now() - startedAt,
+              toolElapsedMs: result.calls.map(
+                (call: { elapsedMs: number }) => call.elapsedMs,
+              ),
+            });
+          }
+          const bridgeAfterAcp = getHostBridgeServerStatus();
+          assert.isAtLeast(
+            bridgeAfterAcp.requestCount,
+            bridgeBeforeAcp.requestCount + 10,
+            "ACP fixture must make ten real Host Bridge MCP requests",
+          );
+        } finally {
+          if (!acpConversationId) {
+            try {
+              const partialSnapshot = getAcpConversationSnapshot(acpBackendId);
+              acpConversationId = partialSnapshot.conversationId;
+              acpWorkspaceDir = partialSnapshot.agentWorkspaceDir;
+            } catch {
+              // Backend setup may fail before the ACP session manager creates a conversation.
+            }
+          }
+          try {
+            if (acpConversationId) {
+              await disconnectAcpConversation({
+                backendId: acpBackendId,
+                conversationId: acpConversationId,
+              });
+              await deleteActiveAcpConversation({
+                backendId: acpBackendId,
+                conversationId: acpConversationId,
+              });
+            }
+          } finally {
+            try {
+              if (acpWorkspaceDir) await removeRuntimePath(acpWorkspaceDir);
+            } finally {
+              if (previousBackendsConfig == null)
+                clearPref("backendsConfigJson");
+              else setPref("backendsConfigJson", previousBackendsConfig);
+            }
+          }
+        }
+        const searchBursts = await runSemanticSearchBursts(
+          searchRequest,
+          items[0],
+          publication,
+          () => topicClient!.client.searchSemanticEvidence(searchRequest),
+          true,
+        );
+        const sidecarAfterBursts = await retrieval.getState();
+        assert.equal(sidecarAfterBursts.status, "ready");
+        assert.equal(sidecarAfterBursts.publication, publication);
+        assert.equal(
+          (await listSidecarDiscoveries()).find(
+            ({ discovery }) =>
+              discovery.serviceInstanceId ===
+              connectionInfo.discovery.serviceInstanceId,
+          )?.discovery.lifecycleState,
+          "ready",
+        );
+        const manifestPath = readDiagnosticsEnv(
+          "ZOTERO_SYSTEM_E2E_MANIFEST_PATH",
+        );
+        assert.isNotEmpty(manifestPath);
         let highOffset: number | undefined;
         if (largeAnalysis) {
           const { publication } = await retrieval.explore({
@@ -744,7 +1128,12 @@ describe("Synthesis E2E gold library", function () {
             ),
           );
           submit.click();
+          return Date.now();
         };
+        const workbenchSearchTimings: Array<{
+          temperature: "cold" | "warm";
+          elapsedMs: number;
+        }> = [];
         for (const [query, expected, sourceKind] of [
           [title, title, "metadata"],
           [
@@ -754,7 +1143,7 @@ describe("Synthesis E2E gold library", function () {
           ],
           ["土壤湿度变化机制", "卫星遥感与土壤水分估算研究", "analysis"],
         ] as const) {
-          await submitQuery(query);
+          const startedAt = await submitQuery(query);
           const excerpt = await waitUntilBounded(
             () => {
               const error = doc.querySelector(
@@ -779,7 +1168,43 @@ describe("Synthesis E2E gold library", function () {
             `verified-semantic-result-${sourceKind}`,
           );
           assert.isNotEmpty(excerpt);
+          workbenchSearchTimings.push({
+            temperature: "warm",
+            elapsedMs: Date.now() - startedAt,
+          });
         }
+        const warmStartedAt = await submitQuery("城市道路交通流量预测研究");
+        await waitUntilBounded(
+          () =>
+            doc.querySelector(".retrieval-result-row .retrieval-title")
+              ?.textContent === "城市道路交通流量预测研究",
+          65_000,
+          "warm-workbench-search",
+        );
+        workbenchSearchTimings.push({
+          temperature: "warm",
+          elapsedMs: Date.now() - warmStartedAt,
+        });
+        await writeDiagnosticsText(
+          PathUtils.join(
+            PathUtils.parent(manifestPath),
+            "retrieval-search-bursts.json",
+          ),
+          JSON.stringify(
+            {
+              mode: liveOllama ? "live-ollama" : "mock",
+              model: connection.modelId,
+              serviceInstanceId: connectionInfo.discovery.serviceInstanceId,
+              publication,
+              surfaceBursts: searchBursts,
+              acpChat: acpSearchBursts,
+              workbench: workbenchSearchTimings,
+              sidecarLifecycle: sidecarAfterBursts.status,
+            },
+            null,
+            2,
+          ),
+        );
         if (useGold) await submitQuery("台车");
         const paperResult = await waitUntilBounded(
           () => {
@@ -810,11 +1235,13 @@ describe("Synthesis E2E gold library", function () {
         );
         doc = await openExplorer();
 
-        await submitQuery("模拟服务拒绝");
-        const diagnostic = await waitUntil(() =>
-          doc.querySelector("#retrieval-search-panel [role=alert] code"),
-        );
-        assert.equal(diagnostic.textContent, "embedding_http_401");
+        if (!liveOllama) {
+          await submitQuery("模拟服务拒绝");
+          const diagnostic = await waitUntil(() =>
+            doc.querySelector("#retrieval-search-panel [role=alert] code"),
+          );
+          assert.equal(diagnostic.textContent, "embedding_http_401");
+        }
 
         const target = doc.querySelector<HTMLSelectElement>(
           "#retrieval-search-panel .retrieval-tools select",

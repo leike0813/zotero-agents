@@ -157,9 +157,30 @@ export function RetrievalPanel(props: {
         </div>
       ) : null}
       <div class="home-service-footer">
+        {retrieval.performance ? (
+          <div
+            class="home-service-notices"
+            role="status"
+            key="embedding-performance"
+          >
+            <span class="zs-badge zs-badge--accent">
+              {retrieval.performance.display.capacity}
+            </span>
+            {retrieval.performance.display.warnings.map((warning) => (
+              <span class="zs-badge zs-badge--warning" key={warning}>
+                {warning}
+              </span>
+            ))}
+            <span>{retrieval.performance.display.measurements}</span>
+            <span class="muted">
+              {retrieval.performance.display.reliability}
+            </span>
+          </div>
+        ) : null}
         {progress.missingGroups > 0 ||
         progress.failedGroups > 0 ||
-        retrieval.issueCount > 0 ? (
+        retrieval.issueCount > 0 ||
+        retrieval.performanceWarningCount > 0 ? (
           <div class="home-service-notices" key="notices">
             {progress.missingGroups > 0 ? (
               <span class="zs-badge zs-badge--warning">
@@ -179,6 +200,13 @@ export function RetrievalPanel(props: {
               <span class="zs-badge zs-badge--warning">
                 {t("synthesis-retrieval-issues-count", {
                   count: retrieval.issueCount,
+                })}
+              </span>
+            ) : null}
+            {retrieval.performanceWarningCount > 0 ? (
+              <span class="zs-badge zs-badge--warning">
+                {t("synthesis-retrieval-issues-count", {
+                  count: retrieval.performanceWarningCount,
                 })}
               </span>
             ) : null}

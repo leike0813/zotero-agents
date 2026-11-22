@@ -79,6 +79,7 @@ import {
 import { saveAcpConversationState } from "../../src/modules/acp/chat/acpConversationStore";
 import { setAssistantExecutionDisplayMode } from "../../src/modules/assistant/publication/assistantExecutionDisplayPolicy";
 import { materializeHostBridgePluginSkillBundle } from "../../src/modules/hostBridge/cli/hostBridgePluginSkillBundle";
+import { getRuntimePersistencePaths } from "../../src/modules/runtimePersistence";
 
 const ACP_CHAT_INJECTED_SKILL_BODIES = new Map([
   [
@@ -847,11 +848,97 @@ describe("acp session manager", function () {
       const chatWorkspaceDir = resolveAcpChatRuntimePaths(
         ACP_OPENCODE_BACKEND_ID,
       ).agentWorkspaceDir;
-      await writeRegistrySkill({
-        root: path.join(chatWorkspaceDir, ".claude", "skills"),
-        skillId: "zotero-bridge-cli",
-        body: "# Stale Claude Copy\n\nOLD CLAUDE COPY",
+      for (const relativeRoot of [
+        ".codex/skills",
+        ".claude/skills",
+        ".gemini/skills",
+      ]) {
+        const skillDir = path.join(
+          chatWorkspaceDir,
+          ...relativeRoot.split("/"),
+          "zotero-bridge-cli",
+        );
+        await fs.mkdir(skillDir, { recursive: true });
+        await fs.writeFile(
+          path.join(skillDir, "SKILL.md"),
+          relativeRoot === ".claude/skills"
+            ? "# Zotero Bridge CLI\n\nHistorical Host Bridge 0.3.0 materialization"
+            : `stale ${relativeRoot}`,
+          "utf8",
+        );
+      }
+      const legacyAgentsBridgeSkill = path.join(
+        chatWorkspaceDir,
+        ".agents",
+        "skills",
+        "zotero-bridge-cli",
+      );
+      await fs.mkdir(legacyAgentsBridgeSkill, { recursive: true });
+      await fs.writeFile(
+        path.join(legacyAgentsBridgeSkill, "SKILL.md"),
+        "# Zotero Bridge CLI\n\nHistorical managed copy without a receipt",
+        "utf8",
+      );
+      const customActiveAgentsSkill = path.join(
+        chatWorkspaceDir,
+        ".agents",
+        "skills",
+        "zotero-library-query",
+      );
+      await fs.mkdir(customActiveAgentsSkill, { recursive: true });
+      await fs.writeFile(
+        path.join(customActiveAgentsSkill, "SKILL.md"),
+        "User-owned active-root skill",
+        "utf8",
+      );
+      const customClaudeSkill = path.join(
+        chatWorkspaceDir,
+        ".claude",
+        "skills",
+        "custom-user-skill",
+      );
+      await fs.mkdir(customClaudeSkill, { recursive: true });
+      await fs.writeFile(
+        path.join(customClaudeSkill, "SKILL.md"),
+        "User-authored skill",
+        "utf8",
+      );
+      const customReservedClaudeSkill = path.join(
+        chatWorkspaceDir,
+        ".claude",
+        "skills",
+        "zotero-library-query",
+      );
+      await fs.mkdir(customReservedClaudeSkill, { recursive: true });
+      await fs.mkdir(path.join(chatWorkspaceDir, ".opencode", "skills"), {
+        recursive: true,
       });
+      await fs.writeFile(
+        path.join(customReservedClaudeSkill, "SKILL.md"),
+        "User-owned reserved-name Skill",
+        "utf8",
+      );
+      const injectionManifestPath = path.join(
+        getRuntimePersistencePaths().acpChatRoot,
+        "injected-skills-manifest.json",
+      );
+      await fs.mkdir(path.dirname(injectionManifestPath), { recursive: true });
+      await fs.writeFile(
+        injectionManifestPath,
+        JSON.stringify({
+          schema: "zotero-agents.acp-chat-injected-skills.v1",
+          targets: [
+            ".agents/skills",
+            ".codex/skills",
+            ".claude/skills",
+            ".gemini/skills",
+          ].map((relativeRoot) => ({
+            relativeRoot,
+            skillId: "zotero-bridge-cli",
+          })),
+        }),
+        "utf8",
+      );
       await fs.mkdir(chatWorkspaceDir, { recursive: true });
       await fs.writeFile(
         path.join(chatWorkspaceDir, "AGENTS.md"),
@@ -1014,6 +1101,45 @@ describe("acp session manager", function () {
             () => false,
           ),
       );
+      for (const relativeRoot of [
+        ".codex/skills",
+        ".claude/skills",
+        ".gemini/skills",
+      ]) {
+        assert.isFalse(
+          await fs
+            .stat(
+              path.join(
+                chatWorkspaceDir,
+                ...relativeRoot.split("/"),
+                "zotero-bridge-cli",
+              ),
+            )
+            .then(
+              () => true,
+              () => false,
+            ),
+          `${relativeRoot} stale managed copy should be pruned`,
+        );
+      }
+      assert.equal(
+        await fs.readFile(path.join(customClaudeSkill, "SKILL.md"), "utf8"),
+        "User-authored skill",
+      );
+      assert.equal(
+        await fs.readFile(
+          path.join(customReservedClaudeSkill, "SKILL.md"),
+          "utf8",
+        ),
+        "User-owned reserved-name Skill",
+      );
+      assert.equal(
+        await fs.readFile(
+          path.join(customActiveAgentsSkill, "SKILL.md"),
+          "utf8",
+        ),
+        "User-owned active-root skill",
+      );
       const chatWorkspaceInstructions = await fs.readFile(
         joinPath(expectedStoragePaths.agentWorkspaceDir, "AGENTS.md"),
         "utf8",
@@ -1055,21 +1181,31 @@ describe("acp session manager", function () {
         ),
         [".agents/skills", ".opencode/skills"],
       );
-      const injectedSkillsReady = snapshot.diagnostics.find(
-        (entry) => entry.kind === "acp_chat_injected_skills_ready",
+      assert.isFalse(
+        (injectedSkillsManifest.targets || []).some(
+          (entry) =>
+            entry.relativeRoot === ".agents/skills" &&
+            entry.skillId === "zotero-library-query",
+        ),
+      );
+      const injectedSkillsUnavailable = snapshot.diagnostics.find(
+        (entry) => entry.kind === "acp_chat_injected_skills_unavailable",
       ) as
         | {
             raw?: {
               expectedTargetCount?: number;
               materializedTargetCount?: number;
-              failedTargets?: unknown[];
+              failedTargets?: Array<{
+                relativeRoot?: string;
+                skillId?: string;
+              }>;
             };
           }
         | undefined;
-      assert.isOk(injectedSkillsReady);
-      assert.equal(injectedSkillsReady?.raw?.expectedTargetCount, 18);
-      assert.equal(injectedSkillsReady?.raw?.materializedTargetCount, 18);
-      assert.deepEqual(injectedSkillsReady?.raw?.failedTargets, []);
+      assert.isOk(injectedSkillsUnavailable);
+      assert.equal(injectedSkillsUnavailable?.raw?.expectedTargetCount, 18);
+      assert.equal(injectedSkillsUnavailable?.raw?.materializedTargetCount, 17);
+      assert.lengthOf(injectedSkillsUnavailable?.raw?.failedTargets || [], 1);
       assert.isString(
         harness.lastFactoryArgs?.backend.env?.ZOTERO_BRIDGE_PROFILE,
       );
