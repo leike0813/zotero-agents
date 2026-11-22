@@ -406,7 +406,14 @@ impl RetrievalApplication {
             }
             Ok(result)
         };
-        read().or_else(|code| semantic_read_error(code, "source_read_failed"))
+        read().or_else(|code| {
+            if matches!(code.as_str(), "source_changed" | "basis_mismatch") {
+                let mut result = unavailable(&code);
+                result["coverage"]["vector"] = json!("limited");
+                return Ok(result);
+            }
+            semantic_read_error(code, "source_read_failed")
+        })
     }
 
     pub fn explore(

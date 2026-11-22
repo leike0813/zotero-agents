@@ -660,20 +660,20 @@ impl RetrievalApplication {
         // The Host describes the live embedding capability. When enhancement is
         // disabled, do not encode. Encode selects a compatible service for the
         // active identity, independently of the Host's pending target.
-        use crate::search_execution::{VECTOR_PHASE_LIMIT, is_timeout, within};
-        let phase = || {
-            request
-                .deadline_at_ms
-                .map_or(VECTOR_PHASE_LIMIT, |deadline| {
-                    VECTOR_PHASE_LIMIT.min(std::time::Duration::from_millis(
-                        deadline.saturating_sub(now_millis()),
-                    ))
-                })
+        use crate::search_execution::{
+            QUERY_ENCODING_LIMIT, VECTOR_PHASE_LIMIT, is_timeout, within,
         };
-        if phase().is_zero() {
+        let phase = |limit: std::time::Duration| {
+            request.deadline_at_ms.map_or(limit, |deadline| {
+                limit.min(std::time::Duration::from_millis(
+                    deadline.saturating_sub(now_millis()),
+                ))
+            })
+        };
+        if phase(QUERY_ENCODING_LIMIT).is_zero() {
             return Err("operation_timeout".into());
         }
-        let query_vector = within(phase(), || {
+        let query_vector = within(phase(QUERY_ENCODING_LIMIT), || {
             checkpoint()?;
             let described = self.embeddings.describe().map_err(|code| {
                 if is_timeout(&code) {
@@ -704,7 +704,7 @@ impl RetrievalApplication {
                 code
             }
         })?;
-        let scoring = crate::search_execution::phase(phase());
+        let scoring = crate::search_execution::phase(phase(VECTOR_PHASE_LIMIT));
         let score_checkpoint = || crate::search_execution::checkpoint(checkpoint);
         let publication = state.active_publication_id.clone();
 

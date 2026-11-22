@@ -688,7 +688,7 @@ fn production_client_operation_manifest(
             .any(|(capability, deadline)| {
                 (capability != LIBRARY_RETRIEVAL_EXECUTE
                     && !manifest.access.contains_key(capability))
-                    || !(100..=120_000).contains(deadline)
+                    || !(100..=300_000).contains(deadline)
             })
         || manifest.host_capabilities.values().any(|capability| {
             capability != LIBRARY_RETRIEVAL_EXECUTE && !manifest.access.contains_key(capability)

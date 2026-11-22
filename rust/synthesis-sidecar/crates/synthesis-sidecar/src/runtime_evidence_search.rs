@@ -9,8 +9,10 @@ pub(crate) fn with_vector_search<T>(
 ) -> Result<T, String> {
     use crate::runtime_diagnostics::{ObservationContextGuard, child_observation_context};
     use synthesis_application::search_execution::{with_thread_context, within};
-    let budget = crate::runtime_deadline::bounded_timeout(budget.min(Duration::from_secs(120)))?
-        .saturating_sub(Duration::from_secs(2));
+    let budget = crate::runtime_deadline::bounded_timeout(
+        budget.min(super::runtime_production_client::library_retrieval_deadline()),
+    )?
+    .saturating_sub(Duration::from_secs(2));
     let trace = child_observation_context();
     with_thread_context(
         std::sync::Arc::new(move || Box::new(ObservationContextGuard::install(trace.as_ref()))),

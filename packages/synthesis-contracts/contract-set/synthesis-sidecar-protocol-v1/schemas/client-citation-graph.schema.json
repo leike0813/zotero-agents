@@ -7,6 +7,39 @@
       "maxItems": 250,
       "items": { "$ref": "common.schema.json#/$defs/identifier" }
     },
+    "PaperReference": {
+      "oneOf": [
+        { "$ref": "common.schema.json#/$defs/identifier" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "maxProperties": 1,
+          "properties": {
+            "paperRef": { "$ref": "common.schema.json#/$defs/identifier" },
+            "paper_ref": { "$ref": "common.schema.json#/$defs/identifier" }
+          }
+        }
+      ]
+    },
+    "PaperReferences": {
+      "oneOf": [
+        { "$ref": "#/$defs/PaperReference" },
+        {
+          "type": "array",
+          "maxItems": 250,
+          "items": { "$ref": "#/$defs/PaperReference" }
+        }
+      ]
+    },
+    "ExternalReferences": {
+      "type": "array",
+      "maxItems": 5000,
+      "items": { "$ref": "common.schema.json#/$defs/identifier" }
+    },
+    "ClusterPolicy": {
+      "enum": ["source_only", "include_external", "bounded_external"]
+    },
     "Cursor": {
       "oneOf": [
         { "type": "string", "maxLength": 4096 },
@@ -73,7 +106,33 @@
         "hoverEdgeCursor": { "$ref": "#/$defs/Cursor" },
         "hoverEdgeLimit": { "type": "integer", "minimum": 0, "maximum": 20000 },
         "topicScopeCursor": { "$ref": "#/$defs/Cursor" },
-        "topicScopeLimit": { "type": "integer", "minimum": 1, "maximum": 250 }
+        "topicScopeLimit": { "type": "integer", "minimum": 1, "maximum": 250 },
+        "maxNodes": { "oneOf": [{ "type": "integer", "minimum": 1 }, { "type": "string", "pattern": "^[0-9]+$" }] },
+        "max_nodes": { "oneOf": [{ "type": "integer", "minimum": 1 }, { "type": "string", "pattern": "^[0-9]+$" }] },
+        "maxEdges": { "oneOf": [{ "type": "integer", "minimum": 0 }, { "type": "string", "pattern": "^[0-9]+$" }] },
+        "max_edges": { "oneOf": [{ "type": "integer", "minimum": 0 }, { "type": "string", "pattern": "^[0-9]+$" }] },
+        "sourcePaperRefs": { "$ref": "#/$defs/PaperReferences" },
+        "source_paper_refs": { "$ref": "#/$defs/PaperReferences" },
+        "paperRefs": { "$ref": "#/$defs/PaperReferences" },
+        "paper_refs": { "$ref": "#/$defs/PaperReferences" },
+        "paperRef": { "$ref": "#/$defs/PaperReference" },
+        "paper_ref": { "$ref": "#/$defs/PaperReference" },
+        "clusterPolicy": { "$ref": "#/$defs/ClusterPolicy" },
+        "cluster_policy": { "$ref": "#/$defs/ClusterPolicy" },
+        "includeExternal": { "type": "boolean" },
+        "include_external": { "type": "boolean" },
+        "maxExternalNodes": {
+          "oneOf": [
+            { "type": "integer", "minimum": 0, "maximum": 250 },
+            { "type": "string", "pattern": "^(0|[1-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|250)$" }
+          ]
+        },
+        "max_external_nodes": {
+          "oneOf": [
+            { "type": "integer", "minimum": 0, "maximum": 250 },
+            { "type": "string", "pattern": "^(0|[1-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|250)$" }
+          ]
+        }
       }
     },
     "SliceQuery": {
@@ -365,6 +424,10 @@
         },
         "windowStatus": { "enum": ["loading", "complete", "paused", "failed"] },
         "roleOptions": { "$ref": "#/$defs/StringArray" },
+            "nodeLimit": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" },
+            "edgeLimit": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" },
+            "nodeCursor": { "type": "string", "maxLength": 4096 },
+            "edgeCursor": { "type": "string", "maxLength": 4096 },
         "responseBudgetBytes": {
           "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
         }
@@ -421,7 +484,7 @@
             "hover_only_edge_count"
           ],
           "properties": {
-            "semantic_slice": { "const": "library_and_shared_external" },
+            "semantic_slice": { "enum": ["library_and_shared_external", "source_paper_cluster"] },
             "displayed_node_count": {
               "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
             },
@@ -453,9 +516,12 @@
           "properties": {
             "storage": { "const": "sqlite" },
             "bounded": { "const": true },
-            "truncated": { "type": "boolean" }
+            "truncated": { "type": "boolean" },
+            "unknown_paper_refs": { "$ref": "#/$defs/StringArray" },
+            "warnings": { "$ref": "#/$defs/StringArray" }
           }
         },
+        "externalRefs": { "$ref": "#/$defs/ExternalReferences" },
         "page": { "$ref": "#/$defs/PageMetadata" },
         "cluster": {
           "type": "object",
@@ -463,7 +529,15 @@
           "required": ["status", "scope"],
           "properties": {
             "status": { "const": "ready" },
-            "scope": { "const": "overview" }
+            "scope": { "enum": ["overview", "topic"] },
+            "policy": { "$ref": "#/$defs/ClusterPolicy" },
+            "source_paper_refs": { "$ref": "#/$defs/StringArray" },
+            "source_count": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" },
+            "external_count": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" },
+            "edge_count": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" },
+            "canonical_reference_count": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" },
+            "unresolved_count": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" },
+            "stale": { "type": "boolean" }
           }
         }
       }

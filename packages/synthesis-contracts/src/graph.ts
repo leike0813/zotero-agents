@@ -147,7 +147,28 @@ export type SynthesisGraphQueryRequest = {
   hoverEdgeLimit?: number;
   topicScopeCursor?: string | number;
   topicScopeLimit?: number;
+  sourcePaperRefs?: Array<string | { paperRef?: string; paper_ref?: string }>;
+  source_paper_refs?: Array<string | { paperRef?: string; paper_ref?: string }>;
+  paperRefs?: Array<string | { paperRef?: string; paper_ref?: string }>;
+  paper_refs?: Array<string | { paperRef?: string; paper_ref?: string }>;
+  paperRef?: string | { paperRef?: string; paper_ref?: string };
+  paper_ref?: string | { paperRef?: string; paper_ref?: string };
+  maxNodes?: number | string;
+  max_nodes?: number | string;
+  maxEdges?: number | string;
+  max_edges?: number | string;
+  clusterPolicy?: SynthesisCitationGraphClusterPolicy;
+  cluster_policy?: SynthesisCitationGraphClusterPolicy;
+  includeExternal?: boolean;
+  include_external?: boolean;
+  maxExternalNodes?: number | string;
+  max_external_nodes?: number | string;
 };
+
+export type SynthesisCitationGraphClusterPolicy =
+  | "source_only"
+  | "include_external"
+  | "bounded_external";
 
 export type SynthesisGraphQueryResult = {
   schema_id: "synthesis.unified_citation_graph";
@@ -158,7 +179,7 @@ export type SynthesisGraphQueryResult = {
   hover_only_nodes: SynthesisCitationGraphNode[];
   hover_only_edges: SynthesisCitationGraphEdge[];
   summary: {
-    semantic_slice: "library_and_shared_external";
+    semantic_slice: "library_and_shared_external" | "source_paper_cluster";
     displayed_node_count: number;
     displayed_edge_count: number;
     hover_only_node_count: number;
@@ -173,8 +194,36 @@ export type SynthesisGraphQueryResult = {
     storage: "sqlite";
     bounded: true;
     truncated: boolean;
+    unknown_paper_refs?: string[];
+    warnings?: string[];
+    [field: string]: unknown;
   };
-  cluster?: { status: "ready"; scope: "overview" };
+  cluster?:
+    | {
+        status: "ready";
+        scope: "overview";
+        policy?: "source_only";
+        source_paper_refs?: string[];
+        source_count?: number;
+        external_count?: number;
+        edge_count?: number;
+        canonical_reference_count?: number;
+        unresolved_count?: number;
+        stale?: boolean;
+      }
+    | {
+        status: "ready";
+        scope: "topic";
+        policy: SynthesisCitationGraphClusterPolicy;
+        source_paper_refs: string[];
+        source_count: number;
+        external_count: number;
+        edge_count: number;
+        canonical_reference_count: number;
+        unresolved_count: number;
+        stale: boolean;
+      };
+  externalRefs?: string[];
   page?: SynthesisCitationGraphPageMetadata;
 };
 

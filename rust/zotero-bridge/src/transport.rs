@@ -1092,6 +1092,32 @@ mod tests {
         );
     }
 
+    #[test]
+    fn preserves_retryable_capability_failure_from_host_bridge_http() {
+        let error = bridge_error_from_value(
+            503,
+            json!({
+                "status": "error",
+                "error": {
+                    "code": "capability_failed",
+                    "category": "capability",
+                    "message": "Synthesis transport is temporarily unavailable",
+                    "details": { "reasonCode": "transport_unavailable" },
+                    "retryable": true
+                }
+            }),
+        );
+
+        let payload = error.to_payload();
+        assert_eq!(payload.code, "capability_failed");
+        assert_eq!(payload.category, crate::error::ErrorCategory::Capability);
+        assert!(payload.retryable);
+        assert_eq!(
+            payload.details.unwrap()["bridge"]["error"]["details"]["reasonCode"],
+            "transport_unavailable"
+        );
+    }
+
     fn download_config(port: u16) -> BridgeConfig {
         BridgeConfig {
             endpoint: format!("http://127.0.0.1:{port}/bridge/v2"),

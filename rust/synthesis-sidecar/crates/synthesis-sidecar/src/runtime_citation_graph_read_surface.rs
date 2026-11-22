@@ -21,6 +21,10 @@ const DEFAULT_EDGE_LIMIT: usize = 400;
 const DEFAULT_HOVER_NODE_LIMIT: usize = 100;
 const DEFAULT_HOVER_EDGE_LIMIT: usize = 200;
 const GRAPH_RESPONSE_BUDGET_BYTES: usize = 768 * 1024;
+const CLUSTER_DEFAULT_NODE_LIMIT: usize = 100;
+const CLUSTER_MAX_NODE_LIMIT: usize = 500;
+const CLUSTER_DEFAULT_EDGE_LIMIT: usize = 200;
+const CLUSTER_MAX_EDGE_LIMIT: usize = 500;
 const DEFAULT_TOPIC_SCOPE_LIMIT: usize = 50;
 const MAX_TOPIC_SCOPE_LIMIT: usize = 250;
 
@@ -123,6 +127,42 @@ struct GraphQueryDto {
     topic_scope_cursor: Option<CursorValue>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     topic_scope_limit: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none", alias = "max_nodes")]
+    max_nodes: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none", alias = "max_edges")]
+    max_edges: Option<Value>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        alias = "source_paper_refs"
+    )]
+    source_paper_refs: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none", alias = "paper_refs")]
+    paper_refs: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none", alias = "paper_ref")]
+    paper_ref: Option<Value>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        alias = "cluster_policy"
+    )]
+    cluster_policy: Option<ClusterPolicyDto>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        alias = "max_external_nodes"
+    )]
+    max_external_nodes: Option<Value>,
+    #[serde(default, alias = "include_external")]
+    include_external: Option<bool>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum ClusterPolicyDto {
+    SourceOnly,
+    IncludeExternal,
+    BoundedExternal,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
@@ -251,6 +291,15 @@ fn graph_field_limits(value: &Value, rule: &Value, schema: &Value) -> bool {
             .count()
             == 1;
     }
+    if let Some(required) = rule["required"].as_array()
+        && required.iter().any(|field| {
+            field
+                .as_str()
+                .is_none_or(|field| value.get(field).is_none())
+        })
+    {
+        return false;
+    }
     if rule.get("const").is_some_and(|expected| expected != value)
         || rule["enum"]
             .as_array()
@@ -312,6 +361,20 @@ fn graph_field_limits(value: &Value, rule: &Value, schema: &Value) -> bool {
                 .get(name)
                 .is_some_and(|value| !graph_field_limits(value, field, schema))
         })
+    {
+        return false;
+    }
+    if let Some(object) = value.as_object()
+        && rule["additionalProperties"] == false
+        && object
+            .keys()
+            .any(|name| rule["properties"].get(name).is_none())
+    {
+        return false;
+    }
+    if let Some(object) = value.as_object()
+        && (object.len() as u64 > rule["maxProperties"].as_u64().unwrap_or(u64::MAX)
+            || (object.len() as u64) < rule["minProperties"].as_u64().unwrap_or(0))
     {
         return false;
     }
@@ -1118,6 +1181,368 @@ fn bounded_overview(
     Ok(result)
 }
 
+fn paper_reference(value: &Value) -> Result<String, String> {
+    let reference = value
+        .as_str()
+        .or_else(|| {
+            value
+                .as_object()
+                .and_then(|object| string_field(object, &["paperRef", "paper_ref"]))
+        })
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "invalid_request".to_owned())?;
+    Ok(reference.to_owned())
+}
+
+fn cluster_paper_refs(request: &Map<String, Value>) -> Result<Vec<String>, String> {
+    let mut refs = BTreeSet::new();
+    for name in [
+        "sourcePaperRefs",
+        "source_paper_refs",
+        "paperRefs",
+        "paper_refs",
+        "paperRef",
+        "paper_ref",
+    ] {
+        let Some(value) = request.get(name) else {
+            continue;
+        };
+        if let Some(values) = value.as_array() {
+            refs.extend(
+                values
+                    .iter()
+                    .map(paper_reference)
+                    .collect::<Result<Vec<_>, _>>()?,
+            );
+        } else {
+            refs.insert(paper_reference(value)?);
+        }
+    }
+    if refs.len() > 250 {
+        return Err("invalid_request".into());
+    }
+    Ok(refs.into_iter().collect())
+}
+
+fn cluster_limit(request: &Map<String, Value>) -> Result<usize, String> {
+    let Some(value) = request
+        .get("maxExternalNodes")
+        .or_else(|| request.get("max_external_nodes"))
+    else {
+        return Ok(50);
+    };
+    let limit = value
+        .as_u64()
+        .or_else(|| value.as_str()?.parse().ok())
+        .and_then(|value| usize::try_from(value).ok())
+        .filter(|value| *value <= 250)
+        .ok_or_else(|| "invalid_request".to_owned())?;
+    Ok(limit)
+}
+
+fn bounded_cluster_limit(
+    request: &Map<String, Value>,
+    camel: &str,
+    snake: &str,
+    default: usize,
+    hard_max: usize,
+) -> Result<(usize, bool), String> {
+    let Some(value) = request.get(camel).or_else(|| request.get(snake)) else {
+        return Ok((default, false));
+    };
+    let requested = value
+        .as_u64()
+        .or_else(|| value.as_str()?.parse().ok())
+        .and_then(|value| usize::try_from(value).ok())
+        .ok_or_else(|| "invalid_request".to_owned())?;
+    Ok((requested.min(hard_max), requested > hard_max))
+}
+
+fn resolve_cluster_paper_ref_aliases(
+    apps: &ProductionApplications,
+    paper_refs: &[String],
+) -> Result<BTreeMap<String, String>, String> {
+    let doi_refs = paper_refs
+        .iter()
+        .filter_map(|paper_ref| {
+            let doi = paper_ref
+                .strip_prefix("DOI:")
+                .or_else(|| paper_ref.strip_prefix("doi:"))?
+                .trim()
+                .to_lowercase();
+            (!doi.is_empty()).then(|| (paper_ref.clone(), format!("ref:doi:{doi}")))
+        })
+        .collect::<BTreeMap<_, _>>();
+    if doi_refs.is_empty() {
+        return Ok(BTreeMap::new());
+    }
+    apps.repository
+        .with_reader(|repository| repository.list_citation_nodes())?
+        .into_iter()
+        .filter_map(|node| {
+            let summary: Value = serde_json::from_str(&node.summary_json).ok()?;
+            let aliases = summary["aliases"].as_array()?;
+            let requested = doi_refs.iter().find_map(|(original, alias)| {
+                aliases
+                    .iter()
+                    .any(|candidate| candidate.as_str() == Some(alias))
+                    .then(|| (original.clone(), node.literature_item_id.clone()))
+            });
+            requested
+        })
+        .try_fold(BTreeMap::new(), |mut resolved, (original, node_id)| {
+            if resolved.insert(original, node_id).is_some() {
+                return Err("citation_graph_alias_ambiguous".to_owned());
+            }
+            Ok(resolved)
+        })
+}
+
+fn bounded_cluster(
+    apps: &ProductionApplications,
+    request: &Map<String, Value>,
+) -> Result<Value, String> {
+    let paper_refs = cluster_paper_refs(request)?;
+    let (node_limit, node_clamped) = bounded_cluster_limit(
+        request,
+        "maxNodes",
+        "max_nodes",
+        CLUSTER_DEFAULT_NODE_LIMIT,
+        CLUSTER_MAX_NODE_LIMIT,
+    )?;
+    let (edge_limit, edge_clamped) = bounded_cluster_limit(
+        request,
+        "maxEdges",
+        "max_edges",
+        CLUSTER_DEFAULT_EDGE_LIMIT,
+        CLUSTER_MAX_EDGE_LIMIT,
+    )?;
+    if paper_refs.is_empty() {
+        let mut result = bounded_overview(apps, request)?;
+        result["cluster"] = json!({
+            "status":"ready", "scope":"overview", "policy":"source_only",
+            "source_paper_refs":[], "source_count":0, "external_count":0,
+            "edge_count":result["edges"].as_array().map_or(0, Vec::len),
+            "canonical_reference_count":0, "unresolved_count":0, "stale":false
+        });
+        result["externalRefs"] = json!([]);
+        return Ok(result);
+    }
+
+    let requested_policy = string_field(request, &["clusterPolicy", "cluster_policy"]);
+    let include_external = request
+        .get("includeExternal")
+        .or_else(|| request.get("include_external"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let policy = match requested_policy {
+        Some("source_only") => "source_only",
+        Some("include_external") => "include_external",
+        Some("bounded_external") => "bounded_external",
+        Some(_) => return Err("invalid_request".into()),
+        None if include_external => "include_external",
+        None if request.contains_key("maxExternalNodes")
+            || request.contains_key("max_external_nodes") =>
+        {
+            "bounded_external"
+        }
+        None => "source_only",
+    };
+    let external_limit = match policy {
+        "source_only" => 0,
+        "include_external" => 5000,
+        _ => cluster_limit(request)?,
+    };
+
+    let view = apps.citations.read()?;
+    let alias_nodes = resolve_cluster_paper_ref_aliases(apps, &paper_refs)?;
+    let query_paper_refs = paper_refs
+        .iter()
+        .filter(|paper_ref| !paper_ref.starts_with("DOI:") && !paper_ref.starts_with("doi:"))
+        .cloned()
+        .collect::<Vec<_>>();
+    let mut source_ids = BTreeSet::new();
+    let mut resolved_refs = BTreeSet::new();
+    let mut stale = false;
+    let mut cursor = 0;
+    loop {
+        let page = view.metrics(CitationMetricsPageRequest {
+            cursor,
+            limit: 100,
+            sort_by: ApplicationCitationMetricsSort::Foundation,
+            paper_refs: query_paper_refs.clone(),
+        })?;
+        stale |= page.stale;
+        for record in page.records {
+            source_ids.insert(record.node_id);
+            if !record.paper_ref.is_empty() {
+                resolved_refs.insert(record.paper_ref);
+            }
+        }
+        let Some(next) = page.next_cursor else { break };
+        cursor = next;
+    }
+    source_ids.extend(alias_nodes.values().cloned());
+    resolved_refs.extend(alias_nodes.keys().cloned());
+    if !query_paper_refs.is_empty() {
+        let direct = view.explicit(
+            &query_paper_refs,
+            200,
+            &ApplicationCitationGraphFilter::default(),
+        )?;
+        source_ids.extend(
+            direct
+                .nodes
+                .into_iter()
+                .filter(|node| node.has_zotero_binding)
+                .map(|node| {
+                    resolved_refs.insert(node.node_id.clone());
+                    node.node_id
+                }),
+        );
+    }
+
+    let mut truncated = node_clamped || edge_clamped;
+    let mut external_ids = BTreeSet::new();
+    let external_limit = external_limit.min(5000usize.saturating_sub(source_ids.len()));
+    if external_limit > 0 {
+        for source_id in &source_ids {
+            let neighborhood = view.neighborhood(CitationGraphNeighborhoodRequest {
+                depth: 1,
+                start_node_id: source_id.clone(),
+                direction: synthesis_application::citation_graph::CitationDirection::Both,
+                max_nodes: node_limit.max(1),
+                max_edges: edge_limit.max(1),
+                filter: ApplicationCitationGraphFilter::default(),
+            })?;
+            truncated |= neighborhood.truncated;
+            external_ids.extend(
+                neighborhood
+                    .nodes
+                    .into_iter()
+                    .filter(|node| !node.has_zotero_binding)
+                    .map(|node| node.node_id),
+            );
+        }
+    }
+    if external_ids.len() > external_limit {
+        external_ids = external_ids.into_iter().take(external_limit).collect();
+        truncated = true;
+    }
+    if source_ids.len() > node_limit {
+        source_ids = source_ids.into_iter().take(node_limit).collect();
+        truncated = true;
+    }
+    let mut selected = source_ids.clone();
+    selected.extend(external_ids.iter().cloned());
+    if selected.len() > node_limit {
+        selected = selected.into_iter().take(node_limit).collect();
+        external_ids.retain(|node_id| selected.contains(node_id));
+        truncated = true;
+    }
+    let graph = if selected.is_empty() {
+        None
+    } else {
+        Some(view.explicit(
+            &selected.into_iter().collect::<Vec<_>>(),
+            edge_limit,
+            &ApplicationCitationGraphFilter::default(),
+        )?)
+    };
+    let mut nodes = graph
+        .as_ref()
+        .map(|graph| {
+            graph
+                .nodes
+                .iter()
+                .map(window_public_node)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let mut edges = graph
+        .as_ref()
+        .map(|graph| {
+            graph
+                .edges
+                .iter()
+                .map(window_public_edge)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let graph_truncated = graph.as_ref().is_some_and(|graph| graph.truncated);
+    truncated |= graph_truncated;
+    if nodes.len() > node_limit {
+        nodes.truncate(node_limit);
+        truncated = true;
+    }
+    if edges.len() > edge_limit {
+        edges.truncate(edge_limit);
+        truncated = true;
+    }
+    let canonical_refs = graph
+        .as_ref()
+        .into_iter()
+        .flat_map(|graph| {
+            graph
+                .edges
+                .iter()
+                .map(|edge| edge.reference_instance_id.clone())
+        })
+        .collect::<BTreeSet<_>>();
+    let unresolved = graph
+        .as_ref()
+        .into_iter()
+        .flat_map(|graph| graph.edges.iter())
+        .filter(|edge| edge.status != "accepted")
+        .map(|edge| edge.target.clone())
+        .collect::<BTreeSet<_>>();
+    let unknown_refs = paper_refs
+        .iter()
+        .filter(|paper_ref| !resolved_refs.contains(*paper_ref))
+        .cloned()
+        .collect::<Vec<_>>();
+    let node_count = nodes.len();
+    let edge_count = edges.len();
+    let external_count = external_ids.len();
+    let query_signature =
+        canonical_sha256(&json!({"paperRefs":paper_refs,"policy":policy})).unwrap_or_default();
+    let result = json!({
+        "schema_id":"synthesis.unified_citation_graph", "schema_version":"1.0.0",
+        "graph_hash":view.basis().graph_hash, "nodes":nodes, "edges":edges,
+        "hover_only_nodes":[], "hover_only_edges":[],
+        "externalRefs":external_ids,
+        "summary":{
+            "semantic_slice":"source_paper_cluster","displayed_node_count":node_count,
+            "displayed_edge_count":edge_count,"hover_only_node_count":0,"hover_only_edge_count":0
+        },
+        "pagination":{"cursor":"","nextCursor":"","hasMore":false},
+        "page":{
+            "hasMore":truncated,"totalNodes":node_count,"totalEdges":edge_count,
+            "totalHoverNodes":0,"totalHoverEdges":0,"returnedNodes":node_count,
+            "returnedEdges":edge_count,"returnedHoverNodes":0,"returnedHoverEdges":0,
+            "querySignature":query_signature,"layoutStatus":"missing","windowStatus":"complete",
+            "roleOptions":[],"responseBudgetBytes":GRAPH_RESPONSE_BUDGET_BYTES,
+            "nodeLimit":node_limit,"edgeLimit":edge_limit,"nodeCursor":"","edgeCursor":""
+        },
+        "cluster":{
+            "status":"ready", "scope":"topic", "policy":policy,
+            "source_paper_refs":paper_refs, "source_count":source_ids.len(),
+            "external_count":external_count, "edge_count":edge_count,
+            "canonical_reference_count":canonical_refs.len(), "unresolved_count":unresolved.len(), "stale":stale
+        },
+        "diagnostics":{"storage":"sqlite","bounded":true,"truncated":truncated,"unknown_paper_refs":unknown_refs,"warnings":[]}
+    });
+    if serde_json::to_vec(&result)
+        .map_err(|_| "response_invalid".to_owned())?
+        .len()
+        > GRAPH_RESPONSE_BUDGET_BYTES
+    {
+        return Err("response_body_too_large".into());
+    }
+    Ok(result)
+}
+
 fn bounded_slice(
     apps: &ProductionApplications,
     request: &Map<String, Value>,
@@ -1578,11 +2003,7 @@ pub(crate) fn dispatch(
     let request = read_request(capability, args)?;
     match capability {
         "client.queryCitationGraph" => bounded_overview(apps, &request),
-        "client.queryCitationGraphCluster" => {
-            let mut result = bounded_overview(apps, &request)?;
-            result["cluster"] = json!({"status":"ready","scope":"overview"});
-            Ok(result)
-        }
+        "client.queryCitationGraphCluster" => bounded_cluster(apps, &request),
         "client.getCitationGraphSlice" => bounded_slice(apps, &request),
         "client.getCitationGraphLayout" => layout_result(apps, &request),
         "client.getCitationGraphMetrics" | "client.rankLibraryPapers" => metrics(apps, &request),
@@ -1639,6 +2060,40 @@ mod tests {
             )
             .is_ok()
         );
+    }
+
+    #[test]
+    fn cluster_request_accepts_public_paper_aliases_and_rejects_invalid_bounds() {
+        for value in [
+            json!({"source_paper_refs":["1:A"]}),
+            json!({"sourcePaperRefs":["1:A"]}),
+            json!({"paper_refs":["1:A"]}),
+            json!({"paperRefs":["1:A"]}),
+            json!({"paper_ref":"1:A"}),
+            json!({"paperRef":"zotero:item:HOSTREF1"}),
+            json!({"paperRef":{"paper_ref":"1:A"}}),
+            json!({"cluster_policy":"source_only"}),
+            json!({"clusterPolicy":"bounded_external","maxExternalNodes":"0"}),
+            json!({"source_paper_refs":["DOI:10.1000/xyz123"],"cluster_policy":"include_external"}),
+            json!({"maxNodes":1,"maxEdges":0}),
+        ] {
+            assert!(
+                read_request("client.queryCitationGraphCluster", &[value.clone()]).is_ok(),
+                "rejected {value}"
+            );
+        }
+        let too_many_refs = vec![json!("1:A"); 251];
+        for value in [
+            json!({"cluster_policy":"all"}),
+            json!({"max_external_nodes":251}),
+            json!({"source_paper_refs":too_many_refs}),
+            json!({"paperRef":{"unexpected":"1:A"}}),
+        ] {
+            assert_eq!(
+                read_request("client.queryCitationGraphCluster", &[value]),
+                Err("invalid_request".into())
+            );
+        }
     }
 
     #[test]

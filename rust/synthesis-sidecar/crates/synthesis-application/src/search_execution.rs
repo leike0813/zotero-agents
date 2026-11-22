@@ -3,6 +3,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 pub const VECTOR_PHASE_LIMIT: Duration = Duration::from_secs(30);
+pub const QUERY_ENCODING_LIMIT: Duration = Duration::from_secs(90);
 pub const LEXICAL_LIMIT: Duration = Duration::from_secs(8);
 pub(crate) const SCOPE_LIMIT: Duration = Duration::from_secs(15);
 

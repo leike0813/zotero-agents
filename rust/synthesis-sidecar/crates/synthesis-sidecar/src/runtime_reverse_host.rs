@@ -78,7 +78,9 @@ impl Read for EmbeddingResponse<'_> {
 
 fn reverse_host_timeout(capability: &str) -> Duration {
     match capability {
-        "retrieval.embedding.encode" => Duration::from_secs(60),
+        "retrieval.embedding.encode" => {
+            synthesis_application::search_execution::QUERY_ENCODING_LIMIT
+        }
         capability if capability.starts_with("library.") => REFERENCE_HOST_READ_TIMEOUT,
         capability if capability.starts_with("delivery.export.") => EXPORT_DELIVERY_TIMEOUT,
         _ => REVERSE_HOST_TIMEOUT,
@@ -786,7 +788,7 @@ mod tests {
                 Duration::from_secs(30 * 60),
             ),
             ("delivery.export.publish_archive", Duration::from_secs(30)),
-            ("retrieval.embedding.encode", Duration::from_secs(60)),
+            ("retrieval.embedding.encode", Duration::from_secs(90)),
             ("retrieval.embedding.describe", Duration::from_secs(2)),
             ("webdav.describe", Duration::from_secs(2)),
         ] {

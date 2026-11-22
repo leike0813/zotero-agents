@@ -56,17 +56,42 @@
       "value": { "args": [{}] }
     },
     {
+      "id": "client-queryCitationGraphCluster-scoped-request-positive",
+      "schemaRef": "schemas/client-citation-graph.schema.json#/$defs/QueryCitationGraphClusterRequest",
+      "valid": true,
+      "value": {
+        "args": [{
+          "source_paper_refs": ["1:SOURCE"],
+          "paperRef": { "paper_ref": "1:SECOND" },
+          "cluster_policy": "bounded_external",
+          "max_external_nodes": "25"
+        }]
+      }
+    },
+    {
       "id": "client-queryCitationGraphCluster-result-positive",
       "schemaRef": "schemas/client-citation-graph.schema.json#/$defs/QueryCitationGraphClusterResult",
       "valid": true,
       "value": {
-        "cluster": { "scope": "overview", "status": "ready" },
+        "cluster": {
+          "scope": "overview",
+          "status": "ready",
+          "policy": "source_only",
+          "source_paper_refs": [],
+          "source_count": 0,
+          "external_count": 0,
+          "edge_count": 0,
+          "canonical_reference_count": 0,
+          "unresolved_count": 0,
+          "stale": false
+        },
         "diagnostics": {
           "bounded": true,
           "storage": "sqlite",
           "truncated": false
         },
         "edges": [],
+        "externalRefs": [],
         "graph_hash": "",
         "hover_only_edges": [],
         "hover_only_nodes": [],
@@ -477,6 +502,12 @@
       "schemaRef": "schemas/client-citation-graph.schema.json#/$defs/QueryCitationGraphClusterRequest",
       "valid": false,
       "value": { "args": [{}], "__unexpected": true }
+    },
+    {
+      "id": "client-queryCitationGraphCluster-max-external-out-of-range-negative",
+      "schemaRef": "schemas/client-citation-graph.schema.json#/$defs/QueryCitationGraphClusterRequest",
+      "valid": false,
+      "value": { "args": [{ "maxExternalNodes": 251 }] }
     },
     {
       "id": "client-getCitationGraphSlice-request-negative",

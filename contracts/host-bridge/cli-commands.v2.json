@@ -7263,11 +7263,35 @@
       "resultSchema": {
         "type": "object",
         "properties": {
+          "schema": {
+            "const": "host-bridge.synthesis-cache-status.v1"
+          },
+          "generatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "status": {
+            "const": "available"
+          },
+          "readOnly": {
+            "const": true
+          },
+          "cacheView": {
+            "const": true
+          },
+          "supportedInvalidateScopes": {
+            "type": "array",
+            "items": {
+              "enum": ["topic", "graph", "index"]
+            },
+            "uniqueItems": true
+          },
           "capability": {
-            "type": "string"
+            "const": "synthesis.operation.get"
           },
           "approval": {
-            "type": "object"
+            "type": "string",
+            "minLength": 1
           },
           "data": {
             "type": "object",
@@ -7276,6 +7300,38 @@
             "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
           }
         },
+        "oneOf": [
+          {
+            "required": [
+              "schema",
+              "generatedAt",
+              "status",
+              "readOnly",
+              "cacheView",
+              "supportedInvalidateScopes"
+            ],
+            "not": {
+              "anyOf": [
+                { "required": ["capability"] },
+                { "required": ["approval"] },
+                { "required": ["data"] }
+              ]
+            }
+          },
+          {
+            "required": ["capability", "approval", "data"],
+            "not": {
+              "anyOf": [
+                { "required": ["schema"] },
+                { "required": ["generatedAt"] },
+                { "required": ["status"] },
+                { "required": ["readOnly"] },
+                { "required": ["cacheView"] },
+                { "required": ["supportedInvalidateScopes"] }
+              ]
+            }
+          }
+        ],
         "additionalProperties": false
       },
       "outputBoundary": {
@@ -8237,15 +8293,43 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "response": {
-            "type": "object",
-            "description": "Response object returned by GET /bridge/v2/synthesis/index/status.",
-            "additionalProperties": true,
-            "x-openPropertiesReason": "The mapped local endpoint or service owns fields inside response; the command envelope is closed."
+          "schema": {
+            "const": "host-bridge.synthesis-index-status.v1"
+          },
+          "generatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "status": {
+            "const": "available"
+          },
+          "readOnly": {
+            "const": true
+          },
+          "cacheView": {
+            "const": true
+          },
+          "supportedInvalidateScopes": {
+            "type": "array",
+            "items": {
+              "enum": ["topic", "graph", "index"]
+            },
+            "uniqueItems": true
+          },
+          "indexes": {
+            "const": ["library", "reference", "topic", "graph"]
           }
         },
-        "additionalProperties": true,
-        "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
+        "required": [
+          "schema",
+          "generatedAt",
+          "status",
+          "readOnly",
+          "cacheView",
+          "supportedInvalidateScopes",
+          "indexes"
+        ],
+        "additionalProperties": false
       },
       "outputBoundary": {
         "strategy": "fixed"

@@ -362,7 +362,7 @@ export function inspectSynthesisProductionCapabilities(
               capability === "library.retrieval.execute") &&
             Number.isSafeInteger(deadline) &&
             deadline >= 100 &&
-            deadline <= 120_000,
+            deadline <= 300_000,
         ) &&
         Object.values(operations.hostCapabilities || {}).every(
           (capability) =>

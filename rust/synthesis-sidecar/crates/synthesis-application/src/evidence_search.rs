@@ -3606,6 +3606,29 @@ mod tests {
     }
 
     #[test]
+    fn vector_distractor_does_not_receive_lexical_credit_for_an_english_subword() {
+        let query = LexicalQuery::new("art").expect("valid query");
+        let lexical = [
+            ("1:EXACT".to_owned(), "art history"),
+            ("1:DISTRACTOR".to_owned(), "partial results"),
+        ]
+        .into_iter()
+        .filter_map(|(identity, text)| query.match_text(text).map(|_| identity))
+        .enumerate()
+        .map(|(rank, identity)| (identity, rank))
+        .collect::<Vec<_>>();
+        let vector = vec![
+            ("1:DISTRACTOR".to_owned(), 0.99),
+            ("1:EXACT".to_owned(), 0.98),
+        ];
+
+        assert_eq!(
+            fuse_library_result_order(&lexical, &vector),
+            vec!["1:EXACT", "1:DISTRACTOR"]
+        );
+    }
+
+    #[test]
     fn apply_library_fusion_marks_hybrid_and_keeps_lexical_items() {
         let mut execution = library_execution(
             "lexical",

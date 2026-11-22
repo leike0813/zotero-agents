@@ -46,7 +46,15 @@ impl LexicalQuery {
             return Err("lexical_query_too_long".to_owned());
         }
         let normalized = normalize_with_offsets(query);
-        let units = lexical_units(&normalized);
+        let mut units = lexical_units(&normalized);
+        let without_stopwords = units
+            .iter()
+            .filter(|unit| !is_english_stopword(unit))
+            .cloned()
+            .collect::<Vec<_>>();
+        if !without_stopwords.is_empty() {
+            units = without_stopwords;
+        }
         if units.is_empty() {
             return Err("lexical_query_empty".to_owned());
         }
@@ -74,16 +82,21 @@ impl LexicalQuery {
         }
         let source_phrase = normalized_phrase(&normalized);
         let query_phrase = self.phrase.chars().collect::<Vec<_>>();
+        let phrase_requires_boundary = self.phrase.chars().any(is_latin_letter)
+            && !self.phrase.chars().any(is_unspaced_script_letter);
         let phrase_start = if query_phrase.is_empty() {
             None
         } else {
             source_phrase
                 .windows(query_phrase.len())
-                .position(|window| {
+                .enumerate()
+                .position(|(start, window)| {
                     window
                         .iter()
                         .map(|ch| ch.value)
                         .eq(query_phrase.iter().copied())
+                        && (!phrase_requires_boundary
+                            || has_word_boundaries(&source_phrase, start, query_phrase.len()))
                 })
         };
         let phrase = phrase_start.is_some();
@@ -103,9 +116,16 @@ impl LexicalQuery {
                 if needle.is_empty() {
                     continue;
                 }
-                if let Some(start) = normalized
-                    .windows(needle.len())
-                    .position(|window| window.iter().map(|ch| ch.value).eq(needle.iter().copied()))
+                let requires_boundary = unit.chars().any(is_latin_letter);
+                if let Some(start) =
+                    normalized
+                        .windows(needle.len())
+                        .enumerate()
+                        .position(|(start, window)| {
+                            window.iter().map(|ch| ch.value).eq(needle.iter().copied())
+                                && (!requires_boundary
+                                    || has_word_boundaries(&normalized, start, needle.len()))
+                        })
                 {
                     coverage += 1;
                     let end = start + needle.len();
@@ -175,14 +195,48 @@ impl LexicalQuery {
             .iter()
             .filter(|unit| {
                 let needle = unit.chars().collect::<Vec<_>>();
+                let requires_boundary = unit.chars().any(is_latin_letter);
                 !needle.is_empty()
                     && normalized
                         .windows(needle.len())
-                        .any(|window| window.iter().map(|ch| ch.value).eq(needle.iter().copied()))
+                        .enumerate()
+                        .any(|(start, window)| {
+                            window.iter().map(|ch| ch.value).eq(needle.iter().copied())
+                                && (!requires_boundary
+                                    || has_word_boundaries(&normalized, start, needle.len()))
+                        })
             })
             .cloned()
             .collect()
     }
+}
+
+fn is_english_stopword(word: &str) -> bool {
+    const STOPWORDS: &str = "a about after again all also am an and any are as at be because been before being between both but by can could did do does doing down during each few for from further had has have having he her here hers him his how i if in into is it its itself just me more most my myself no nor not now of off on once only or other our ours out over own same she should so some such than that the their theirs them themselves then there these they this those through to too under until up very was we were what when where which while who whom why will with would you your yours yourself yourselves";
+    STOPWORDS
+        .split_ascii_whitespace()
+        .any(|stopword| stopword == word)
+}
+
+fn is_latin_letter(value: char) -> bool {
+    value.is_alphabetic()
+        && matches!(value as u32,
+            0x0041..=0x024F | 0x1E00..=0x1EFF | 0x2C60..=0x2C7F |
+            0xA720..=0xA7FF | 0xAB30..=0xAB6F)
+}
+
+fn has_word_boundaries(text: &[MappedChar], start: usize, length: usize) -> bool {
+    let end = start + length;
+    !start
+        .checked_sub(1)
+        .is_some_and(|index| is_word_char(text[index].value))
+        && !text
+            .get(end)
+            .is_some_and(|mapped| is_word_char(mapped.value))
+}
+
+fn is_word_char(value: char) -> bool {
+    value.is_alphanumeric() || canonical_combining_class(value) != 0
 }
 
 /// Compare search results in their required best-first order (`Less` means
@@ -388,7 +442,7 @@ mod tests {
     #[test]
     fn accented_latin_and_cyrillic_or_greek_words_remain_single_units() {
         for (query_text, source_text) in [
-            ("café", "caféiné"),
+            ("café", " café! "),
             ("κόσμος", "κόσμοσικός"),
             ("мир", "мирный"),
         ] {
@@ -472,6 +526,27 @@ mod tests {
             .expect("partial token match");
         assert_eq!(matched.coverage, 1);
         assert!(!matched.phrase);
+    }
+
+    #[test]
+    fn english_stopwords_and_subword_distractors_do_not_gain_lexical_rank() {
+        let query = LexicalQuery::new("the art of war").expect("valid query");
+        assert_eq!(query.units, vec!["art", "war"]);
+        assert_eq!(query.match_text("partial warfare"), None);
+
+        let matched = query
+            .match_text("War and art")
+            .expect("English word boundaries");
+        assert_eq!(matched.coverage, 2);
+        assert!(!matched.phrase);
+    }
+
+    #[test]
+    fn exact_chinese_phrase_keeps_stopword_like_identifiers() {
+        let query = LexicalQuery::new("研究和方法").expect("valid query");
+        let matched = query.match_text("研究和方法论").expect("contiguous phrase");
+        assert!(matched.phrase);
+        assert_eq!(matched.coverage, query.units.len());
     }
 
     #[test]

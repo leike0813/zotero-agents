@@ -190,12 +190,12 @@
           "paperRef": { "type": "string" },
           "max_external_nodes": { "type": ["number", "string"], "minimum": 0 },
           "maxExternalNodes": { "type": ["number", "string"], "minimum": 0 },
-          "max_nodes": { "type": ["number", "string"], "minimum": 1 },
-          "maxNodes": { "type": ["number", "string"], "minimum": 1 },
-          "max_edges": { "type": ["number", "string"], "minimum": 0 },
-          "maxEdges": { "type": ["number", "string"], "minimum": 0 },
-          "cluster_policy": { "type": "string" },
-          "clusterPolicy": { "type": "string" }
+          "max_nodes": { "type": ["integer", "string"], "minimum": 1 },
+          "maxNodes": { "type": ["integer", "string"], "minimum": 1 },
+          "max_edges": { "type": ["integer", "string"], "minimum": 0 },
+          "maxEdges": { "type": ["integer", "string"], "minimum": 0 },
+          "cluster_policy": { "enum": ["source_only", "include_external", "bounded_external"] },
+          "clusterPolicy": { "enum": ["source_only", "include_external", "bounded_external"] }
         },
         "additionalProperties": false
       },
