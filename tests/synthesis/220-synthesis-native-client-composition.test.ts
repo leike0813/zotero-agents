@@ -3769,9 +3769,10 @@ describe("private Library retrieval failure audit", function () {
           deadlines.push(args.deadlineMs!);
           if (capabilities.length === 1) {
             await new Promise((resolve) => setTimeout(resolve, 20));
-            throw new SynthesisSidecarRpcError("worker_unavailable", {
-              reason: "transport_unavailable",
-            });
+            throw new SynthesisSidecarRpcError(
+              SYNTHESIS_PRODUCTION_RPC_TRANSPORT_ERRORS.unavailable,
+              { reason: "transport_unavailable" },
+            );
           }
           return args.rebuildResult({
             results: [],

@@ -214,7 +214,8 @@ export function normalizeSynthesisSidecarRpcError(
         : {}),
       ...(typeof error.details.retryable === "boolean"
         ? { retryable: error.details.retryable }
-        : error.code === "worker_unavailable" &&
+        : (error.code === "worker_unavailable" ||
+              error.code === "service_unavailable") &&
             (reason === "transport_unavailable" ||
               reason === "foreground_search_queue_full")
           ? { retryable: true }
