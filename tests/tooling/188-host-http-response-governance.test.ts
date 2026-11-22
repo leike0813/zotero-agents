@@ -54,11 +54,14 @@ class PartialAsyncOutputStream extends CapturingOutputStream {
 class FakeAsyncInputStream {
   private chunks: Uint8Array[] = [];
   private callback: any;
+  private closureOnly = false;
   closeCount = 0;
 
-  asyncWait(callback: any) {
+  asyncWait(callback: any, flags = 0) {
     this.callback = callback;
-    if (callback && this.chunks.length) this.deliver();
+    this.closureOnly = flags === 1;
+    if (this.closeCount || (!this.closureOnly && this.chunks.length))
+      this.deliver();
   }
 
   available() {
@@ -73,11 +76,12 @@ class FakeAsyncInputStream {
 
   push(bytes: Uint8Array) {
     this.chunks.push(bytes);
-    this.deliver();
+    if (!this.closureOnly) this.deliver();
   }
 
   close() {
     this.closeCount += 1;
+    this.deliver();
   }
 
   private deliver() {
@@ -153,6 +157,7 @@ function installEndpointXpcom() {
         },
       },
       interfaces: {
+        nsIAsyncInputStream: { WAIT_CLOSURE_ONLY: 1 },
         nsIBinaryInputStream: {},
         nsIThreadManager: {},
       },
@@ -180,6 +185,8 @@ function endpointRequest(args: {
   authorizationToken: string;
   profileId: string;
   serviceInstanceId: string;
+  capability?: string;
+  payload?: unknown;
 }) {
   const body = new TextEncoder().encode(
     JSON.stringify({
@@ -188,9 +195,9 @@ function endpointRequest(args: {
       profileId: args.profileId,
       serviceInstanceId: args.serviceInstanceId,
       operationId: "operation-1",
-      capability: "library.artifacts.scan_page",
+      capability: args.capability ?? "library.artifacts.scan_page",
       deadlineAtMs: Date.now() + 10_000,
-      payload: {},
+      payload: args.payload ?? {},
     }),
   );
   return new Uint8Array(
@@ -375,4 +382,91 @@ describe("host HTTP response governance", function () {
       restore();
     }
   });
+
+  for (const disconnect of [false, true]) {
+    it(`keeps encoding active until the peer disconnects (disconnect=${disconnect})`, async function () {
+      const restore = installEndpointXpcom();
+      const authorizationToken = "a".repeat(64);
+      const profileId = "b".repeat(64);
+      const serviceInstanceId = "service-1";
+      const identity = {
+        modelId: "test",
+        dimensions: 2,
+        queryPrefix: "",
+        documentPrefix: "",
+      };
+      let listener: any;
+      let finish: (() => void) | undefined;
+      let aborted: boolean | undefined;
+      const endpoint = createSynthesisReverseHostEndpoint({
+        profileId,
+        authorizationToken,
+        now: Date.now,
+        isHostConnected: () => true,
+        authorizeCapability: () => true,
+        handlers: {
+          ...Object.fromEntries(
+            SYNTHESIS_REVERSE_HOST_CAPABILITIES.map((name) => [
+              name,
+              () => assert.fail(name),
+            ]),
+          ),
+          "retrieval.embedding.encode": async (_, { signal }) => {
+            await new Promise<void>((resolve) => {
+              finish = resolve;
+              signal?.addEventListener("abort", resolve);
+            });
+            aborted = signal?.aborted;
+            return { identity, vectors: [[1, 0]] };
+          },
+        } as SynthesisReverseHostHandlers,
+        serverSocketFactory: () => ({
+          port: 12345,
+          asyncListen(value: any) {
+            listener = value;
+          },
+          close() {},
+        }),
+      });
+      try {
+        endpoint.start();
+        endpoint.bindServiceInstance(serviceInstanceId);
+        const transport = new FakeEndpointTransport();
+        listener.onSocketAccepted(null, transport);
+        transport.input.push(
+          endpointRequest({
+            authorizationToken,
+            profileId,
+            serviceInstanceId,
+            capability: "retrieval.embedding.encode",
+            payload: {
+              identity,
+              inputs: ["test"],
+              purpose: "query",
+              deadlineAtMs: Date.now() + 10000,
+            },
+          }),
+        );
+        await waitUntil(() => !!finish);
+        assert.isUndefined(
+          aborted,
+          "encoding ended while the peer was connected",
+        );
+        if (disconnect) transport.input.close();
+        else finish!();
+        await waitUntil(() => transport.output.closeCount > 0);
+        assert.equal(aborted, disconnect);
+        if (!disconnect) {
+          const body = new TextDecoder()
+            .decode(transport.output.bytes())
+            .split("\r\n\r\n")[1];
+          assert.deepEqual(JSON.parse(body).result.vectors, [[1, 0]]);
+        }
+      } finally {
+        finish?.();
+        endpoint.stop();
+        restore();
+      }
+    });
+  }
 });

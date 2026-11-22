@@ -66,6 +66,7 @@ export const DEFAULT_HOST_HTTP_REQUEST_READ_LIMITS: Readonly<HostHttpRequestRead
 type ReadOptions = {
   limits?: HostHttpRequestReadLimits;
   deferBody?: boolean;
+  keepInputOpenOnSuccess?: boolean;
 };
 
 type ReadCompletion = Promise<HostHttpRequestReadResult>;
@@ -445,7 +446,6 @@ export function beginHostHttpRequestRead(
       } catch {
         // A closed stream can reject readiness cancellation.
       }
-      closeInputOnce();
     };
 
     const settleError = (
@@ -456,6 +456,7 @@ export function beginHostHttpRequestRead(
       if (settled) return;
       settled = true;
       cleanup();
+      closeInputOnce();
       const error = new HostHttpRequestReadError(code, message, stats(), {
         cause,
       });
@@ -478,6 +479,7 @@ export function beginHostHttpRequestRead(
         maxCallbackDurationMs,
       };
       cleanup();
+      if (!options.keepInputOpenOnSuccess) closeInputOnce();
       resolve(result);
     };
 

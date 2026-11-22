@@ -301,6 +301,8 @@ export function createSynthesisReverseHostEndpoint(options: EndpointOptions) {
       if (retained) options.recordTraceEvent?.(retained);
     };
     const read = beginHostHttpRequestRead(input, {
+      // The encoder watches this stream for peer closure until the response is sent.
+      keepInputOpenOnSuccess: true,
       limits: {
         maxHeaderBytes: SYNTHESIS_REVERSE_HOST_LIMITS.requestHeaderBytes,
         maxBodyBytes: SYNTHESIS_REVERSE_HOST_LIMITS.requestBodyBytes,
