@@ -1235,13 +1235,19 @@ describe("Synthesis E2E gold library", function () {
           const event = doc.createEvent("Event");
           event.initEvent("input", true, false);
           search.dispatchEvent(event);
+          await Promise.resolve();
           const submit = await waitUntil(() =>
             doc.querySelector<HTMLButtonElement>(
               '.retrieval-tools button[type="submit"]:enabled',
             ),
           );
+          const startedAt = Date.now();
           submit.click();
-          return Date.now();
+          const loading = () =>
+            doc.querySelector("#retrieval-search-panel .retrieval-notice[role=status]");
+          await waitUntilBounded(loading, 10_000, "workbench-search-started");
+          await waitUntilBounded(() => !loading(), 65_000, "workbench-search-settled");
+          return startedAt;
         };
         const workbenchSearchTimings: Array<{
           temperature: "cold" | "warm";
