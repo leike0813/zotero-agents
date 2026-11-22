@@ -360,8 +360,8 @@ The Workbench SHALL provide a Vector search tab after Index, with separate indic
 
 #### Scenario: Complete a slow semantic search
 
-- **WHEN** query encoding and scoring finish within their 30-second deadline
-- **THEN** the explorer SHALL allow up to 60 seconds for the operation including source verification
+- **WHEN** query encoding and scoring each finish within their own phase budget
+- **THEN** the explorer SHALL allow up to five minutes including admission, up to 90 seconds for query encoding, and 30 seconds each for scoring and source verification
 
 #### Scenario: Diagnose a failed query
 
@@ -379,3 +379,36 @@ The Workbench SHALL provide a Vector search tab after Index, with separate indic
 
 - **WHEN** the user opens Vector search and activates its preferences button
 - **THEN** the Workbench opens the plugin preferences through the existing host action.
+
+### Requirement: The Host SHALL measure and respect endpoint capacity
+
+Runtime query and document encoding SHALL share an endpoint budget across connection aliases. An untested endpoint SHALL receive one request at a time. A successful explicit performance test MAY permit two concurrent requests. The saved test SHALL bind to the existing request configuration and credential revision.
+
+#### Scenario: A valid embedding service is slow or fails paired requests
+
+- **WHEN** the functional probe returns valid query and document vectors and the performance probe exceeds its recommended limits or fails a concurrent round
+- **THEN** settings show the measured performance, a reliability warning and serial operation
+- **AND** saving or testing settings does not start index maintenance
+
+### Requirement: Foreground vector search SHALL allocate time by phase
+
+Foreground vector search and recommendations SHALL allocate separate bounded time to query encoding, exact scoring and source verification. Transport budgets SHALL allow the operation to return its result and verified partial results SHALL remain available when a later phase times out.
+
+#### Scenario: A compatible encoder responds slowly
+
+- **WHEN** encoding finishes within its phase budget
+- **THEN** exact scoring and source verification have their own time budgets
+
+#### Scenario: A long indexed source contributes a hit
+
+- **WHEN** an indexed passage belongs to a source too large for whole-source reads
+- **THEN** the verified UTF-16 passage can contribute to search results and its location remains valid on continuation
+
+### Requirement: Accepted retrieval maintenance SHALL remain cancellable
+
+Build, rebuild and incremental update SHALL progress by source group without a whole-operation deadline. Cancellation SHALL interrupt the in-flight encoding wait and preserve fully committed groups for retry.
+
+#### Scenario: An operator cancels during a document batch
+
+- **WHEN** cancellation is requested while encoding or waiting to retry a document batch
+- **THEN** the current wait ends and completed source groups remain available to the retry
