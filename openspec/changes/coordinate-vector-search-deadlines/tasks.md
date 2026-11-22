@@ -11,8 +11,15 @@
 - [ ] Verify cold and warm ACP Chat and Workbench searches in isolated Zotero.
 
 The seven-platform Host Bridge CLI build for `0.5.2-dev.6` passed freshness
-(Actions run 44986667642). The final sidecar build targets the graph fix in
-`c0afd993e` (Actions run 44987600598).
+(Actions run 44986667642, aggregate
+`dafbe8869d97085133e80ada3ec1e4182364ac91a09e7d4c0db79adb7ccac124`).
+The seven-platform sidecar built from `c0afd993e` passed freshness
+(Actions run 44987600598, aggregate
+`d56b293f4c578d7bc8f586c8febe96afd2e4c0fa2d866452f529f1af39a1c5e9`).
+Zotero 10.0.1 installed and activated the local candidate XPI
+`055b0049e271ce88e22c010ba4e948f7269f5bfd2e1d95584a79331f00f3bedb`.
+The installation smoke and foundation tests passed, with complete cleanup.
+The candidate includes a local HTTP input-stream lifetime fix.
 
 Read-only coverage audit: the active publication contains metadata for 353
 papers and covers eight topics. Of the papers, 336 have both full text and

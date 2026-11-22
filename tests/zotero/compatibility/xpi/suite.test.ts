@@ -51,7 +51,7 @@ function localFile(filePath: string) {
 describe("formal XPI compatibility smoke", function () {
   this.timeout(60_000);
 
-  it("installs and starts the canonical XPI", async function () {
+  const smokeTest = it("installs and starts the canonical XPI", async function () {
     const xpiPath = Services.prefs.getStringPref(XPI_PREF, "").trim();
     assert.isNotEmpty(xpiPath);
     const addonManager = getAddonManager();
@@ -115,5 +115,8 @@ describe("formal XPI compatibility smoke", function () {
       await installedAddon.uninstall();
       await waitUntil(() => (Zotero as any).ZoteroSkills === undefined);
     }
+  });
+  Object.assign(smokeTest, {
+    systemE2ECase: { caseId: "candidate-xpi-install" },
   });
 });
