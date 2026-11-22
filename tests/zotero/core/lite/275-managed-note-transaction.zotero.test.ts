@@ -263,6 +263,73 @@ describeZotero("managed note transaction in Zotero", function () {
     }
   });
 
+  it("retains the superseded v2 source when replacement verification fails", async function () {
+    const parent = await createParent("Migration verification failure");
+    const source = await createLegacyAttachmentPayloadNote({
+      parent,
+      title: "References",
+      noteKind: "references",
+      payloadType: "references-json",
+      payload: { items: [{ title: "A Study", year: 2024 }] },
+      storageVersion: 2,
+    });
+    const sourceHtml = source.note.getNote();
+    const sourcePath = String(await source.attachment.getFilePathAsync());
+    const sourceBytes = await IOUtils.read(sourcePath);
+    const db = Zotero.DB as any;
+    const executeTransaction = db.executeTransaction;
+    let removedReplacement = false;
+    try {
+      const broker = createZoteroHostCapabilityBroker();
+      const service = createLiteratureArtifactMigrationService({
+        host: createLiteratureArtifactMigrationHostFromZoteroBroker(broker),
+      });
+      const preview = await service.scan({
+        libraryId: parent.libraryID,
+        parentRefs: [parentRef(parent)],
+      });
+      if (!preview.ok) throw new Error(preview.code);
+      assert.equal(preview.candidates[0]?.classification, "ready");
+      db.executeTransaction = async function (...args: unknown[]) {
+        const result = await executeTransaction.apply(this, args);
+        const replacement = source.note
+          .getAttachments()
+          .find((id) => id !== source.attachment.id);
+        if (!removedReplacement && replacement) {
+          const attachment = Zotero.Items.get(replacement);
+          const path = await attachment?.getFilePathAsync();
+          if (path) {
+            await removeRuntimePathStrict(path);
+            removedReplacement = true;
+          }
+        }
+        return result;
+      };
+      const result = await service.apply({
+        scanOperationId: preview.operationId,
+        candidateIds: [preview.candidates[0]!.candidateId],
+      });
+      if (!result.ok) throw new Error(result.code);
+      assert.isTrue(removedReplacement);
+      assert.equal(result.state, "completed_with_attention");
+      const diagnostics = service.buildDiagnosticBundle({
+        runId: result.runId,
+      });
+      if (!diagnostics.ok) throw new Error(diagnostics.code);
+      assert.include(
+        diagnostics.bundle.sets[0]?.diagnostics || [],
+        "phase:verification",
+      );
+      assert.equal(source.note.getNote(), sourceHtml);
+      assert.deepEqual(source.note.getAttachments(), [source.attachment.id]);
+      assert.deepEqual(await IOUtils.read(sourcePath), sourceBytes);
+    } finally {
+      db.executeTransaction = executeTransaction;
+      resetLiteratureArtifactMigrationRuntimeForTests();
+      await Zotero.Items.trashTx([parent.id]);
+    }
+  });
+
   it("migrates v1/v2 and dual-v2 payload pairs through the Dashboard service", async function () {
     this.timeout(180000);
     const score = literatureScore();
@@ -341,6 +408,9 @@ describeZotero("managed note transaction in Zotero", function () {
       try {
         const db = Zotero.DB as any;
         const originalExecuteTransaction = db.executeTransaction;
+        const attachments = Zotero.Attachments as any;
+        const getStorageDirectory =
+          attachments.getStorageDirectoryByLibraryAndKey;
         const sourceAttachmentIds = new Set([
           legacyReferences.attachment.id,
           legacyCitation.attachment.id,
@@ -397,11 +467,22 @@ describeZotero("managed note transaction in Zotero", function () {
         }
         let result;
         try {
+          if (Zotero.isWin) {
+            attachments.getStorageDirectoryByLibraryAndKey = function (
+              libraryId: number,
+              key: string,
+            ) {
+              const directory = getStorageDirectory.call(this, libraryId, key);
+              directory.initWithPath(directory.path.replaceAll("\\", "\\\\"));
+              return directory;
+            };
+          }
           result = await service.apply({
             scanOperationId: preview.operationId,
             candidateIds: [candidate!.candidateId],
           });
         } finally {
+          attachments.getStorageDirectoryByLibraryAndKey = getStorageDirectory;
           db.executeTransaction = originalExecuteTransaction;
           // Cleanup transactions can replace the same attachment methods again.
           for (const poisoned of poisonedAttachments.reverse()) {

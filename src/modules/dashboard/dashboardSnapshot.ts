@@ -1221,6 +1221,9 @@ function buildLiteratureArtifactMigrationView(
           completed: activeSnapshot.progress?.completed || 0,
           total: activeSnapshot.progress?.total ?? null,
           candidateCount: activeSnapshot.progress?.candidateCount || 0,
+          ...(activeSnapshot.progress?.outcomes
+            ? { outcomes: activeSnapshot.progress.outcomes }
+            : {}),
         }
       : null,
     primaryDiagnostic: primaryDiagnostic
@@ -1606,7 +1609,7 @@ export async function buildDashboardSnapshot(args: {
     ),
     literatureMigrationWizardBack: localize(
       "task-dashboard-literature-migration-wizard-back",
-      "Back",
+      "Previous",
     ),
     literatureMigrationWizardContinue: localize(
       "task-dashboard-literature-migration-wizard-continue",
@@ -1650,7 +1653,7 @@ export async function buildDashboardSnapshot(args: {
     ),
     literatureMigrationGuidanceBackProblem: localize(
       "task-dashboard-literature-migration-guidance-back-problem",
-      "Back to issues",
+      "Back to documents",
     ),
     literatureMigrationGuidanceAffectedDocuments: localize(
       "task-dashboard-literature-migration-guidance-affected-documents",

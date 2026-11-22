@@ -128,8 +128,8 @@ export type ManagedNoteReadOptions = Readonly<{
   checkCanceled?: () => void;
   /** Broker-owned canonical revision SSOT, evaluated inside the native slice. */
   readRevision?: () => string;
-  /** Migration-only verification may hide exact legacy v1 attachments queued for cleanup. */
-  ignoredLegacyPayloadAttachmentKeys?: ReadonlySet<string>;
+  /** Migration-only verification may omit exact source attachments queued for cleanup. */
+  ignoredMigrationPayloadAttachmentKeys?: ReadonlySet<string>;
   maxPayloadBytes?: number;
 }>;
 
@@ -1587,18 +1587,10 @@ export async function inspectManagedNote(
       {
         runNativeSlice,
         checkCanceled: options.checkCanceled,
+        ignoredAttachmentKeys: options.ignoredMigrationPayloadAttachmentKeys,
       },
     );
-    blocks.push(
-      ...page.blocks.filter(
-        (block) =>
-          !(
-            block.payloadStorageVersion === 1 &&
-            block.attachmentKey &&
-            options.ignoredLegacyPayloadAttachmentKeys?.has(block.attachmentKey)
-          ),
-      ),
-    );
+    blocks.push(...page.blocks);
     if (!page.hasMore) break;
     if (!page.nextCursor) {
       throw new ManagedNoteOwnerError(

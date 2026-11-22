@@ -1200,6 +1200,8 @@ export type DashboardLiteratureArtifactMigrationCandidatePage = {
     reviewRequired: number;
     blocked: number;
     selected: number;
+    pending?: number;
+    skipped?: number;
     filteredSelected: number;
     filteredSelectable: number;
   };
@@ -1288,6 +1290,7 @@ export type DashboardLiteratureArtifactMigrationView = {
     completed: number;
     total: number | null;
     candidateCount: number;
+    outcomes?: { applied: number; failed: number; attention: number };
   } | null;
   primaryDiagnostic: DashboardLiteratureArtifactMigrationDiagnostic | null;
   candidatePage: DashboardLiteratureArtifactMigrationCandidatePage;
@@ -1297,6 +1300,7 @@ export type DashboardLiteratureArtifactMigrationView = {
     reasonCode: string;
     totalCount: number;
     pendingCount: number;
+    pendingCandidateCount?: number;
     resolvedCount: number;
     individualCount: number;
     selectedKind: string;

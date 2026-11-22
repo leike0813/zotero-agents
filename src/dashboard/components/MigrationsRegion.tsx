@@ -397,7 +397,7 @@ export const MigrationsRegion = memo(
     const [wizardStep, setWizardStep] = useState<
       "overview" | "problems" | "finalreview" | "results"
     >("overview");
-    const [problemGroupIndex, setProblemGroupIndex] = useState(0);
+    const [problemGroupReasonCode, setProblemGroupReasonCode] = useState("");
     const [historyOpen, setHistoryOpen] = useState(false);
     const [openIssue, setOpenIssue] =
       useState<DashboardLiteratureMigrationIssueItemsQuery | null>(null);
@@ -431,7 +431,7 @@ export const MigrationsRegion = memo(
       setSelectedCandidateSnapshot(null);
       setOpenIssue(null);
       setWizardStep("overview");
-      setProblemGroupIndex(0);
+      setProblemGroupReasonCode("");
     }, [active?.runId]);
 
     useEffect(() => {
@@ -468,11 +468,18 @@ export const MigrationsRegion = memo(
         reasonCode: group.reasonCode,
         totalCount: group.pendingCount,
         pendingCount: group.pendingCount,
+        pendingCandidateCount: 0,
         resolvedCount: 0,
         individualCount: 0,
         selectedKind: "",
         kinds: group.kinds,
       }));
+    const problemGroupIndex = Math.max(
+      0,
+      decisionGroups.findIndex(
+        (group) => group.reasonCode === problemGroupReasonCode,
+      ),
+    );
     const activeDecisionGroup = decisionGroups[problemGroupIndex] || null;
     const guidance = selection.guidance || {};
     const issueItemsPage = view.issueItemsPage;
@@ -536,7 +543,7 @@ export const MigrationsRegion = memo(
     const selectProblemGroup = (index: number) => {
       const nextIndex = Math.max(0, Math.min(decisionGroups.length - 1, index));
       if (!decisionGroups[nextIndex]) return;
-      setProblemGroupIndex(nextIndex);
+      setProblemGroupReasonCode(decisionGroups[nextIndex]!.reasonCode);
       updateQuery({ reasonCode: decisionGroups[nextIndex]!.reasonCode });
     };
     const enterStep = (step: typeof wizardStep) => {
@@ -573,6 +580,37 @@ export const MigrationsRegion = memo(
       if (!decisionGroups.length) enterStep("finalreview");
       else moveProblemGroup(1);
     };
+    const renderProblemNavigation = (drawer = false) => (
+      <nav
+        class={
+          drawer
+            ? "dashboard-migration-drawer-wizard"
+            : "dashboard-migration-problem-navigation"
+        }
+        aria-label={selection.pageTitle}
+      >
+        <button
+          type="button"
+          class="btn"
+          data-role={drawer ? undefined : "migration-wizard-back"}
+          disabled={workerActive}
+          onClick={() => moveProblemGroup(-1)}
+        >
+          {guidance.back || "Previous"}
+        </button>
+        <button
+          type="button"
+          class="btn primary"
+          data-role={drawer ? undefined : "migration-wizard-next"}
+          disabled={workerActive}
+          onClick={nextProblem}
+        >
+          {problemGroupIndex < decisionGroups.length - 1
+            ? `${guidance.nextProblem || "Next issue category"} (${problemGroupIndex + 2}/${decisionGroups.length})`
+            : guidance.reviewChanges || "Review migration"}
+        </button>
+      </nav>
+    );
 
     return (
       <section
@@ -790,9 +828,20 @@ export const MigrationsRegion = memo(
                 {view.progress.completed}/
                 {view.progress.total === null ? "…" : view.progress.total}
               </span>
-              <span>
-                {view.progress.candidateCount} {selection.candidateLabel}
-              </span>
+              {view.progress.phase !== "applying" ? (
+                <span>
+                  {view.progress.candidateCount} {selection.candidateLabel}
+                </span>
+              ) : null}
+              {view.progress.phase === "applying" && view.progress.outcomes ? (
+                <span data-role="migration-apply-outcomes">
+                  {view.progress.outcomes.applied}{" "}
+                  {selection.outcomeLabels.applied} ·{" "}
+                  {view.progress.outcomes.failed}{" "}
+                  {selection.outcomeLabels.failed} ·{" "}
+                  {view.progress.outcomes.attention} {selection.attentionLabel}
+                </span>
+              ) : null}
             </div>
             <div
               class="dashboard-migration-progress-track"
@@ -1245,6 +1294,9 @@ export const MigrationsRegion = memo(
                       ) : null}
                     </section>
                   ) : null}
+                  {active && currentStep === "problems"
+                    ? renderProblemNavigation()
+                    : null}
                   {currentStep === "problems" || terminalView ? (
                     <div class="dashboard-migrations-candidates">
                       {candidatePage.items.map((candidate) => {
@@ -1429,6 +1481,56 @@ export const MigrationsRegion = memo(
                         {candidatePage.summary.unfilteredTotal}{" "}
                         {selection.candidateLabel}
                       </p>
+                      <div class="dashboard-migration-review-counts">
+                        {typeof candidatePage.summary.pending === "number" ? (
+                          <span>
+                            {candidatePage.summary.pending}{" "}
+                            {guidance.pending || "pending"}
+                          </span>
+                        ) : null}
+                        {typeof candidatePage.summary.skipped === "number" ? (
+                          <span>
+                            {candidatePage.summary.skipped}{" "}
+                            {selection.dispositionLabels.skip}
+                          </span>
+                        ) : null}
+                      </div>
+                      {decisionGroups.some(
+                        (group) => (group.pendingCandidateCount || 0) > 0,
+                      ) ? (
+                        <div class="dashboard-migration-review-reasons">
+                          {decisionGroups
+                            .filter(
+                              (group) => (group.pendingCandidateCount || 0) > 0,
+                            )
+                            .map((group) => (
+                              <button
+                                type="button"
+                                class="btn"
+                                key={group.reasonCode}
+                                data-role="migration-review-pending-reason"
+                                data-reason-code={group.reasonCode}
+                                onClick={() => {
+                                  setSelectedCandidateSnapshot(null);
+                                  setOpenIssue(null);
+                                  updateQuery({
+                                    search: "",
+                                    classification: "",
+                                    reasonCode: group.reasonCode,
+                                    disposition: "",
+                                  });
+                                  setProblemGroupReasonCode(group.reasonCode);
+                                  setWizardStep("problems");
+                                }}
+                              >
+                                {selection.reasonLabels[group.reasonCode] ||
+                                  group.reasonCode}{" "}
+                                · {group.pendingCandidateCount}{" "}
+                                {selection.candidateLabel}
+                              </button>
+                            ))}
+                        </div>
+                      ) : null}
                       <div class="dashboard-migration-review-list">
                         {candidatePage.items.map((candidate) => {
                           const decisionCandidate = candidate;
@@ -1588,7 +1690,7 @@ export const MigrationsRegion = memo(
                   class="btn dashboard-migration-drawer-back"
                   onClick={() => setSelectedCandidateSnapshot(null)}
                 >
-                  {guidance.backProblem || "Back to candidates"}
+                  {guidance.backProblem || "Back to documents"}
                 </button>
                 <CandidateFacts
                   candidate={selectedCandidate}
@@ -1873,6 +1975,9 @@ export const MigrationsRegion = memo(
                         <p class="empty">{selection.readyLabel}</p>
                       )}
                     </section>
+                    {currentStep === "problems"
+                      ? renderProblemNavigation(true)
+                      : null}
                     {selectedCandidate.diagnostics.length ? (
                       <details class="dashboard-migration-drawer-diagnostics">
                         <summary>{selection.diagnosticsLabel}</summary>
@@ -1957,7 +2062,7 @@ export const MigrationsRegion = memo(
             class="dashboard-migration-wizard-actions"
             aria-label={selection.pageTitle}
           >
-            {currentStep !== "overview" ? (
+            {currentStep === "finalreview" ? (
               <button
                 type="button"
                 class="btn"
@@ -1971,11 +2076,9 @@ export const MigrationsRegion = memo(
               >
                 {currentStep === "finalreview"
                   ? decisionGroups.length
-                    ? guidance.backProblem || "Back to problems"
+                    ? guidance.back || "Previous"
                     : guidance.backOverview || "Back to overview"
-                  : problemGroupIndex
-                    ? guidance.backProblem || "Previous problem"
-                    : guidance.backOverview || "Back to overview"}
+                  : guidance.back || "Previous"}
               </button>
             ) : null}
             {currentStep === "finalreview" ? (
@@ -1995,7 +2098,7 @@ export const MigrationsRegion = memo(
               >
                 {selection.applyLabel}
               </button>
-            ) : (
+            ) : currentStep === "overview" ? (
               <button
                 type="button"
                 class="btn primary"
@@ -2017,7 +2120,7 @@ export const MigrationsRegion = memo(
                     ? `${guidance.nextProblem || "Next problem"} (${problemGroupIndex + 2}/${decisionGroups.length})`
                     : guidance.reviewChanges || "Review changes"}
               </button>
-            )}
+            ) : null}
           </nav>
         ) : null}
       </section>

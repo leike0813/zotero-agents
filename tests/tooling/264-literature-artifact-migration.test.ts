@@ -1868,6 +1868,7 @@ describe("literature artifact migration", function () {
       completed: number;
       total: number | null;
       candidateCount: number;
+      outcomes?: { applied: number; failed: number; attention: number };
     }> = [];
     const service = createLiteratureArtifactMigrationService({
       host: {
@@ -1875,6 +1876,11 @@ describe("literature artifact migration", function () {
         applySet: async ({ parentRef, runId }) => {
           appliedParents.push(parentRef.key);
           if (parentRef.key === "PARENT-C") {
+            assert.deepEqual(service.getActiveSnapshot()?.progress?.outcomes, {
+              applied: 1,
+              failed: 1,
+              attention: 0,
+            });
             assert.deepEqual(
               listLiteratureArtifactMigrationSets({ runId, limit: 10 }).map(
                 ({ outcome }) => outcome,
@@ -1924,6 +1930,15 @@ describe("literature artifact migration", function () {
         { completed: 1, total: 3 },
         { completed: 2, total: 3 },
         { completed: 3, total: 3 },
+      ],
+    );
+    assert.deepEqual(
+      progress.map(({ outcomes }) => outcomes),
+      [
+        { applied: 0, failed: 0, attention: 0 },
+        { applied: 1, failed: 0, attention: 0 },
+        { applied: 1, failed: 1, attention: 0 },
+        { applied: 2, failed: 1, attention: 0 },
       ],
     );
     assert.deepEqual(
@@ -2436,11 +2451,25 @@ describe("literature artifact migration", function () {
       reviewRequired: 1,
       blocked: 1,
       selected: 26,
+      pending: 2,
+      skipped: 0,
       filteredSelected: 26,
       filteredSelectable: 26,
     });
     assert.equal(first.items[0]?.title, "Ready paper 1");
     assert.isTrue(first.items.every((candidate) => candidate.selected));
+    const filtered = service.listCandidatePage({
+      runId: preview.runId,
+      query: { search: "Ready paper 1" },
+      limit: 1,
+    });
+    assert.deepInclude(filtered.summary, { pending: 2, skipped: 0 });
+    assert.isTrue(
+      filtered.decisionGroups?.some(
+        ({ reasonCode, pendingCandidateCount }) =>
+          reasonCode === "unsupported_input" && pendingCandidateCount === 1,
+      ),
+    );
 
     const second = service.listCandidatePage({
       runId: preview.runId,
@@ -2491,6 +2520,20 @@ describe("literature artifact migration", function () {
     if (blockedSelection.ok)
       throw new Error("blocked candidate was selectable");
     assert.equal(blockedSelection.code, "candidate_not_selectable");
+    const skipIssue = blockedCandidate.issues.find(
+      ({ reasonCode }) => reasonCode === "unsupported_input",
+    )!;
+    const skipOption = skipIssue.options.find(
+      ({ kind }) => kind === "skip_candidate",
+    )!;
+    assert.isTrue(
+      service.resolveCandidateIssue({
+        scanOperationId: preview.operationId,
+        candidateId: blockedCandidate.candidateId,
+        issueId: skipIssue.issueId,
+        optionId: skipOption.optionId,
+      }).ok,
+    );
 
     const selected = service.listCandidatePage({
       runId: preview.runId,
@@ -2498,6 +2541,12 @@ describe("literature artifact migration", function () {
       page: 1,
     });
     assert.equal(selected.summary.selected, 27);
+    assert.deepInclude(selected.summary, { pending: 0, skipped: 1 });
+    assert.isTrue(
+      selected.decisionGroups?.every(
+        ({ pendingCandidateCount }) => pendingCandidateCount === 0,
+      ),
+    );
     assert.isTrue(selected.items[1]?.selected);
     const result = await service.apply({
       scanOperationId: preview.operationId,
@@ -2605,6 +2654,70 @@ describe("literature artifact migration", function () {
     assert.isTrue(result.ok);
     assert.equal(appliedReferenceCount, 1);
     assert.equal(appliedUnresolvedCount, 0);
+  });
+
+  it("offers review when a duplicate resolution exposes a new size limit", async function () {
+    const reference = { title: "Study", year: 2024, authors: ["Ada"] };
+    const service = createLiteratureArtifactMigrationService({
+      host: {
+        scanLibrary: async () => [
+          {
+            libraryId: 1,
+            parentRef: { libraryId: 1, key: "PARENT" },
+            references: [
+              { ...reference, sourceReferenceId: "a".repeat(96) },
+              { ...reference, sourceReferenceId: "b" },
+            ],
+            citation: {
+              items: Array.from({ length: 1_000 }, () => ({
+                sourceReferenceId: "b",
+                summary: "x".repeat(800),
+              })),
+            },
+          },
+        ],
+        applySet: async () => ({ outcome: "applied" as const }),
+      },
+    });
+    const scan = await service.scan({ libraryId: 1 });
+    if (!scan.ok) throw new Error("expected migration preview");
+    const [candidate] = scan.candidates;
+    assert.deepEqual(candidate.reasonCodes, ["duplicate_reference"]);
+    const [duplicate] = candidate.issues;
+    const decision = await service.resolveCandidateIssuesBulkAsync({
+      scanOperationId: scan.operationId,
+      reasonCode: duplicate.reasonCode,
+      kind: "merge_duplicates",
+    });
+    assert.isTrue(decision.ok);
+
+    const filtered = service.listCandidatePage({
+      runId: scan.runId,
+      query: { reasonCode: "invalid_canonical_artifact" },
+    });
+    assert.equal(filtered.summary.pending, 1);
+    assert.equal(filtered.summary.selected, 0);
+    assert.lengthOf(filtered.items, 1);
+    const [preserved, discovered] = filtered.items[0].issues;
+    assert.include(preserved, {
+      issueId: duplicate.issueId,
+      status: "resolved",
+      decisionSource: "batch",
+    });
+    assert.include(discovered, {
+      reasonCode: "invalid_canonical_artifact",
+      status: "pending",
+    });
+    assert.deepEqual(
+      discovered.options.map(({ kind }) => kind),
+      ["skip_candidate"],
+    );
+    assert.isTrue(
+      filtered.decisionGroups?.some(
+        ({ reasonCode, pendingCandidateCount }) =>
+          reasonCode === discovered.reasonCode && pendingCandidateCount === 1,
+      ),
+    );
   });
 
   it("offers only skip for damaged input and applies group policy across display filters", async function () {

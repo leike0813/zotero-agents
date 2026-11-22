@@ -1680,7 +1680,7 @@ function projectViews(
         "literatureMigrationWizardDecisionFailed",
         "Decision failed; all choices remain unchanged.",
       ),
-      back: labelText(labels, "literatureMigrationWizardBack", "Back"),
+      back: labelText(labels, "literatureMigrationWizardBack", "Previous"),
       continue: labelText(
         labels,
         "literatureMigrationWizardContinue",
@@ -1730,7 +1730,7 @@ function projectViews(
       backProblem: labelText(
         labels,
         "literatureMigrationGuidanceBackProblem",
-        "Back to issues",
+        "Back to documents",
       ),
       affectedDocuments: labelText(
         labels,

@@ -246,6 +246,7 @@ export type LiteratureArtifactMigrationScanProgress = {
   completed: number;
   total: number | null;
   candidateCount: number;
+  outcomes?: { applied: number; failed: number; attention: number };
 };
 
 type MigrationApplyResult = {
@@ -1225,10 +1226,11 @@ function issueOptionKinds(
   return ["skip_candidate"];
 }
 
-function issuesForConversion(
-  conversion: LiteratureArtifactMigrationConversion,
-): LiteratureArtifactMigrationIssue[] {
-  return conversion.reasonCodes.map((reasonCode, index) => ({
+function issueForReason(
+  reasonCode: LiteratureArtifactMigrationReasonCode,
+  index: number,
+): LiteratureArtifactMigrationIssue {
+  return {
     issueId: `issue-${index + 1}-${reasonCode}`,
     reasonCode,
     status: "pending",
@@ -1239,7 +1241,7 @@ function issuesForConversion(
       dataLoss: kind === "drop_unresolved" || kind === "accept_data_loss",
     })),
     selectedOptionId: "",
-  }));
+  };
 }
 
 function affectedItemsForIssue(
@@ -1328,7 +1330,13 @@ function projectResolvedConversion(
   runtimeCandidate: RuntimeCandidate,
   conversion: LiteratureArtifactMigrationConversion,
 ) {
-  for (const issue of runtimeCandidate.candidate.issues) {
+  const { issues } = runtimeCandidate.candidate;
+  for (const reasonCode of conversion.reasonCodes) {
+    if (!issues.some((issue) => issue.reasonCode === reasonCode)) {
+      issues.push(issueForReason(reasonCode, issues.length));
+    }
+  }
+  for (const issue of issues) {
     if (!issue.selectedOptionId) {
       issue.status = conversion.reasonCodes.includes(issue.reasonCode)
         ? "pending"
@@ -1455,6 +1463,7 @@ function collectDecisionGroups(plan: RuntimePlan) {
       reasonCode: string;
       totalCount: number;
       pendingCount: number;
+      pendingCandidateCount: number;
       resolvedCount: number;
       individualCount: number;
       selectedKind: string;
@@ -1469,6 +1478,7 @@ function collectDecisionGroups(plan: RuntimePlan) {
           reasonCode: issue.reasonCode,
           totalCount: 0,
           pendingCount: 0,
+          pendingCandidateCount: 0,
           resolvedCount: 0,
           individualCount: 0,
           selectedKind: plan.groupPolicies.get(issue.reasonCode) || "",
@@ -1477,8 +1487,12 @@ function collectDecisionGroups(plan: RuntimePlan) {
         groups.set(issue.reasonCode, group);
       }
       group.totalCount++;
-      if (issue.status === "pending") group.pendingCount++;
-      else group.resolvedCount++;
+      if (issue.status === "pending") {
+        group.pendingCount++;
+        if (entry.candidate.disposition === "pending") {
+          group.pendingCandidateCount++;
+        }
+      } else group.resolvedCount++;
       if (issue.decisionSource === "individual") group.individualCount++;
       for (const option of issue.options) {
         if (!group.kinds.some((entry) => entry.kind === option.kind)) {
@@ -1579,7 +1593,14 @@ function failure(
 }
 
 export function getLiteratureArtifactMigrationActiveSnapshot() {
-  return runtimeActive ? { ...runtimeActive } : null;
+  if (!runtimeActive) return null;
+  const progress = runtimeActive.progress;
+  return {
+    ...runtimeActive,
+    progress: progress?.outcomes
+      ? { ...progress, outcomes: { ...progress.outcomes } }
+      : progress,
+  };
 }
 
 export function resetLiteratureArtifactMigrationRuntimeForTests() {
@@ -1755,7 +1776,7 @@ export function createLiteratureArtifactMigrationService(
           libraryId,
           disposition:
             conversion.classification === "ready" ? "include" : "pending",
-          issues: issuesForConversion(conversion),
+          issues: conversion.reasonCodes.map(issueForReason),
           originalReasonCodes: [...conversion.reasonCodes],
           selectionSource: "automatic" as const,
           outcome: "preview" as const,
@@ -1877,10 +1898,12 @@ export function createLiteratureArtifactMigrationService(
       "literature-migration-apply",
       idFactory,
     );
+    const outcomes = { applied: 0, failed: 0, attention: 0 };
     const initialApplyProgress: LiteratureArtifactMigrationScanProgress = {
       completed: 0,
       total: requestedIds.length,
       candidateCount: requestedIds.length,
+      outcomes: { ...outcomes },
     };
     runtimeActive = {
       runId: plan.preview.runId,
@@ -1903,24 +1926,24 @@ export function createLiteratureArtifactMigrationService(
       candidate: LiteratureArtifactMigrationCandidate,
     ) =>
       newRuntimeId(`literature-migration-set-${candidate.ordinal}`, idFactory);
-    let applyProgress = 0;
     const reportApplyProgress = (
       progress: LiteratureArtifactMigrationScanProgress,
     ) => {
       try {
-        args.onProgress?.({ ...progress });
+        args.onProgress?.({ ...progress, outcomes: { ...outcomes } });
       } catch {
         // Progress observers do not own migration settlement.
       }
       publishMigrationChange();
     };
-    const publishApplyProgress = () => {
-      applyProgress += 1;
+    const publishApplyProgress = (outcome: keyof typeof outcomes) => {
+      outcomes[outcome] += 1;
       if (runtimeActive?.runId !== plan.preview.runId) return;
       runtimeActive.progress = {
-        completed: applyProgress,
+        completed: outcomes.applied + outcomes.failed + outcomes.attention,
         total: requestedIds.length,
         candidateCount: requestedIds.length,
+        outcomes: { ...outcomes },
       };
       reportApplyProgress(runtimeActive.progress);
     };
@@ -1970,7 +1993,7 @@ export function createLiteratureArtifactMigrationService(
             [group.diagnostic],
           );
           processedCount += 1;
-          if (group.requested) publishApplyProgress();
+          if (group.requested) publishApplyProgress("attention");
         }
       }
       upsertLiteratureArtifactMigrationRun({
@@ -2030,7 +2053,6 @@ export function createLiteratureArtifactMigrationService(
             failureDiagnostics.push(...diagnostics);
           }
         }
-        publishApplyProgress();
         const current = getLiteratureArtifactMigrationRun(plan.preview.runId);
         if (!current) throw new Error("migration run receipt is unavailable");
         upsertLiteratureArtifactMigrationRun({
@@ -2041,6 +2063,11 @@ export function createLiteratureArtifactMigrationService(
           remainingCount: setCount - processedCount,
           updatedAt: nowIso(),
         });
+        publishApplyProgress(
+          applied.outcome === "applied" || applied.outcome === "failed"
+            ? applied.outcome
+            : "attention",
+        );
         runBlocker = applied.runBlocker;
         if (runBlocker) break;
       }
@@ -2853,6 +2880,12 @@ export function createLiteratureArtifactMigrationService(
       const pageCount = Math.max(1, Math.ceil(filtered.length / limit));
       const page = clampPage(pageCount);
       const slice = filtered.slice(page * limit, page * limit + limit);
+      let pending = 0;
+      let skipped = 0;
+      for (const { candidate } of plan.candidates.values()) {
+        if (candidate.disposition === "pending") pending++;
+        if (candidate.disposition === "skip") skipped++;
+      }
       const summary = {
         total: filtered.length,
         unfilteredTotal: plan.candidates.size,
@@ -2866,6 +2899,8 @@ export function createLiteratureArtifactMigrationService(
           (entry) => entry.candidate.classification === "blocked",
         ).length,
         selected: plan.selectedCandidateIds.size,
+        pending,
+        skipped,
         filteredSelected: filtered.filter(
           (entry) => entry.candidate.disposition === "include",
         ).length,

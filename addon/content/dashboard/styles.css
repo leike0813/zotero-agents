@@ -2763,6 +2763,35 @@ tr.clickable {
   background: var(--panel);
 }
 
+.dashboard-migration-problem-navigation,
+.dashboard-migration-drawer-wizard {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 0;
+}
+
+.dashboard-migration-drawer-wizard {
+  display: none;
+}
+
+.dashboard-migration-problem-navigation {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--panel);
+}
+
+.dashboard-migration-review-counts,
+.dashboard-migration-review-reasons {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
 .dashboard-migration-wizard-steps {
   justify-content: flex-start;
   padding: 4px 0;
@@ -3570,6 +3599,17 @@ tr.clickable {
   .dashboard-migration-drawer-back {
     display: inline-flex;
     justify-self: start;
+  }
+
+  .dashboard-migration-drawer-wizard {
+    display: flex;
+    position: sticky;
+    bottom: 0;
+    z-index: 1;
+    margin-top: auto;
+    padding: var(--zs-space-3);
+    border-top: 1px solid var(--line);
+    background: var(--panel);
   }
 }
 

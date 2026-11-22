@@ -1214,6 +1214,21 @@ describe("Dashboard literature migration region", function () {
     articles[1]!.click();
     await new Promise((resolve) => setTimeout(resolve, 0));
     assert.exists(root.querySelector('[data-role="migration-detail-drawer"]'));
+    const drawerBack = root.querySelector<HTMLButtonElement>(
+      ".dashboard-migration-drawer-back",
+    );
+    assert.equal(drawerBack?.textContent?.trim(), "Back to documents");
+    const drawerWizard = root.querySelector(
+      ".dashboard-migration-drawer-wizard",
+    );
+    assert.exists(drawerWizard);
+    assert.isTrue(
+      Boolean(
+        drawerWizard!.compareDocumentPosition(drawerBack!) &
+        root.ownerDocument.defaultView!.Node.DOCUMENT_POSITION_PRECEDING,
+      ),
+      "narrow-drawer navigation stays between the strategy and candidate details",
+    );
     assert.isTrue(
       root
         .querySelectorAll(".dashboard-migration-candidate")[1]!
@@ -1291,6 +1306,11 @@ describe("Dashboard literature migration region", function () {
         ...base.view,
         candidatePage: {
           ...base.view.candidatePage,
+          summary: {
+            ...base.view.candidatePage.summary,
+            pending: 2,
+            skipped: 1,
+          },
           items: base.view.candidatePage.items.map((candidate) =>
             candidate.candidateId === "candidate-2"
               ? {
@@ -1317,6 +1337,7 @@ describe("Dashboard literature migration region", function () {
             reasonCode: "unresolved_linkage",
             totalCount: 41,
             pendingCount: 32,
+            pendingCandidateCount: 2,
             resolvedCount: 9,
             individualCount: 1,
             selectedKind: "keep_unresolved",
@@ -1329,6 +1350,7 @@ describe("Dashboard literature migration region", function () {
             reasonCode: "duplicate_reference",
             totalCount: 7,
             pendingCount: 7,
+            pendingCandidateCount: 1,
             resolvedCount: 0,
             individualCount: 0,
             selectedKind: "",
@@ -1377,6 +1399,24 @@ describe("Dashboard literature migration region", function () {
     assert.equal(
       root.querySelectorAll(".dashboard-migration-batch-group").length,
       1,
+    );
+    const problemNavigation = root.querySelector(
+      ".dashboard-migration-problem-navigation",
+    );
+    assert.exists(problemNavigation);
+    assert.isTrue(
+      Boolean(
+        problemNavigation!.compareDocumentPosition(
+          root.querySelector(".dashboard-migrations-candidates")!,
+        ) & root.ownerDocument.defaultView!.Node.DOCUMENT_POSITION_FOLLOWING,
+      ),
+      "problem navigation stays between policy controls and candidates",
+    );
+    assert.equal(
+      problemNavigation!
+        .querySelector("[data-role='migration-wizard-back']")
+        ?.textContent?.trim(),
+      "Previous",
     );
     assert.equal(
       root
@@ -1454,6 +1494,37 @@ describe("Dashboard literature migration region", function () {
       "duplicate_reference",
     );
 
+    render(
+      h(MigrationsRegion, {
+        selection: {
+          ...selection,
+          view: {
+            ...selection.view,
+            decisionGroups: [
+              {
+                ...selection.view.decisionGroups![1]!,
+                reasonCode: "new_group",
+              },
+              ...selection.view.decisionGroups!,
+            ],
+          },
+        },
+        onAction: (action, payload) =>
+          actions.push({
+            action,
+            payload: (payload || {}) as Record<string, unknown>,
+          }),
+      }),
+      root,
+    );
+    assert.equal(
+      root
+        .querySelector(".dashboard-migration-batch-group")
+        ?.getAttribute("data-reason-code"),
+      "duplicate_reference",
+      "the active group remains anchored when a group is inserted before it",
+    );
+
     root
       .querySelector<HTMLButtonElement>('[data-role="migration-wizard-back"]')!
       .click();
@@ -1483,6 +1554,29 @@ describe("Dashboard literature migration region", function () {
         ?.getAttribute("data-wizard-step"),
       "finalreview",
     );
+    const review = root.querySelector('[data-role="migration-final-review"]')!;
+    assert.include(review.textContent || "", "2 pending");
+    assert.include(review.textContent || "", "1 Skipped");
+    const problemLink = review.querySelector<HTMLButtonElement>(
+      '[data-role="migration-review-pending-reason"][data-reason-code="duplicate_reference"]',
+    );
+    assert.exists(problemLink);
+    problemLink!.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(
+      root
+        .querySelector("[data-wizard-step]")
+        ?.getAttribute("data-wizard-step"),
+      "problems",
+    );
+    assert.deepEqual(actions.at(-1)?.payload, {
+      search: "",
+      classification: "",
+      reasonCode: "duplicate_reference",
+      disposition: "",
+    });
+    await showMigrationStep(root, "finalreview");
+    await new Promise((resolve) => setTimeout(resolve, 0));
     root
       .querySelector<HTMLButtonElement>('[data-role="migration-wizard-back"]')!
       .click();
@@ -1696,6 +1790,42 @@ describe("Dashboard literature migration region", function () {
     assert.notInclude(feedback!.textContent || "", "ignored-extra");
     assert.notInclude(feedback!.textContent || "", "could not be validated");
 
+    render(null, root);
+    restoreSidebarDomGlobals();
+    environment.dom.window.close();
+  });
+
+  it("renders in-flight apply outcomes including a failure before terminal", function () {
+    const environment = createSidebarDomEnvironment();
+    installSidebarDomGlobals(environment);
+    const root = document.createElement("div");
+    const base = buildMigrationsSelection();
+    render(
+      h(MigrationsRegion, {
+        selection: {
+          ...base,
+          view: {
+            ...base.view,
+            availability: "busy",
+            progress: {
+              phase: "applying",
+              completed: 3,
+              total: 5,
+              candidateCount: 5,
+              outcomes: { applied: 2, failed: 1, attention: 0 },
+            },
+          },
+        },
+        onAction: () => {},
+      }),
+      root,
+    );
+    const outcomes = root.querySelector(
+      '[data-role="migration-apply-outcomes"]',
+    );
+    assert.exists(outcomes);
+    assert.include(outcomes!.textContent || "", "2 Applied");
+    assert.include(outcomes!.textContent || "", "1 Failed");
     render(null, root);
     restoreSidebarDomGlobals();
     environment.dom.window.close();

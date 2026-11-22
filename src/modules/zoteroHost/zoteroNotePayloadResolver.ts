@@ -263,8 +263,14 @@ async function yieldAfterPayloadItem(
   budget.processed = 0;
 }
 
-function detachAttachmentSources(attachments: Zotero.Item[]) {
-  return attachments.map((attachment) => {
+function detachAttachmentSources(
+  attachments: Zotero.Item[],
+  ignoredKeys?: ReadonlySet<string>,
+) {
+  const selected = ignoredKeys?.size
+    ? attachments.filter((attachment) => !ignoredKeys.has(attachment.key))
+    : attachments;
+  return selected.map((attachment) => {
     const id = Number((attachment as any)?.id);
     const key = cleanString((attachment as any)?.key);
     if (!Number.isSafeInteger(id) || id <= 0 || !key) {
@@ -339,6 +345,7 @@ export type ZoteroNotePayloadPageOptions = {
   checkCanceled?: () => void;
   maxPayloadBytes?: number;
   recoverPayloadErrors?: boolean;
+  ignoredAttachmentKeys?: ReadonlySet<string>;
 };
 
 export async function listNotePayloadBlocksForItemPage(
@@ -410,7 +417,10 @@ export async function listNotePayloadBlocksForItemPage(
     );
     options.checkCanceled?.();
     const previousAttachments = await runNativeSlice(() =>
-      detachAttachmentSources(previousPage.items),
+      detachAttachmentSources(
+        previousPage.items,
+        options.ignoredAttachmentKeys,
+      ),
     );
     const previousBasis = await attachmentSourceBasis(
       previousAttachments,
@@ -478,7 +488,7 @@ export async function listNotePayloadBlocksForItemPage(
   );
   options.checkCanceled?.();
   const attachments = await runNativeSlice(() =>
-    detachAttachmentSources(childPage.items),
+    detachAttachmentSources(childPage.items, options.ignoredAttachmentKeys),
   );
   scanned += childPage.items.length;
   const anchors = collectPayloadAnchors(html);

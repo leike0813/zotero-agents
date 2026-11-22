@@ -71,23 +71,29 @@ later group choice; resetting the individual choice restores the group policy.
 Eligible, fully resolved sets are automatically included while explicit
 individual exclusions persist. Failed or canceled staged decisions preserve
 all previous choices and selections. Skip leaves the source unchanged.
-The final review shows effective choices and permits exclusion, then requires
-explicit confirmation before applying the ready sets that remain included
-after all issue decisions; there is no second per-set approval step. The page
-shows scan, conversion, decision, and apply progress immediately, marks the
-initiating command busy, and locks filters, history selection, paging, and candidate controls until the
-active transaction settles; Stop remains available. Its full-width toolbar
+The final review shows effective choices and the selected, pending, and skipped
+parent-set counts across the scan. Each pending reason links to its strategy
+step and opens the affected list with previous filters cleared. Recalculating
+a strategy exposes any newly discovered blocking issue with its own options
+while retaining earlier issue identities and choices. The user may exclude
+individual sets and must confirm before applying the included ready sets.
+The page shows scan, conversion, decision, and apply progress immediately.
+During apply it counts migrated, failed, and other attention outcomes as
+their receipts are persisted. The page locks filters, history selection,
+paging, and candidate controls during active work while Stop remains
+available. Its full-width toolbar
 keeps commands, summary pills, search, and three filters on one row when wide,
 moves search and filters to a second row below 1100 px, and uses a two-column
 filter grid below 560 px. It renders no library selector and stays within the
 personal library bound by the scan.
 
-The numbered review steps share one fixed footer outside the content scroll
-area. The footer names the next destination, retains the current problem group
-when returning from final review, and contains the final Apply command. A scan
-without problem groups proceeds directly from overview to final review. Shared
-choices appear before the affected-document list, with their consequences and
-selected state visible. Their scope is the entire scan, not the displayed page.
+In problem review, the step buttons sit beneath the shared choices and above
+the scrolling document list. The previous-step action returns to the preceding
+problem group or overview. Returning from final review restores the last
+problem group. The final Apply command stays in the fixed footer outside the
+document scroll area. A scan without problem groups proceeds directly from
+overview to final review. Shared choices show their consequences and selected
+state. Each choice applies across the scan.
 
 Document paging uses the same controls in problem review, final review, and
 results. Enter or leaving the page input commits a page number. Paging resets
@@ -251,22 +257,19 @@ overwrites the original representation. Ordinary notes and ordinary
 
 When a legacy note is reused, only its old attachment-backed v1 payload and the
 new v2 payload may coexist until verification finishes. A superseded v2
-attachment is replaced inside the parent-set transaction; retaining it would
-make the subsequent canonical read ambiguous. The writer verifies the exact
-new v2 logical hash and excludes only the matching v1 attachment already
-queued for cleanup from its migration-local detail read. The normal
-managed-note reader remains strict. Cleanup moves the identified v1 attachment
-to Trash, and source pagination excludes trashed child items from later payload
-reads.
+attachment also stays available until the replacement is verified. The
+writer verifies the exact replacement hash and excludes only identified source
+attachments queued for cleanup from its migration-local detail read. Cleanup
+moves those attachments to Trash, and normal payload reads exclude trashed
+children. If verification fails, the writer attempts to restore the old note
+content and remove the incomplete replacement. The retained source attachments
+and bytes remain available for recovery.
 
-Zotero may unload erased and newly created attachment objects when its
-transaction commits. The writer therefore captures each attachment's portable
-ref and active version while the object is still readable: immediately before
-erase for the old attachment and before leaving the write helper for the new
-one. Post-commit receipt construction uses only that immutable evidence, so a
-successful replacement cannot be reclassified as a generic commit failure
-while projecting either receipt change. The native item for a new attachment
-is retained only for failure compensation.
+Zotero may unload native attachment objects after a transaction commits.
+The writer captures the attachment identities and the new attachment's active
+version while those objects are readable. Post-commit receipt construction
+uses the captured evidence and the retirement outcome. The native item for a
+new attachment is retained only for failure compensation.
 
 Parent-set verification is scoped to the requested managed-note kind. Citation
 health may read the paired References note, but singleton discovery skips a
@@ -288,7 +291,10 @@ Native attachment bytes are staged under short opaque temporary names before
 the Zotero transaction. Operation and attempt identity belongs to durable
 authority records, not staging paths; keeping it out of filenames avoids the
 Windows path-length failure that otherwise prevents payload files from being
-written before the transaction starts.
+written before the transaction starts. Each staging reservation is retired
+by the file identity captured during staging. Windows can return the native
+directory with repeated separators even when the file path uses normalized
+separators.
 
 Mutation authority outcomes retain their side-effect meaning. `committed` and
 `unchanged` become `applied`. Uncertain or residual effects confined to the

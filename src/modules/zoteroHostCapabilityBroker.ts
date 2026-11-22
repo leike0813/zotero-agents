@@ -5157,8 +5157,8 @@ async function upsertNotePayloadAttachment(
   options: {
     inNativeTransaction?: boolean;
     stagedFile?: PreparedNativeAttachmentFile;
-    /** Migration keeps exact v1 attachments until post-verification Trash. */
-    deferV1MigrationAttachmentCleanup?: boolean;
+    /** Migration keeps the source attachment until the replacement is verified. */
+    deferMigrationAttachmentCleanup?: boolean;
   } = {},
 ) {
   const native = <T>(run: () => Promise<T> | T) =>
@@ -5242,6 +5242,7 @@ async function upsertNotePayloadAttachment(
       outcome: contentUpdated ? ("replaced" as const) : ("unchanged" as const),
       createdAttachment: null,
       removedAttachment: null,
+      deferredAttachmentRef: null,
       attachmentStoragePath: null,
     };
   }
@@ -5408,6 +5409,7 @@ async function upsertNotePayloadAttachment(
     ref: ReturnType<typeof canonicalItemRef>;
     before: ReturnType<typeof canonicalItemVersion>;
   } | null = null;
+  let deferredAttachmentRef: ReturnType<typeof canonicalItemRef> | null = null;
   const old = previousBlock;
   if (old?.attachmentKey && old.attachmentKey !== attachmentKey) {
     const oldAttachment = await native(
@@ -5435,10 +5437,9 @@ async function upsertNotePayloadAttachment(
           ref: canonicalItemRef(oldAttachment),
           before: canonicalItemVersion(oldAttachment),
         }));
-        if (
-          !options.deferV1MigrationAttachmentCleanup ||
-          old.payloadStorageVersion !== 1
-        ) {
+        if (options.deferMigrationAttachmentCleanup) {
+          deferredAttachmentRef = oldAttachmentEvidence.ref;
+        } else {
           try {
             await native(async () => {
               await beforeEffect?.("effect");
@@ -5531,6 +5532,7 @@ async function upsertNotePayloadAttachment(
       previous.length === 0 ? ("created" as const) : ("replaced" as const),
     createdAttachment,
     removedAttachment,
+    deferredAttachmentRef,
     attachmentStoragePath: attachmentStoragePath || null,
   };
 }
@@ -11724,7 +11726,7 @@ async function executeManagedParentSetMutation(
               }
             }
             const stagedParentSetPaths = new Set<string>();
-            const preparedStorageDirectories = new Set<string>();
+            const preparedStorage = new Map<string, string>();
             try {
               // All bytes are prepared before the native transaction.  In
               // particular, do not call Attachments.importEmbeddedImage from the
@@ -11744,7 +11746,10 @@ async function executeManagedParentSetMutation(
                     });
                     files.set(binding.slot, file);
                     stagedParentSetPaths.add(file.stagedPath);
-                    preparedStorageDirectories.add(file.storageDirectory);
+                    preparedStorage.set(
+                      file.storagePath,
+                      file.storageDirectory,
+                    );
                   }
                   plan.stagedImageFiles = files;
                 }
@@ -11777,7 +11782,7 @@ async function executeManagedParentSetMutation(
                   });
                   payloadFiles.set(payload.payloadType, file);
                   stagedParentSetPaths.add(file.stagedPath);
-                  preparedStorageDirectories.add(file.storageDirectory);
+                  preparedStorage.set(file.storagePath, file.storageDirectory);
                 }
                 plan.stagedPayloadFiles = payloadFiles;
               }
@@ -11882,7 +11887,7 @@ async function executeManagedParentSetMutation(
               }
             } catch (error) {
               await cleanupPreparedNativeAttachmentDirectories(
-                preparedStorageDirectories,
+                preparedStorage.values(),
               );
               await cleanupStagedNoteAttachmentPaths(stagedParentSetPaths);
               if (error instanceof MutationAuthorityExecutionError) {
@@ -11930,7 +11935,10 @@ async function executeManagedParentSetMutation(
               attachments: Zotero.Item[];
               storagePaths: ReadonlyMap<string, string>;
             }> = [];
-            const compensate = async (primary: unknown) => {
+            const compensate = async (
+              primary: unknown,
+              phase: "commit" | "verification" = "commit",
+            ) => {
               const residualRefs: MutationEntityRef[] = [];
               for (const { attachments, storagePaths } of [
                 ...imageAttachments,
@@ -12038,7 +12046,7 @@ async function executeManagedParentSetMutation(
                   throw new MutationAuthorityExecutionError(
                     primary.code === "canceled" ? "canceled" : "failed",
                     primary.code,
-                    "commit",
+                    phase,
                     recovery,
                     primary.details,
                     primary.message,
@@ -12053,19 +12061,21 @@ async function executeManagedParentSetMutation(
               throw new MutationAuthorityExecutionError(
                 residualRefs.length ? "repair_required" : "failed",
                 "execution_failed",
-                "compensation",
+                phase === "verification" ? phase : "compensation",
                 residualRefs.length ? "manual_repair" : "retry_same_operation",
                 {
-                  phase: residualRefs.length ? "cleanup" : "commit",
+                  phase: residualRefs.length ? "cleanup" : phase,
                   recovery: residualRefs.length
                     ? "manual_repair"
                     : "retry_same_operation",
                   affectedCount: committedPlans.length,
                   residualCount: residualRefs.length,
                 },
-                primary instanceof Error
-                  ? primary.message
-                  : "managed parent set failed",
+                phase === "verification"
+                  ? "managed parent set could not be verified"
+                  : primary instanceof Error
+                    ? primary.message
+                    : "managed parent set failed",
                 committedPlans.map((plan) => ({
                   kind: "item",
                   ref: canonicalItemRef(plan.note!),
@@ -12160,7 +12170,7 @@ async function executeManagedParentSetMutation(
                           stagedFile: plan.stagedPayloadFiles?.get(
                             plan.payload.payloadType,
                           ),
-                          deferV1MigrationAttachmentCleanup: Boolean(
+                          deferMigrationAttachmentCleanup: Boolean(
                             plan.entry.migrationSourceRef,
                           ),
                         },
@@ -12179,7 +12189,7 @@ async function executeManagedParentSetMutation(
                             stagedFile: plan.stagedPayloadFiles?.get(
                               auxiliary.payload.payloadType,
                             ),
-                            deferV1MigrationAttachmentCleanup: Boolean(
+                            deferMigrationAttachmentCleanup: Boolean(
                               plan.entry.migrationSourceRef,
                             ),
                           },
@@ -12192,39 +12202,31 @@ async function executeManagedParentSetMutation(
                   }
                 });
               });
-              const usedStorageDirectories = new Set<string>();
+              // A committed file owns the exact reservation used for its write.
               for (const { storagePaths } of imageAttachments) {
                 for (const path of storagePaths.values()) {
-                  const directory = runtimeDirectoryForPath(path);
-                  if (directory) usedStorageDirectories.add(directory);
+                  preparedStorage.delete(path);
                 }
               }
               for (const { result } of payloadResults) {
-                if (!result.attachmentStoragePath) continue;
-                const directory = runtimeDirectoryForPath(
-                  result.attachmentStoragePath,
-                );
-                if (directory) usedStorageDirectories.add(directory);
+                if (result.attachmentStoragePath) {
+                  preparedStorage.delete(result.attachmentStoragePath);
+                }
               }
               await cleanupPreparedNativeAttachmentDirectories(
-                [...preparedStorageDirectories].filter(
-                  (directory) => !usedStorageDirectories.has(directory),
-                ),
+                preparedStorage.values(),
               );
             } catch (error) {
               await cleanupPreparedNativeAttachmentDirectories(
-                preparedStorageDirectories,
+                preparedStorage.values(),
               );
               await compensate(error);
             } finally {
               await cleanupStagedNoteAttachmentPaths(stagedParentSetPaths);
             }
 
-            // Migration targets may still have legacy payload attachments after
-            // the paired canonical write. Verify the new v2 payload first, then
-            // combine those discovered attachments with the caller's private
-            // cleanup tail. The cleanup remains part of this parent-set authority
-            // operation; it never claims a second receipt.
+            // Source payloads stay available for compensation until the paired
+            // canonical write has passed verification.
             const legacyPayloadRefs = new Map<string, ZoteroHostItemRefInput>();
             const legacyPayloadAttachmentKeys = new Map<
               PreparedParentSetEntry,
@@ -12236,7 +12238,7 @@ async function executeManagedParentSetMutation(
                 plan.note!,
                 control,
                 MIGRATION_NOTE_PAYLOAD_MAX_BYTES,
-              );
+              ).catch((error) => compensate(error, "verification"));
               const canonicalBlocks = blocks.filter(
                 (block) =>
                   block.payloadType === plan.payload.payloadType &&
@@ -12246,15 +12248,21 @@ async function executeManagedParentSetMutation(
                     canonicalLogicalNotePayloadHash(plan.payload),
               );
               if (canonicalBlocks.length !== 1) {
-                throw new MutationAuthorityExecutionError(
-                  "failed",
-                  "execution_failed",
+                await compensate(
+                  new Error(
+                    "canonical migration payload could not be verified",
+                  ),
                   "verification",
-                  "reconcile",
-                  { phase: "verification", recovery: "reconcile" },
-                  "canonical migration payload could not be verified",
-                  [{ kind: "item", ref: canonicalItemRef(plan.note!) }],
                 );
+              }
+              const keys = new Set<string>();
+              legacyPayloadAttachmentKeys.set(plan, keys);
+              for (const entry of payloadResults) {
+                if (entry.plan !== plan || !entry.result.deferredAttachmentRef)
+                  continue;
+                const ref = entry.result.deferredAttachmentRef;
+                legacyPayloadRefs.set(`${ref.libraryId}:${ref.key}`, ref);
+                keys.add(ref.key);
               }
               for (const block of plan.legacyPayloadBlocks) {
                 // Migration only replaces the semantic primary represented by
@@ -12274,10 +12282,7 @@ async function executeManagedParentSetMutation(
                 };
                 if (ref.key) {
                   legacyPayloadRefs.set(`${ref.libraryId}:${ref.key}`, ref);
-                  const keys =
-                    legacyPayloadAttachmentKeys.get(plan) || new Set<string>();
                   keys.add(ref.key);
-                  legacyPayloadAttachmentKeys.set(plan, keys);
                 }
               }
             }
@@ -12297,12 +12302,12 @@ async function executeManagedParentSetMutation(
                     runNativeSlice: (run) => withZoteroHostSlice(control, run),
                     checkCanceled: () => throwIfWorkflowCallCanceled(control),
                     readRevision: () => canonicalNoteVersion(note).revision,
-                    ignoredLegacyPayloadAttachmentKeys:
+                    ignoredMigrationPayloadAttachmentKeys:
                       legacyPayloadAttachmentKeys.get(plan),
                   },
                 );
               } catch (error) {
-                await compensate(error);
+                await compensate(error, "verification");
                 throw error;
               }
               if (detail.kind !== "managed") {
@@ -12310,6 +12315,7 @@ async function executeManagedParentSetMutation(
                   new Error(
                     "managed parent set final state could not be confirmed",
                   ),
+                  "verification",
                 );
               }
               notes.push(detail as ManagedNoteDetailDto);
