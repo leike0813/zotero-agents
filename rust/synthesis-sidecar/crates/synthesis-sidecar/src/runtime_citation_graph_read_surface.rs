@@ -1365,23 +1365,25 @@ fn bounded_cluster(
     let mut source_ids = BTreeSet::new();
     let mut resolved_refs = BTreeSet::new();
     let mut stale = false;
-    let mut cursor = 0;
-    loop {
-        let page = view.metrics(CitationMetricsPageRequest {
-            cursor,
-            limit: 100,
-            sort_by: ApplicationCitationMetricsSort::Foundation,
-            paper_refs: query_paper_refs.clone(),
-        })?;
-        stale |= page.stale;
-        for record in page.records {
-            source_ids.insert(record.node_id);
-            if !record.paper_ref.is_empty() {
-                resolved_refs.insert(record.paper_ref);
+    if !query_paper_refs.is_empty() {
+        let mut cursor = 0;
+        loop {
+            let page = view.metrics(CitationMetricsPageRequest {
+                cursor,
+                limit: 100,
+                sort_by: ApplicationCitationMetricsSort::Foundation,
+                paper_refs: query_paper_refs.clone(),
+            })?;
+            stale |= page.stale;
+            for record in page.records {
+                source_ids.insert(record.node_id);
+                if !record.paper_ref.is_empty() {
+                    resolved_refs.insert(record.paper_ref);
+                }
             }
+            let Some(next) = page.next_cursor else { break };
+            cursor = next;
         }
-        let Some(next) = page.next_cursor else { break };
-        cursor = next;
     }
     source_ids.extend(alias_nodes.values().cloned());
     resolved_refs.extend(alias_nodes.keys().cloned());

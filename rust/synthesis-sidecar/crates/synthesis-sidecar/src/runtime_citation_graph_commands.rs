@@ -336,10 +336,23 @@ fn graph_display_authors(values: &[String]) -> Vec<String> {
 }
 
 fn graph_library_node(item: &ReferenceHostItem) -> Value {
+    let doi = item
+        .doi
+        .trim()
+        .to_lowercase()
+        .trim_start_matches("https://doi.org/")
+        .trim_start_matches("http://dx.doi.org/")
+        .trim_start_matches("doi:")
+        .to_owned();
+    let aliases = if doi.starts_with("10.") && doi.contains('/') {
+        vec![format!("ref:doi:{doi}")]
+    } else {
+        Vec::new()
+    };
     json!({"nodeId":item.paper_ref,
         "title":graph_display_text("LibraryNode", "title", &item.title),
         "year":graph_display_text("LibraryNode", "year", &item.year),
-        "authors":graph_display_authors(&item.creators),"aliases":[]})
+        "authors":graph_display_authors(&item.creators),"aliases":aliases})
 }
 
 fn build_input(

@@ -4668,6 +4668,7 @@ describe("Synthesis Rust production client route", function () {
                 itemType: "journalArticle",
                 title: "Reverse Host Reference",
                 year: "2026",
+                doi: "10.1000/xyz123",
                 metadataHash: "sha256:hostref1",
               },
               {
@@ -5407,6 +5408,24 @@ describe("Synthesis Rust production client route", function () {
       });
       assert.equal(overview.status, 200, JSON.stringify(overview.body));
       assert.equal(
+        overview.body.data.schema_id,
+        "synthesis.unified_citation_graph",
+      );
+      assert.equal(overview.body.data.schema_version, "1.0.0");
+      assert.isArray(overview.body.data.nodes);
+      assert.isArray(overview.body.data.edges);
+      assert.isObject(overview.body.data.summary);
+      assert.isObject(overview.body.data.pagination);
+      assert.isObject(overview.body.data.diagnostics);
+      assert.equal(
+        overview.body.data.page.returnedNodes,
+        overview.body.data.nodes.length,
+      );
+      assert.equal(
+        overview.body.data.page.returnedEdges,
+        overview.body.data.edges.length,
+      );
+      assert.equal(
         overview.body.data.graph_hash,
         graphSurface.body.data.graph.graph_hash,
       );
@@ -5469,11 +5488,107 @@ describe("Synthesis Rust production client route", function () {
       assert.equal(truncatedLayout.body.data.diagnostics.truncated, true);
       assert.isAtMost(truncatedLayout.body.data.nodes.length, 1);
 
-      const cluster = await call(port, "client.queryCitationGraphCluster", {
-        args: [{}],
+      const clusterCall = (query: Record<string, unknown>) =>
+        call(port, "client.queryCitationGraphCluster", { args: [query] });
+      const knownNodeRef = "1:HOSTREF1";
+      const knownPaperRef = "DOI:10.1000/xyz123";
+      const knownNodeCluster = await clusterCall({ paperRef: knownNodeRef });
+      assert.equal(
+        knownNodeCluster.status,
+        200,
+        JSON.stringify(knownNodeCluster.body),
+      );
+      const knownCluster = await clusterCall({
+        source_paper_refs: [knownPaperRef],
+        cluster_policy: "include_external",
       });
+      assert.equal(knownCluster.status, 200, JSON.stringify(knownCluster.body));
+      assert.equal(
+        knownCluster.body.data.graph_hash,
+        overview.body.data.graph_hash,
+      );
+      assert.equal(knownCluster.body.data.cluster.scope, "topic");
+      assert.isAbove(knownCluster.body.data.nodes.length, 0);
+      assert.isAbove(knownCluster.body.data.edges.length, 0);
+      assert.deepEqual(
+        knownCluster.body.data.diagnostics.unknown_paper_refs,
+        [],
+      );
+
+      const unknownRef = "DOI:10.1000/unknown-production-route-reference";
+      const unknownCluster = await clusterCall({ paper_ref: unknownRef });
+      assert.equal(
+        unknownCluster.status,
+        200,
+        JSON.stringify(unknownCluster.body),
+      );
+      assert.deepEqual(unknownCluster.body.data.nodes, []);
+      assert.deepEqual(
+        unknownCluster.body.data.diagnostics.unknown_paper_refs,
+        [unknownRef],
+      );
+      const mixedCluster = await clusterCall({
+        paper_refs: [knownPaperRef, unknownRef],
+        cluster_policy: "source_only",
+      });
+      assert.equal(mixedCluster.status, 200, JSON.stringify(mixedCluster.body));
+      assert.isAbove(mixedCluster.body.data.nodes.length, 0);
+      assert.deepEqual(mixedCluster.body.data.diagnostics.unknown_paper_refs, [
+        unknownRef,
+      ]);
+
+      const sourceOnly = await clusterCall({
+        paperRef: knownNodeRef,
+        clusterPolicy: "source_only",
+      });
+      const boundedExternal = await clusterCall({
+        paperRef: knownNodeRef,
+        clusterPolicy: "bounded_external",
+        maxExternalNodes: 1,
+      });
+      assert.equal(sourceOnly.body.data.cluster.policy, "source_only");
+      assert.equal(
+        boundedExternal.body.data.cluster.policy,
+        "bounded_external",
+      );
+      assert.isAtMost(boundedExternal.body.data.cluster.external_count, 1);
+
+      const clampedCluster = await clusterCall({
+        paperRef: knownNodeRef,
+        clusterPolicy: "include_external",
+        maxNodes: 1,
+        maxEdges: 0,
+      });
+      assert.equal(
+        clampedCluster.status,
+        200,
+        JSON.stringify(clampedCluster.body),
+      );
+      assert.isAtMost(clampedCluster.body.data.nodes.length, 1);
+      assert.lengthOf(clampedCluster.body.data.edges, 0);
+      assert.isTrue(clampedCluster.body.data.diagnostics.truncated);
+      assert.equal(
+        clampedCluster.body.data.summary.displayed_node_count,
+        clampedCluster.body.data.nodes.length,
+      );
+      assert.equal(
+        clampedCluster.body.data.cluster.edge_count,
+        clampedCluster.body.data.edges.length,
+      );
+
+      const cluster = await clusterCall({});
       assert.equal(cluster.status, 200, JSON.stringify(cluster.body));
       assert.equal(cluster.body.data.graph_hash, overview.body.data.graph_hash);
+      assert.equal(cluster.body.data.cluster.scope, "overview");
+      assert.equal(cluster.body.data.cluster.stale, false);
+      assert.equal(
+        cluster.body.data.cluster.edge_count,
+        cluster.body.data.edges.length,
+      );
+      assert.equal(
+        cluster.body.data.summary.displayed_node_count,
+        cluster.body.data.nodes.length,
+      );
 
       const slice = await call(port, "client.getCitationGraphSlice", {
         args: [
@@ -7358,6 +7473,9 @@ describe("Synthesis Rust production client route", function () {
         [`${key}:abstractNote`, abstractNote],
       ]),
     );
+    let probeBurst = false;
+    let activeQueries = 0;
+    let maxActiveQueries = 0;
     const embeddingCalls: Array<{
       capability: string;
       payload: Record<string, any>;
@@ -7403,12 +7521,22 @@ describe("Synthesis Rust production client route", function () {
           };
         if (capability === "retrieval.embedding.encode") {
           embeddingCalls.push({ capability, payload });
-          return {
+          const encoded = {
             identity: payload.identity,
             vectors: payload.inputs.map((input: string) =>
               input.toLowerCase().includes("graph") ? [0, 1] : [1, 0],
             ),
           };
+          if (probeBurst && payload.purpose === "query") {
+            maxActiveQueries = Math.max(++activeQueries, maxActiveQueries);
+            return new Promise<typeof encoded>((resolve) =>
+              setTimeout(() => {
+                activeQueries--;
+                resolve(encoded);
+              }, 40),
+            );
+          }
+          return encoded;
         }
         if (capability === "library.evidence.sources") {
           const scope = { libraryIds: [1], ...payload.scope };
@@ -7671,7 +7799,27 @@ describe("Synthesis Rust production client route", function () {
         ["RETRIEVAL2"],
       );
       const evidenceRef = evidence.results[0].evidenceRef;
+      probeBurst = true;
+      const burst = await Promise.all(
+        Array.from({ length: 6 }, (_, i) =>
+          harness.client.searchSemanticEvidence({
+            query: `semantic search ${i}`,
+            libraryIds: [1],
+          }),
+        ),
+      );
+      for (const response of burst) {
+        assert.equal(response.method, "vector");
+        assert.isNotEmpty(response.results);
+      }
+      probeBurst = false;
+      assert.equal(maxActiveQueries, 1);
       const beforeContext = embeddingCalls.length;
+      const expired = await harness.client.readSemanticContext({
+        evidenceRef: { ...evidenceRef, fragmentId: "expired-fragment" },
+      });
+      assert.include(expired.issues, "source_changed");
+      assert.equal(expired.coverage.vector, "limited");
       const expanded = await operation("client.readSemanticContext", {
         args: [{ evidenceRef }],
       });
