@@ -10,6 +10,10 @@ $env:ZOTERO_TEST_GREP = 'System E2E runner foundation|retrieval-semantic-search-
 npm run test:zotero:e2e
 ```
 
+Workbench 页面耗时从点击提交算到本次请求返回终态，以请求 ID 对应结果。页面重开后的首次查询记录为冷查询，模型本身可能已经驻留。
+
+慢回环用例运行期间，隔离 profile 临时把 Gecko 的 `network.http.network-changed.timeout` 设为 90 秒，用例结束后恢复。默认设置下，Windows 报告网络接口变化约 5 秒后，Gecko 可能同时取消等待响应的本机 RPC 和编码连接，即使 sidecar 健康检查一直返回 ready。真实 Ollama 验收沿用宿主网络设置。
+
 若要检查 mock 路径，保持 live 标志未设置并运行：
 
 ```powershell

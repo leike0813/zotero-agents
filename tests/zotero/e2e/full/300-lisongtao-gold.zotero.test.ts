@@ -25,6 +25,10 @@ import {
 import { resolveHostBridgeCliBinary } from "../../../../src/modules/hostBridge/cli/hostBridgeCliResolver";
 import { getHostBridgeToken } from "../../../../src/modules/hostBridge/server/hostBridgeAuth";
 import { getHostBridgeServerStatus } from "../../../../src/modules/hostBridge/server/hostBridgeServer";
+import {
+  getAcpWebSocketBridgeSnapshot,
+  shutdownAcpWebSocketBridgeService,
+} from "../../../../src/modules/acp/transport/acpWebSocketBridgeService";
 import { setDefaultSynthesisClientCompositionFactoryForTests } from "../../../../src/modules/synthesisClient/defaultClient";
 import {
   createBackendsPrefsDocument,
@@ -925,6 +929,7 @@ describe("Synthesis E2E gold library", function () {
           acp: { agentFamily: "codex" },
         };
         let acpConversationId = "";
+        const ownsAcpBridge = Zotero.isWin && !getAcpWebSocketBridgeSnapshot();
         let acpWorkspaceDir = "";
         let acpSearchBursts: Array<{
           size: number;
@@ -1113,6 +1118,7 @@ describe("Synthesis E2E gold library", function () {
             }
           } finally {
             try {
+              if (ownsAcpBridge) await shutdownAcpWebSocketBridgeService();
               if (acpWorkspaceDir) await removeRuntimePath(acpWorkspaceDir);
             } finally {
               try {
