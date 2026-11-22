@@ -7800,17 +7800,46 @@ describe("Synthesis Rust production client route", function () {
       );
       const evidenceRef = evidence.results[0].evidenceRef;
       probeBurst = true;
-      const burst = await Promise.all(
-        Array.from({ length: 6 }, (_, i) =>
-          harness.client.searchSemanticEvidence({
-            query: `semantic search ${i}`,
-            libraryIds: [1],
-          }),
-        ),
-      );
-      for (const response of burst) {
-        assert.equal(response.method, "vector");
-        assert.isNotEmpty(response.results);
+      for (const concurrency of [3, 6]) {
+        const librarySearches = await Promise.all(
+          Array.from({ length: concurrency }, () =>
+            harness.retrieval.explore({
+              operation: "search",
+              target: "paper",
+              query: "semantic search",
+            }),
+          ),
+        );
+        for (const result of librarySearches) {
+          assert.isNotEmpty(result.rows);
+          assert.isTrue(
+            result.rows.some(
+              (row) =>
+                row.itemRef?.key === "RETRIEVAL1" && row.score !== undefined,
+            ),
+          );
+        }
+        const evidenceSearches = await Promise.all(
+          Array.from({ length: concurrency }, (_, i) =>
+            harness.client.searchSemanticEvidence({
+              query: `semantic search ${i}`,
+              libraryIds: [1],
+            }),
+          ),
+        );
+        for (const response of evidenceSearches) {
+          assert.equal(response.method, "vector");
+          assert.equal(response.coverage.vector, "complete");
+          assert.isTrue(
+            response.results.some(
+              (result) =>
+                "itemRef" in result &&
+                result.itemRef.key === "RETRIEVAL1" &&
+                result.source.kind === "metadata" &&
+                result.content.length > 0,
+            ),
+          );
+        }
       }
       probeBurst = false;
       assert.equal(maxActiveQueries, 1);

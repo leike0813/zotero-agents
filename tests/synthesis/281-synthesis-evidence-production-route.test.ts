@@ -28,7 +28,10 @@ import {
   getZoteroHostEvidenceSourceControl,
   resolveZoteroHostCapabilityBroker,
 } from "../../src/modules/zoteroHostCapabilityBroker";
-import { createNativeSynthesisLibraryLexicalPort } from "../../src/modules/synthesisClient/nativeComposition";
+import {
+  createNativeSynthesisLibraryLexicalPort,
+  createNativeSynthesisLibraryRetrievalPort,
+} from "../../src/modules/synthesisClient/nativeComposition";
 import {
   recordSynthesisReverseHostErrorEvidence,
   recordSynthesisReverseHostRequestEvidence,
@@ -96,7 +99,7 @@ describe("Synthesis evidence production route", function () {
         fields: { title: `Other paper ${index + 1}` },
       });
     }
-    const title = "隧道衬砌台车定位方法";
+    const title = "隧道衬砌移动装备定位方法";
     const paper = await nativeFixtureMutations.item.create({
       itemType: "journalArticle",
       libraryID: 1,
@@ -155,7 +158,7 @@ describe("Synthesis evidence production route", function () {
             return {
               identity,
               vectors: (payload.inputs as string[]).map((text) =>
-                text.includes("台车")
+                text.includes("台车") || text.includes("移动装备")
                   ? [1, 0, 0]
                   : text.includes(analysisNeedle)
                     ? [0, 1, 0]
@@ -251,6 +254,86 @@ describe("Synthesis evidence production route", function () {
       });
       assert.isAbove(analysis.rows[0]?.start ?? 0, 262_144);
       assert.include(analysis.rows[0]?.preview || "", analysisNeedle);
+
+      const health = (await (
+        await fetch(`http://127.0.0.1:${runtime.port}/synthesis/v1/health`)
+      ).json()) as { serviceInstanceId: string };
+      const getReadyConnection = () => ({
+        discovery: {
+          host: "127.0.0.1" as const,
+          port: runtime.port,
+          profileId: "1".repeat(64),
+          serviceInstanceId: health.serviceInstanceId,
+        },
+        clientToken: SYNTHESIS_PRODUCTION_ROUTE_CLIENT_TOKEN,
+      });
+      const broker = createZoteroHostCapabilityBroker(undefined, {
+        lexicalPort: createNativeSynthesisLibraryLexicalPort({
+          getReadyConnection,
+        }),
+        retrievalPort: createNativeSynthesisLibraryRetrievalPort({
+          getReadyConnection,
+        }),
+      });
+      const mixedRequest = {
+        query: "台车",
+        libraryIds: [1],
+        itemRefs: [{ libraryId: 1, key: paper.key }],
+        sourceKinds: ["metadata" as const],
+      };
+      for (const concurrency of [3, 6]) {
+        const libraryResults = await Promise.all(
+          Array.from({ length: concurrency }, () =>
+            broker.library.searchItems(mixedRequest),
+          ),
+        );
+        for (const result of libraryResults) {
+          assert.include(
+            ["vector", "hybrid"],
+            result.method,
+            JSON.stringify({
+              coverage: result.coverage,
+              issues: result.issues.map((issue) => issue.code),
+            }),
+          );
+          assert.equal(result.status, "completed");
+          assert.equal(result.coverage.vector?.status, "complete");
+          assert.deepEqual(
+            result.results.map((entry) => entry.item.ref.key),
+            [paper.key],
+          );
+          assert.isTrue(
+            result.results.some((entry) =>
+              entry.matches.some((match) => match.source.kind === "metadata"),
+            ),
+          );
+        }
+        const evidenceResults = await Promise.all(
+          Array.from({ length: concurrency }, () =>
+            runtime.client.searchEvidence(mixedRequest),
+          ),
+        );
+        for (const result of evidenceResults) {
+          assert.include(["vector", "hybrid"], result.method);
+          assert.equal(result.coverage.vector?.status, "complete");
+          assert.equal(result.status, "completed");
+          assert.isTrue(
+            result.results.some(
+              (entry) =>
+                entry.itemRef.libraryId === 1 &&
+                entry.itemRef.key === paper.key,
+            ),
+          );
+          assert.isTrue(
+            result.results.some(
+              (entry) =>
+                entry.itemRef.key === paper.key &&
+                entry.source.kind === "metadata" &&
+                entry.content.length > 0,
+            ),
+          );
+        }
+      }
 
       addPaperDuringEncoding = true;
       const changed = await runtime.retrieval.rebuild({
