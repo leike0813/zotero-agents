@@ -1,5 +1,8 @@
-use serde_json::Value;
+use serde_json::{json, Value};
+use std::io::{Read, Write};
+use std::net::TcpListener;
 use std::process::Command;
+use std::thread;
 
 fn run(args: &[&str]) -> (i32, Value, String) {
     let output = Command::new(env!("CARGO_BIN_EXE_zotero-bridge"))
@@ -19,6 +22,36 @@ fn run_executable(args: &[&str]) -> (i32, Value, String) {
         .args(args)
         .env_remove("ZOTERO_BRIDGE_PROFILE")
         .env("ZOTERO_BRIDGE_ENDPOINT", "http://127.0.0.1:1/bridge/v2")
+        .env("ZOTERO_BRIDGE_TOKEN", "contract-test-token")
+        .output()
+        .expect("run zotero-bridge");
+    let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
+    let value = serde_json::from_str(stdout.trim()).expect("one JSON stdout envelope");
+    (output.status.code().unwrap_or(-1), value, stdout)
+}
+
+fn run_against_mock_bridge(args: &[&str], result: Value) -> (i32, Value, String) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind mock bridge");
+    let port = listener.local_addr().expect("mock bridge address").port();
+    let body = json!({ "status": "ok", "result": result }).to_string();
+    thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept mock bridge request");
+        let mut buffer = [0_u8; 4096];
+        let _ = stream.read(&mut buffer);
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let _ = stream.write_all(response.as_bytes());
+    });
+    let output = Command::new(env!("CARGO_BIN_EXE_zotero-bridge"))
+        .args(args)
+        .env_remove("ZOTERO_BRIDGE_PROFILE")
+        .env(
+            "ZOTERO_BRIDGE_ENDPOINT",
+            format!("http://127.0.0.1:{port}/bridge/v2"),
+        )
         .env("ZOTERO_BRIDGE_TOKEN", "contract-test-token")
         .output()
         .expect("run zotero-bridge");
@@ -523,4 +556,180 @@ fn schema_bearing_help_lists_examples_and_schema_direction() {
     assert!(stdout.contains("Examples:"));
     assert!(stdout.contains("--schema"));
     assert!(stdout.contains("shape-only"));
+}
+
+#[test]
+fn context_current_accepts_the_bare_library_and_collection_context() {
+    let (code, output, stdout) = run_against_mock_bridge(
+        &["context", "current"],
+        json!({
+            "target": "library",
+            "libraryIds": [1],
+            "selectedSources": [],
+            "libraryId": 1,
+            "selectionEmpty": true,
+            "currentCollection": {
+                "ref": { "libraryId": 1, "key": "ABCD1234" },
+                "name": "Example"
+            }
+        }),
+    );
+    assert_eq!(code, 0, "{stdout}");
+    assert_eq!(output["ok"], true);
+    assert_eq!(output["data"]["target"], "library");
+    assert_eq!(output["data"]["libraryId"], 1);
+    assert_eq!(output["data"]["selectionEmpty"], true);
+    assert_eq!(output["data"]["currentCollection"]["name"], "Example");
+    assert_eq!(
+        output["data"]["currentCollection"]["ref"]["key"],
+        "ABCD1234"
+    );
+}
+
+#[test]
+fn context_current_accepts_the_bare_reader_context() {
+    let (code, output, stdout) = run_against_mock_bridge(
+        &["context", "current"],
+        json!({
+            "target": "reader",
+            "libraryIds": [1],
+            "selectedSources": [],
+            "libraryId": 1,
+            "selectionEmpty": false,
+            "currentItem": {
+                "ref": { "libraryId": 1, "key": "ABCD1234" },
+                "title": "Example"
+            }
+        }),
+    );
+    assert_eq!(code, 0, "{stdout}");
+    assert_eq!(output["data"]["target"], "reader");
+    assert_eq!(output["data"]["currentItem"]["ref"]["key"], "ABCD1234");
+    assert_eq!(output["data"]["currentItem"]["title"], "Example");
+}
+
+#[test]
+fn context_selection_get_accepts_the_bare_page_with_continuation() {
+    let (code, output, stdout) = run_against_mock_bridge(
+        &["context", "selection", "get", "--limit", "1", "--cursor", "cursor-1"],
+        json!({
+            "items": [
+                {
+                    "ref": { "libraryId": 1, "key": "ABCD1234" },
+                    "itemType": "journalArticle",
+                    "title": "Example"
+                }
+            ],
+            "returned": 1,
+            "total": 3,
+            "hasMore": true,
+            "nextCursor": "cursor-2"
+        }),
+    );
+    assert_eq!(code, 0, "{stdout}");
+    assert_eq!(output["data"]["items"][0]["ref"]["key"], "ABCD1234");
+    assert_eq!(output["data"]["returned"], 1);
+    assert_eq!(output["data"]["total"], 3);
+    assert_eq!(output["data"]["hasMore"], true);
+    assert_eq!(output["data"]["nextCursor"], "cursor-2");
+}
+
+#[test]
+fn context_results_reject_malformed_payloads() {
+    let cases = [
+        (
+            vec!["context", "current"],
+            json!({
+                "target": "library",
+                "libraryIds": [1],
+                "selectedSources": [],
+                "selectionEmpty": "yes"
+            }),
+            "selectionEmpty",
+        ),
+        (
+            vec!["context", "current"],
+            json!({
+                "target": "library",
+                "libraryIds": [1],
+                "selectedSources": [],
+                "selectionEmpty": true,
+                "unexpected": 1
+            }),
+            "unexpected",
+        ),
+        (
+            vec!["context", "current"],
+            json!({
+                "target": "library",
+                "libraryIds": [1],
+                "selectedSources": [],
+                "selectionEmpty": true,
+                "currentCollection": { "name": "Example" }
+            }),
+            "ref",
+        ),
+        (
+            vec!["context", "selection", "get"],
+            json!({ "items": [], "returned": 0, "total": 0, "hasMore": false }),
+            "nextCursor",
+        ),
+    ];
+    for (args, result, field) in cases {
+        let (code, output, stdout) = run_against_mock_bridge(&args, result);
+        assert_ne!(code, 0, "{stdout}");
+        assert_eq!(output["ok"], false);
+        assert_eq!(
+            output["error"]["code"],
+            "command_result_contract_violation"
+        );
+        assert_eq!(output["error"]["category"], "protocol");
+        let violations = output["error"]["details"]["violations"]
+            .as_array()
+            .expect("bounded violations");
+        assert!(
+            violations.iter().any(|violation| {
+                violation["property"] == field
+                    || violation["path"]
+                        .as_str()
+                        .is_some_and(|path| path.ends_with(field))
+            }),
+            "{field}: {violations:?}"
+        );
+    }
+}
+
+#[test]
+fn context_commands_describe_the_bare_result_contract() {
+    let (code, output, _) = run(&["surface", "describe", "context current"]);
+    assert_eq!(code, 0);
+    let schema = &output["data"]["resultSchema"];
+    assert!(schema["properties"]["target"].is_object());
+    assert!(schema["properties"]["selectedSources"].is_object());
+    assert!(schema["properties"]["selectionEmpty"].is_object());
+    assert!(schema["properties"]["capability"].is_null());
+    assert!(schema["properties"]["approval"].is_null());
+    assert!(schema["properties"]["data"].is_null());
+    let current_collection = &schema["properties"]["currentCollection"];
+    assert!(current_collection["properties"]["ref"]["properties"]["key"].is_object());
+    assert!(current_collection["properties"]["name"].is_object());
+    let required = schema["required"].as_array().expect("required fields");
+    assert!(!required.iter().any(|field| field == "currentCollection"));
+    assert!(required.iter().any(|field| field == "target"));
+    assert!(required.iter().any(|field| field == "selectionEmpty"));
+
+    let (code, output, _) = run(&["surface", "describe", "context selection get"]);
+    assert_eq!(code, 0);
+    let descriptor = &output["data"];
+    assert_eq!(descriptor["outputBoundary"]["strategy"], "cursor");
+    assert_eq!(descriptor["outputBoundary"]["section"], "items");
+    let continuation = descriptor["outputBoundary"]["continuation"]
+        .as_array()
+        .expect("continuation fields");
+    for field in ["nextCursor", "hasMore", "returned", "total"] {
+        assert!(
+            continuation.iter().any(|value| value == field),
+            "{field}: {continuation:?}"
+        );
+    }
 }

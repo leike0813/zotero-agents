@@ -557,46 +557,64 @@
       "inputs": {},
       "resultSchema": {
         "type": "object",
+        "description": "Bare current-view DTO returned by GET /bridge/v2/context/current and published by the CLI as data.",
+        "additionalProperties": false,
         "properties": {
-          "capability": {
-            "type": "string"
+          "target": {
+            "type": "string",
+            "enum": ["library", "reader"]
           },
-          "approval": {
-            "type": "object"
-          },
-          "data": {
-            "type": "object",
-            "description": "Result data owned by context.get_current_view, GET /bridge/v2/context/current.",
-            "additionalProperties": true,
-            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
-            "properties": {
-              "target": {
-                "type": "string",
-                "enum": ["library", "reader"]
-              },
-              "libraryIds": {
-                "type": "array"
-              },
-              "selectedSources": {
-                "type": "array"
-              },
-              "libraryId": {
-                "type": "integer",
-                "minimum": 1
-              },
-              "selectionEmpty": {
-                "type": "boolean"
-              },
-              "currentItem": {
-                "type": ["object", "null"]
-              },
-              "currentCollection": {
-                "type": ["object", "null"]
-              }
+          "libraryIds": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 1
             }
+          },
+          "selectedSources": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "libraryId": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "selectionEmpty": {
+            "type": "boolean"
+          },
+          "currentItem": {
+            "type": ["object", "null"]
+          },
+          "currentCollection": {
+            "type": "object",
+            "description": "Optional current collection of the active library view; present only when exactly one collection is selected.",
+            "additionalProperties": false,
+            "properties": {
+              "ref": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "libraryId": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "key": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": ["libraryId", "key"]
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": ["ref", "name"]
           }
         },
-        "additionalProperties": false
+        "required": ["target", "libraryIds", "selectedSources", "selectionEmpty"]
       },
       "outputBoundary": {
         "strategy": "fixed"
@@ -654,52 +672,43 @@
       "inputs": {},
       "resultSchema": {
         "type": "object",
+        "description": "Bare selection page DTO returned by GET /bridge/v2/context/selection and published by the CLI as data.",
+        "additionalProperties": false,
         "properties": {
-          "capability": {
-            "type": "string"
-          },
-          "approval": {
-            "type": "object"
-          },
-          "data": {
-            "type": "object",
-            "description": "Result data owned by context.get_selected_items, GET /bridge/v2/context/selection.",
-            "additionalProperties": true,
-            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
-            "properties": {
-              "items": {
-                "type": "array"
-              },
-              "nextCursor": {
-                "type": ["string", "null"]
-              },
-              "hasMore": {
-                "type": "boolean"
-              },
-              "returned": {
-                "type": "integer",
-                "minimum": 0
-              },
-              "total": {
-                "type": "integer",
-                "minimum": 0
-              }
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object"
             }
+          },
+          "nextCursor": {
+            "type": ["string", "null"]
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "returned": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
           }
         },
-        "additionalProperties": false
+        "required": ["items", "nextCursor", "hasMore", "returned", "total"]
       },
       "outputBoundary": {
         "strategy": "cursor",
-        "section": "data.items",
+        "section": "items",
         "defaultLimit": 25,
         "maxLimit": 100,
         "cursorInput": "cursor",
         "continuation": [
-          "data.nextCursor",
-          "data.hasMore",
-          "data.returned",
-          "data.total"
+          "nextCursor",
+          "hasMore",
+          "returned",
+          "total"
         ]
       },
       "target": {

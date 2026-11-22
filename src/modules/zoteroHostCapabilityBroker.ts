@@ -18405,9 +18405,17 @@ export function createZoteroHostCapabilityBroker(
           throwIfWorkflowCallCanceled(control);
           if (
             error instanceof SynthesisClientError &&
-            error.code === "conflict"
-          )
+            (error.code === "conflict" ||
+              error.code === "internal" ||
+              error.code === "invalid_request" ||
+              error.details?.sidecarCode === "request_canceled")
+          ) {
             throw error;
+          }
+          const reason =
+            error instanceof SynthesisClientError
+              ? (error.details?.sidecarReason ?? error.details?.reason)
+              : undefined;
           assertSearchBudget();
           execution = await lexicalPort.execute(executionRequest, control);
           execution.result = {
@@ -18416,7 +18424,11 @@ export function createZoteroHostCapabilityBroker(
               ...execution.result.coverage,
               vector: {
                 status: "unavailable",
-                reason: "retrieval_unavailable",
+                reason:
+                  typeof reason === "string" &&
+                  /^[a-z][a-z0-9_]{0,63}$/.test(reason)
+                    ? reason
+                    : "retrieval_unavailable",
               },
             },
             issues: [
@@ -18437,6 +18449,12 @@ export function createZoteroHostCapabilityBroker(
       if (error instanceof ZoteroHostCapabilityError) throw error;
       if (error instanceof SynthesisClientError && error.code === "conflict")
         throw searchConflict();
+      if (
+        error instanceof SynthesisClientError &&
+        error.details?.sidecarCode === "request_canceled"
+      ) {
+        throw error;
+      }
       if (error instanceof SynthesisClientError && error.code === "unavailable")
         return emptySearch(request, true);
       throw capabilityError(

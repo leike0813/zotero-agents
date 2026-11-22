@@ -138,11 +138,18 @@ async function runBridgeWrite(text) {
   return JSON.stringify({ operationId: input.operationId, code, output, error });
 }
 
-async function runSemanticSearchTools(text) {
-  const payloadText = text.match(/^system-e2e:semantic-search (.+)$/m)?.[1];
-  if (!payloadText) throw new Error("semantic search payload is missing");
-  const payload = JSON.parse(payloadText);
-  const burstSize = Number(payload.size);
+function sameEvidenceRef(left, right) {
+  return Boolean(
+    left &&
+      right &&
+      left.publication === right.publication &&
+      left.identity === right.identity &&
+      left.fragmentId === right.fragmentId &&
+      left.sourceVersion === right.sourceVersion,
+  );
+}
+
+async function prepareSemanticMcp() {
   const profilePath = String(process.env.ZOTERO_BRIDGE_PROFILE || "").trim();
   const token = String(process.env.ZOTERO_BRIDGE_TOKEN || "").trim();
   if (!profilePath || !token) throw new Error("Host Bridge MCP credentials unavailable");
@@ -152,14 +159,14 @@ async function runSemanticSearchTools(text) {
   if (!endpoint || !/^https?:\/\//.test(endpoint)) {
     throw new Error("Host Bridge MCP endpoint is invalid");
   }
-  const mcpHeaders = {
+  const headers = {
     authorization: `Bearer ${token}`,
     accept: "application/json, text/event-stream",
     "content-type": "application/json",
   };
   const initializeResponse = await fetch(endpoint, {
     method: "POST",
-    headers: mcpHeaders,
+    headers,
     body: JSON.stringify({
       jsonrpc: "2.0",
       id: "acp-semantic-initialize",
@@ -188,9 +195,58 @@ async function runSemanticSearchTools(text) {
     error.serverName = serverName;
     throw error;
   }
+  return { endpoint, headers, profilePath, serverName };
+}
+
+async function callSemanticMcpTool(session, name, args, id) {
+  const response = await fetch(session.endpoint, {
+    method: "POST",
+    headers: session.headers,
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id,
+      method: "tools/call",
+      params: { name, arguments: args },
+    }),
+  });
+  const envelope = await response.json();
+  const toolResult = envelope.result;
+  const structured = toolResult?.structuredContent;
+  const data = structured?.data;
+  if (!response.ok || envelope.error || toolResult?.isError || !data) {
+    const error = new Error(`semantic MCP call failed: ${name}`);
+    error.failureKind = !response.ok
+      ? "http_error"
+      : envelope.error
+        ? "jsonrpc_error"
+        : toolResult?.isError
+          ? "tool_error"
+          : "missing_result";
+    error.httpStatus = response.status;
+    error.rpcCode = Number.isInteger(envelope.error?.code) ? envelope.error.code : undefined;
+    error.rpcErrorData = envelope.error?.data;
+    error.serverName = session.serverName;
+    error.toolError = toolResult?.isError
+      ? {
+          errorCode: structured?.error_code,
+          reasonCode: structured?.reasonCode,
+          reason: structured?.details?.reason,
+        }
+      : undefined;
+    throw error;
+  }
+  return { data, httpStatus: response.status, serverName: session.serverName };
+}
+
+async function runSemanticSearchTools(text) {
+  const payloadText = text.match(/^system-e2e:semantic-search (.+)$/m)?.[1];
+  if (!payloadText) throw new Error("semantic search payload is missing");
+  const payload = JSON.parse(payloadText);
+  const burstSize = Number(payload.size);
+  const session = await prepareSemanticMcp();
   const skillPath = String(payload.skillPath || "").trim();
   if (!skillPath) throw new Error("current injected Skill path is missing");
-  const resolvedSkillPath = resolve(dirname(profilePath), "..", skillPath);
+  const resolvedSkillPath = resolve(dirname(session.profilePath), "..", skillPath);
   const skillText = readFileSync(resolvedSkillPath, "utf8");
   const skill = {
     id: String(payload.skillId || ""),
@@ -210,48 +266,15 @@ async function runSemanticSearchTools(text) {
       status: "in_progress",
       rawInput: { tool: "synthesis.search_semantic_evidence" },
     });
-    const response = await fetch(endpoint, {
-      method: "POST",
-      headers: mcpHeaders,
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: `acp-semantic-${Date.now()}-${index}`,
-        method: "tools/call",
-        params: {
-          name: "synthesis.search_semantic_evidence",
-          arguments: payload.request,
-        },
-      }),
-    });
-    const envelope = await response.json();
-    const toolResult = envelope.result;
-    const structured = toolResult?.structuredContent;
-    const data = structured?.data;
-    if (!response.ok || envelope.error || toolResult?.isError || !data) {
-      const error = new Error("semantic MCP call failed");
-      error.failureKind = !response.ok
-        ? "http_error"
-        : envelope.error
-          ? "jsonrpc_error"
-          : toolResult?.isError
-            ? "tool_error"
-            : "missing_result";
-      error.httpStatus = response.status;
-      error.rpcCode = Number.isInteger(envelope.error?.code) ? envelope.error.code : undefined;
-      error.rpcErrorData = envelope.error?.data;
-      error.serverName = serverName;
-      error.toolError = toolResult?.isError
-        ? {
-            errorCode: structured?.error_code,
-            reasonCode: structured?.reasonCode,
-            reason: structured?.details?.reason,
-          }
-        : undefined;
-      throw error;
-    }
+    const { data, httpStatus } = await callSemanticMcpTool(
+      session,
+      "synthesis.search_semantic_evidence",
+      payload.request,
+      `acp-semantic-${Date.now()}-${index}`,
+    );
     const call = {
-      httpStatus: response.status,
-      serverName,
+      httpStatus,
+      serverName: session.serverName,
       status: data.status,
       method: data.method,
       coverage: data.coverage,
@@ -274,6 +297,73 @@ async function runSemanticSearchTools(text) {
   };
   if (evidencePath) {
     appendFileSync(evidencePath, `${JSON.stringify({ semanticSearch: result })}\n`, "utf8");
+  }
+  return JSON.stringify(result);
+}
+
+async function runSemanticContextTools(text) {
+  const payloadText = text.match(/^system-e2e:semantic-context (.+)$/m)?.[1];
+  if (!payloadText) throw new Error("semantic context payload is missing");
+  const payload = JSON.parse(payloadText);
+  const requests = Array.isArray(payload.requests) ? payload.requests : [];
+  if (requests.length === 0 || requests.length > 8) {
+    throw new Error("semantic context request count is invalid");
+  }
+  const session = await prepareSemanticMcp();
+  const contexts = [];
+  const startedAt = Date.now();
+  for (const [index, request] of requests.entries()) {
+    const toolCallId = `semantic-context-${Date.now()}-${index}`;
+    emitUpdate({
+      sessionUpdate: "tool_call",
+      toolCallId,
+      title: "Read semantic context",
+      kind: "other",
+      status: "in_progress",
+      rawInput: { tool: "synthesis.read_semantic_context" },
+    });
+    const callStartedAt = Date.now();
+    const { data, httpStatus } = await callSemanticMcpTool(
+      session,
+      "synthesis.read_semantic_context",
+      { evidenceRef: request.evidenceRef },
+      `acp-semantic-context-${Date.now()}-${index}`,
+    );
+    const matches = (data.results || []).filter((row) => row.match === true);
+    const match = matches[0];
+    const summary = {
+      sourceKind: String(request.sourceKind || ""),
+      matchCount: matches.length,
+      sourceKindMatches: match?.source?.kind === request.sourceKind,
+      contentMatches: match?.content === request.expectedContent,
+      refMatches: sameEvidenceRef(match?.evidenceRef, request.evidenceRef),
+      httpStatus,
+      evidenceRef: request.evidenceRef,
+      elapsedMs: Date.now() - callStartedAt,
+    };
+    if (
+      matches.length !== 1 ||
+      !summary.sourceKindMatches ||
+      !summary.contentMatches ||
+      !summary.refMatches
+    ) {
+      throw new Error("semantic context verification failed");
+    }
+    emitUpdate({
+      sessionUpdate: "tool_call_update",
+      toolCallId,
+      status: "completed",
+      result: JSON.stringify(summary),
+    });
+    contexts.push(summary);
+  }
+  const result = {
+    serverName: session.serverName,
+    elapsedMs: Date.now() - startedAt,
+    contexts,
+  };
+  if (evidencePath) {
+    appendFileSync(evidencePath, `${JSON.stringify({ semanticContext: result })}\n`, "utf8");
   }
   return JSON.stringify(result);
 }
@@ -385,6 +475,19 @@ async function handleRequest(request) {
       return;
     }
     const text = promptText(request.params);
+    if (text.includes("system-e2e:semantic-context ")) {
+      try {
+        emitAssistantText(await runSemanticContextTools(text));
+      } catch (error) {
+        emitAssistantText(safeSemanticSearchFailure(error));
+      }
+      writeMessage({
+        jsonrpc: "2.0",
+        id: request.id,
+        result: { stopReason: "end_turn" },
+      });
+      return;
+    }
     if (text.includes("system-e2e:semantic-search ")) {
       try {
         emitAssistantText(await runSemanticSearchTools(text));

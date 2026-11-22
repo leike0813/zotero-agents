@@ -420,7 +420,24 @@
           "libraryId": { "type": "integer", "minimum": 1 },
           "selectionEmpty": { "type": "boolean" },
           "currentItem": { "type": ["object", "null"] },
-          "currentCollection": { "type": ["object", "null"] }
+          "currentCollection": {
+            "type": "object",
+            "description": "Optional current collection of the active library view; present only when exactly one collection is selected.",
+            "additionalProperties": false,
+            "properties": {
+              "ref": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "libraryId": { "type": "integer", "minimum": 1 },
+                  "key": { "type": "string", "minLength": 1 }
+                },
+                "required": ["libraryId", "key"]
+              },
+              "name": { "type": "string" }
+            },
+            "required": ["ref", "name"]
+          }
         }
       },
       "effect": "read",

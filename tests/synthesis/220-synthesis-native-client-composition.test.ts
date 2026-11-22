@@ -3741,75 +3741,102 @@ describe("private Library retrieval failure audit", function () {
     assert.isBelow(deadlines[1]!, deadlines[0]!);
   });
 
-  it("rechecks and retries a generic production search within its original deadline", async function () {
-    let connection = readyConnection;
-    let healthChecks = 0;
-    let recoveries = 0;
-    const capabilities: string[] = [];
-    const deadlines: number[] = [];
-    const composition = createNativeSynthesisClientComposition({
-      getReadyConnection: () => connection,
-      observeHealth: async () => {
-        healthChecks += 1;
-        return { lifecycle: "unavailable", serviceInstanceId: "service" } as never;
-      },
-      recoverReadyConnection: async () => {
-        recoveries += 1;
-        connection = {
-          ...readyConnection,
-          discovery: {
-            ...readyConnection.discovery,
-            serviceInstanceId: "replacement",
-          },
-        };
-      },
-      rpcClient: {
-        async call(args) {
-          capabilities.push(args.capability);
-          deadlines.push(args.deadlineMs!);
-          if (capabilities.length === 1) {
-            await new Promise((resolve) => setTimeout(resolve, 20));
-            throw new SynthesisSidecarRpcError(
-              SYNTHESIS_PRODUCTION_RPC_TRANSPORT_ERRORS.unavailable,
-              { reason: "transport_unavailable" },
-            );
-          }
-          return args.rebuildResult({
-            results: [],
-            status: "completed",
-            method: "lexical",
-            coverage: {
-              kind: "library",
-              sources: {
-                metadata: { status: "complete", sourcesScanned: 0 },
-                fulltext: { status: "complete", sourcesScanned: 0 },
-                analysis: { status: "complete", sourcesScanned: 0 },
-              },
-            },
-            issues: [],
-            nextCursor: null,
-            hasMore: false,
-            total: 0,
-          });
+  for (const operation of ["searchEvidence", "readSemanticContext"] as const) {
+    it(`rechecks and retries ${operation} within its original deadline`, async function () {
+      let connection = readyConnection;
+      let healthChecks = 0;
+      let recoveries = 0;
+      const capabilities: string[] = [];
+      const deadlines: number[] = [];
+      const composition = createNativeSynthesisClientComposition({
+        getReadyConnection: () => connection,
+        observeHealth: async () => {
+          healthChecks += 1;
+          return {
+            lifecycle: "unavailable",
+            serviceInstanceId: "service",
+          } as never;
         },
-      },
-    });
+        recoverReadyConnection: async () => {
+          recoveries += 1;
+          connection = {
+            ...readyConnection,
+            discovery: {
+              ...readyConnection.discovery,
+              serviceInstanceId: "replacement",
+            },
+          };
+        },
+        rpcClient: {
+          async call(args) {
+            capabilities.push(args.capability);
+            deadlines.push(args.deadlineMs!);
+            if (capabilities.length === 1) {
+              await new Promise((resolve) => setTimeout(resolve, 20));
+              throw new SynthesisSidecarRpcError(
+                SYNTHESIS_PRODUCTION_RPC_TRANSPORT_ERRORS.unavailable,
+                { reason: "transport_unavailable" },
+              );
+            }
+            if (operation === "readSemanticContext") {
+              return args.rebuildResult({
+                results: [],
+                status: "unavailable",
+                method: null,
+                coverage: { vector: "limited" },
+                issues: ["basis_mismatch"],
+              });
+            }
+            return args.rebuildResult({
+              results: [],
+              status: "completed",
+              method: "lexical",
+              coverage: {
+                kind: "library",
+                sources: {
+                  metadata: { status: "complete", sourcesScanned: 0 },
+                  fulltext: { status: "complete", sourcesScanned: 0 },
+                  analysis: { status: "complete", sourcesScanned: 0 },
+                },
+              },
+              issues: [],
+              nextCursor: null,
+              hasMore: false,
+              total: 0,
+            });
+          },
+        },
+      });
 
-    const result = await composition.client.searchEvidence({
-      query: "search evidence",
-      libraryIds: [1],
-    });
+      const result =
+        operation === "searchEvidence"
+          ? await composition.client.searchEvidence({
+              query: "search evidence",
+              libraryIds: [1],
+            })
+          : await composition.client.readSemanticContext({
+              evidenceRef: {
+                publication: "publication:1",
+                identity: "1:ABCDEFGH",
+                fragmentId: "fragment:1",
+                sourceVersion: "source:1",
+              },
+            });
 
-    assert.equal(result.status, "completed");
-    assert.deepEqual(capabilities, [
-      "client.searchEvidence",
-      "client.searchEvidence",
-    ]);
-    assert.equal(healthChecks, 1);
-    assert.equal(recoveries, 1);
-    assert.isBelow(deadlines[1]!, deadlines[0]!);
-    await composition.dispose();
-  });
+      assert.equal(
+        result.status,
+        operation === "searchEvidence" ? "completed" : "unavailable",
+      );
+      assert.deepEqual(capabilities, [
+        `client.${operation}`,
+        `client.${operation}`,
+      ]);
+      assert.equal(healthChecks, 1);
+      assert.equal(recoveries, 1);
+      assert.isBelow(deadlines[1]!, deadlines[0]!);
+      await composition.dispose();
+    });
+  }
 
   it("does not immediately retry a full foreground queue", async function () {
     let calls = 0;

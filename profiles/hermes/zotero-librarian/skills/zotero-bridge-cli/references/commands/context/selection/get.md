@@ -72,42 +72,39 @@ This command has no separate field-mapping program. Its binding mode is executab
 ```json
 {
   "additionalProperties": false,
+  "description": "Bare selection page DTO returned by GET /bridge/v2/context/selection and published by the CLI as data.",
   "properties": {
-    "approval": {
-      "type": "object"
+    "hasMore": {
+      "type": "boolean"
     },
-    "capability": {
-      "type": "string"
-    },
-    "data": {
-      "additionalProperties": true,
-      "description": "Result data owned by context.get_selected_items, GET /bridge/v2/context/selection.",
-      "properties": {
-        "hasMore": {
-          "type": "boolean"
-        },
-        "items": {
-          "type": "array"
-        },
-        "nextCursor": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "returned": {
-          "minimum": 0,
-          "type": "integer"
-        },
-        "total": {
-          "minimum": 0,
-          "type": "integer"
-        }
+    "items": {
+      "items": {
+        "type": "object"
       },
-      "type": "object",
-      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+      "type": "array"
+    },
+    "nextCursor": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "returned": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "total": {
+      "minimum": 0,
+      "type": "integer"
     }
   },
+  "required": [
+    "items",
+    "nextCursor",
+    "hasMore",
+    "returned",
+    "total"
+  ],
   "type": "object"
 }
 ```
@@ -240,15 +237,15 @@ This closed descriptor is the machine-readable command contract returned by `sur
   ],
   "outputBoundary": {
     "continuation": [
-      "data.nextCursor",
-      "data.hasMore",
-      "data.returned",
-      "data.total"
+      "nextCursor",
+      "hasMore",
+      "returned",
+      "total"
     ],
     "cursorInput": "cursor",
     "defaultLimit": 25,
     "maxLimit": 100,
-    "section": "data.items",
+    "section": "items",
     "strategy": "cursor"
   },
   "pagination": "cursor",
@@ -269,42 +266,39 @@ This closed descriptor is the machine-readable command contract returned by `sur
   ],
   "resultSchema": {
     "additionalProperties": false,
+    "description": "Bare selection page DTO returned by GET /bridge/v2/context/selection and published by the CLI as data.",
     "properties": {
-      "approval": {
-        "type": "object"
+      "hasMore": {
+        "type": "boolean"
       },
-      "capability": {
-        "type": "string"
-      },
-      "data": {
-        "additionalProperties": true,
-        "description": "Result data owned by context.get_selected_items, GET /bridge/v2/context/selection.",
-        "properties": {
-          "hasMore": {
-            "type": "boolean"
-          },
-          "items": {
-            "type": "array"
-          },
-          "nextCursor": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "returned": {
-            "minimum": 0,
-            "type": "integer"
-          },
-          "total": {
-            "minimum": 0,
-            "type": "integer"
-          }
+      "items": {
+        "items": {
+          "type": "object"
         },
-        "type": "object",
-        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+        "type": "array"
+      },
+      "nextCursor": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "returned": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "total": {
+        "minimum": 0,
+        "type": "integer"
       }
     },
+    "required": [
+      "items",
+      "nextCursor",
+      "hasMore",
+      "returned",
+      "total"
+    ],
     "type": "object"
   },
   "summary": "Read one exact page of selected Zotero items",
@@ -332,7 +326,7 @@ Parameter failures are returned as one JSON error envelope. Inspect `error.code`
 ## Operational contract
 
 - Canonical argv path: `context` `selection` `get`.
-- Output boundary: `cursor`; governed details: {"continuation":["data.nextCursor","data.hasMore","data.returned","data.total"],"cursorInput":"cursor","defaultLimit":25,"maxLimit":100,"section":"data.items","strategy":"cursor"}.
+- Output boundary: `cursor`; governed details: {"continuation":["nextCursor","hasMore","returned","total"],"cursorInput":"cursor","defaultLimit":25,"maxLimit":100,"section":"items","strategy":"cursor"}.
 - Pagination: `cursor`.
 - Category: `read`; danger: `none`.
 - Structured binding mode: `none`.

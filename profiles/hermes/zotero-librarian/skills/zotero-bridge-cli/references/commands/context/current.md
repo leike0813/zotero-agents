@@ -60,54 +60,80 @@ This command has no separate field-mapping program. Its binding mode is executab
 ```json
 {
   "additionalProperties": false,
+  "description": "Bare current-view DTO returned by GET /bridge/v2/context/current and published by the CLI as data.",
   "properties": {
-    "approval": {
-      "type": "object"
-    },
-    "capability": {
-      "type": "string"
-    },
-    "data": {
-      "additionalProperties": true,
-      "description": "Result data owned by context.get_current_view, GET /bridge/v2/context/current.",
+    "currentCollection": {
+      "additionalProperties": false,
+      "description": "Optional current collection of the active library view; present only when exactly one collection is selected.",
       "properties": {
-        "currentCollection": {
-          "type": [
-            "object",
-            "null"
-          ]
-        },
-        "currentItem": {
-          "type": [
-            "object",
-            "null"
-          ]
-        },
-        "libraryId": {
-          "minimum": 1,
-          "type": "integer"
-        },
-        "libraryIds": {
-          "type": "array"
-        },
-        "selectedSources": {
-          "type": "array"
-        },
-        "selectionEmpty": {
-          "type": "boolean"
-        },
-        "target": {
-          "enum": [
-            "library",
-            "reader"
-          ],
+        "name": {
           "type": "string"
+        },
+        "ref": {
+          "additionalProperties": false,
+          "properties": {
+            "key": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "libraryId": {
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "libraryId",
+            "key"
+          ],
+          "type": "object"
         }
       },
-      "type": "object",
-      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+      "required": [
+        "ref",
+        "name"
+      ],
+      "type": "object"
+    },
+    "currentItem": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "libraryId": {
+      "minimum": 1,
+      "type": "integer"
+    },
+    "libraryIds": {
+      "items": {
+        "minimum": 1,
+        "type": "integer"
+      },
+      "type": "array"
+    },
+    "selectedSources": {
+      "items": {
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "selectionEmpty": {
+      "type": "boolean"
+    },
+    "target": {
+      "enum": [
+        "library",
+        "reader"
+      ],
+      "type": "string"
     }
   },
+  "required": [
+    "target",
+    "libraryIds",
+    "selectedSources",
+    "selectionEmpty"
+  ],
   "type": "object"
 }
 ```
@@ -181,54 +207,80 @@ This closed descriptor is the machine-readable command contract returned by `sur
   ],
   "resultSchema": {
     "additionalProperties": false,
+    "description": "Bare current-view DTO returned by GET /bridge/v2/context/current and published by the CLI as data.",
     "properties": {
-      "approval": {
-        "type": "object"
-      },
-      "capability": {
-        "type": "string"
-      },
-      "data": {
-        "additionalProperties": true,
-        "description": "Result data owned by context.get_current_view, GET /bridge/v2/context/current.",
+      "currentCollection": {
+        "additionalProperties": false,
+        "description": "Optional current collection of the active library view; present only when exactly one collection is selected.",
         "properties": {
-          "currentCollection": {
-            "type": [
-              "object",
-              "null"
-            ]
-          },
-          "currentItem": {
-            "type": [
-              "object",
-              "null"
-            ]
-          },
-          "libraryId": {
-            "minimum": 1,
-            "type": "integer"
-          },
-          "libraryIds": {
-            "type": "array"
-          },
-          "selectedSources": {
-            "type": "array"
-          },
-          "selectionEmpty": {
-            "type": "boolean"
-          },
-          "target": {
-            "enum": [
-              "library",
-              "reader"
-            ],
+          "name": {
             "type": "string"
+          },
+          "ref": {
+            "additionalProperties": false,
+            "properties": {
+              "key": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "libraryId": {
+                "minimum": 1,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "libraryId",
+              "key"
+            ],
+            "type": "object"
           }
         },
-        "type": "object",
-        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+        "required": [
+          "ref",
+          "name"
+        ],
+        "type": "object"
+      },
+      "currentItem": {
+        "type": [
+          "object",
+          "null"
+        ]
+      },
+      "libraryId": {
+        "minimum": 1,
+        "type": "integer"
+      },
+      "libraryIds": {
+        "items": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "type": "array"
+      },
+      "selectedSources": {
+        "items": {
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "selectionEmpty": {
+        "type": "boolean"
+      },
+      "target": {
+        "enum": [
+          "library",
+          "reader"
+        ],
+        "type": "string"
       }
     },
+    "required": [
+      "target",
+      "libraryIds",
+      "selectedSources",
+      "selectionEmpty"
+    ],
     "type": "object"
   },
   "summary": "Read current Zotero UI context",

@@ -1,7 +1,7 @@
 {
   "schema": "host-bridge.review-mirror.v2",
-  "generatedAt": "2026-11-19T01:10:16.841Z",
-  "sourceCommit": "60a6358a75c1d053156affc3a1bfafb23e95b382",
+  "generatedAt": "2026-11-22T10:08:30.336Z",
+  "sourceCommit": "8a6c8becbe7c80795e52ec72f09b0cfe1b8f1625",
   "surfaceDefinitions": {
     "path": "contracts/host-bridge/surfaces.json",
     "schema": "host-bridge.surface-definitions.v1",
@@ -15,7 +15,7 @@
     "sourceCommit": "60a6358a75c1d053156affc3a1bfafb23e95b382"
   },
   "latestCompleteRelease": null,
-  "fileCount": 165,
+  "fileCount": 167,
   "surfaces": [
     {
       "id": "zotero-bridge-cli",
@@ -29,9 +29,9 @@
         "zotero-bridge-cli"
       ],
       "inheritedSkills": [],
-      "ownedFileCount": 146,
+      "ownedFileCount": 148,
       "inheritedFileCount": 0,
-      "effectiveFileCount": 146
+      "effectiveFileCount": 148
     },
     {
       "id": "zotero-library-agent",
@@ -54,8 +54,8 @@
         "zotero-bridge-cli"
       ],
       "ownedFileCount": 13,
-      "inheritedFileCount": 146,
-      "effectiveFileCount": 159
+      "inheritedFileCount": 148,
+      "effectiveFileCount": 161
     },
     {
       "id": "zotero-librarian",
@@ -80,8 +80,8 @@
         "zotero-library-curation"
       ],
       "ownedFileCount": 6,
-      "inheritedFileCount": 159,
-      "effectiveFileCount": 165
+      "inheritedFileCount": 161,
+      "effectiveFileCount": 167
     }
   ],
   "files": [
@@ -91,10 +91,10 @@
       "relativePath": "references/command-catalog.md",
       "artifactPath": "zotero-bridge-cli/skills/zotero-bridge-cli/references/command-catalog.md",
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/command-catalog.md",
-      "sourceSha256": "d1bf2f71e77cb6aa7e89d95ab2eefb906cca9c5408630b1ce0157a6bd386af38",
-      "protectedStructureSha256": "27c3004be6a51dc1e0a150bc821258da0315e4d25d737339b470a121ba599089",
-      "translatedSha256": "75f497206abacd43d804fd2731fbaafa1d76afaf476f74d18385faab9650d11a",
-      "translatedStructureSha256": "27c3004be6a51dc1e0a150bc821258da0315e4d25d737339b470a121ba599089"
+      "sourceSha256": "cacb86ec12da0a5549a33b0eb5fdac7b458f6147d21d2c9f83d9d6654765503f",
+      "protectedStructureSha256": "0e49bc27e93dce347db9231d7670e788dfcf27c61480f373483a717bad963be3",
+      "translatedSha256": "3f21b9bf06e43c7bfd0316e815328d2f764cb68e7d399fc938b080c04f86967e",
+      "translatedStructureSha256": "0e49bc27e93dce347db9231d7670e788dfcf27c61480f373483a717bad963be3"
     },
     {
       "ownerSurfaceId": "zotero-bridge-cli",
@@ -278,10 +278,10 @@
       "relativePath": "references/commands/context/current.md",
       "artifactPath": "zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/context/current.md",
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/context/current.md",
-      "sourceSha256": "b3f94a155f6ddf45773b8d2d9fb85cbb166a80752d9efd78720f7fc756b9b4bf",
-      "protectedStructureSha256": "53ae868e23e5488d582cee381d1b0815cb7e53906d85c154ef8faf7bdb6691ba",
-      "translatedSha256": "41f88bd676224e0356492dc4b62e8afa46cdc1f8271149edc562a042108dc4cb",
-      "translatedStructureSha256": "53ae868e23e5488d582cee381d1b0815cb7e53906d85c154ef8faf7bdb6691ba"
+      "sourceSha256": "e82db7913b549a3e29d632dc3e03a76f1c7271533860006abe371f2cb67a8c13",
+      "protectedStructureSha256": "24b0c647e1fa4a854127a985069a59730e1937d7ee0f14db18b75a2375139aa5",
+      "translatedSha256": "5b3e4f797c772d911fa041d989793756f7def541ef852aa275145e5b6d2ef1b2",
+      "translatedStructureSha256": "24b0c647e1fa4a854127a985069a59730e1937d7ee0f14db18b75a2375139aa5"
     },
     {
       "ownerSurfaceId": "zotero-bridge-cli",
@@ -289,10 +289,10 @@
       "relativePath": "references/commands/context/selection/get.md",
       "artifactPath": "zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/context/selection/get.md",
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/context/selection/get.md",
-      "sourceSha256": "09d7dc2b904409556cb7b3b6fb02ba5cfabe6ea65a5d02dbc4b53ecfcf8561c8",
-      "protectedStructureSha256": "8073fd1121c252f79745e7c82a6df1ac1e09e6d58ea5ebfee8415b90227d0c1f",
-      "translatedSha256": "b1084c53a769d16ce00bcdbc99bbd72d10f116990b47157133f1c42f7e02f58c",
-      "translatedStructureSha256": "8073fd1121c252f79745e7c82a6df1ac1e09e6d58ea5ebfee8415b90227d0c1f"
+      "sourceSha256": "09cb3546eacd57165a5ad65220a87b6c5ab8473a6f11477171298029e89e36bf",
+      "protectedStructureSha256": "c8a4de43b40697f1e5e6440a7da00cb3be432eaf4e658c737d1f9d81e1d593ff",
+      "translatedSha256": "6ac7b67b141c7001358e1b06691ddaecdb90a6856391cdf608d356f99fe52532",
+      "translatedStructureSha256": "c8a4de43b40697f1e5e6440a7da00cb3be432eaf4e658c737d1f9d81e1d593ff"
     },
     {
       "ownerSurfaceId": "zotero-bridge-cli",
@@ -1180,10 +1180,10 @@
       "relativePath": "references/commands/synthesis/cache/status.md",
       "artifactPath": "zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/cache/status.md",
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/cache/status.md",
-      "sourceSha256": "28a262c376910c9ec2cddf2793496e38ef4313264e7a3220e31bab9b49c6a08c",
-      "protectedStructureSha256": "4012b9880389808e3a9e2ad2547705684bf1959ca3b29656adfdf4d56b692596",
-      "translatedSha256": "1a660c02504db404ef637040d953026b7d3323211f46f74ea623c6899976c9ef",
-      "translatedStructureSha256": "4012b9880389808e3a9e2ad2547705684bf1959ca3b29656adfdf4d56b692596"
+      "sourceSha256": "1d60ff9f15c74a0c00b083f1afbf72f6e5a96cfd1dcfa038af278b638184089a",
+      "protectedStructureSha256": "a5c0dbca6da7222305de990883d11f317f36bfdfcea0355f50ecc4f9e0aff7f3",
+      "translatedSha256": "a616e849499cb9947751a2aa645575581800efad24942de0965d0bfb0c482af2",
+      "translatedStructureSha256": "a5c0dbca6da7222305de990883d11f317f36bfdfcea0355f50ecc4f9e0aff7f3"
     },
     {
       "ownerSurfaceId": "zotero-bridge-cli",
@@ -1199,6 +1199,17 @@
     {
       "ownerSurfaceId": "zotero-bridge-cli",
       "skillId": "zotero-bridge-cli",
+      "relativePath": "references/commands/synthesis/evidence/context.md",
+      "artifactPath": "zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/evidence/context.md",
+      "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/evidence/context.md",
+      "sourceSha256": "5456c45e3e65ff306a6ec732247f601b31683753b0b2510b6a528cf4e69ddc90",
+      "protectedStructureSha256": "5c9c423a3e6ad6ce70bb51a2010c9bd38b1762a4aecad439a6090382c64b8f73",
+      "translatedSha256": "b2230af2220b0098e2215875424b803202d4afb2eb104331049619f05c6e796b",
+      "translatedStructureSha256": "5c9c423a3e6ad6ce70bb51a2010c9bd38b1762a4aecad439a6090382c64b8f73"
+    },
+    {
+      "ownerSurfaceId": "zotero-bridge-cli",
+      "skillId": "zotero-bridge-cli",
       "relativePath": "references/commands/synthesis/evidence/search.md",
       "artifactPath": "zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/evidence/search.md",
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/evidence/search.md",
@@ -1206,6 +1217,17 @@
       "protectedStructureSha256": "65755cf8e4e5ad9ddcca6fccdb87659dcb115d0d669648d536cbd817bad461ba",
       "translatedSha256": "8275ddd38a8e088d603f4da6d25efcf2f216a5f87bd7b7be3c05da93cee75abf",
       "translatedStructureSha256": "65755cf8e4e5ad9ddcca6fccdb87659dcb115d0d669648d536cbd817bad461ba"
+    },
+    {
+      "ownerSurfaceId": "zotero-bridge-cli",
+      "skillId": "zotero-bridge-cli",
+      "relativePath": "references/commands/synthesis/evidence/semantic-search.md",
+      "artifactPath": "zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/evidence/semantic-search.md",
+      "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/evidence/semantic-search.md",
+      "sourceSha256": "39899dc6fb252133d3237396c49c574048c6dba77a4146747b2f6a4471815fc7",
+      "protectedStructureSha256": "35e789fd4f53f7a5415ac63f15d9d5d7051da750bf7cda7bf8597025a59e1f30",
+      "translatedSha256": "4de30f76c374b107829d84e011c11f1e77c429a96a03e7040eebac5555f45b05",
+      "translatedStructureSha256": "35e789fd4f53f7a5415ac63f15d9d5d7051da750bf7cda7bf8597025a59e1f30"
     },
     {
       "ownerSurfaceId": "zotero-bridge-cli",
@@ -1257,10 +1279,10 @@
       "relativePath": "references/commands/synthesis/graph/query-cluster.md",
       "artifactPath": "zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/graph/query-cluster.md",
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/graph/query-cluster.md",
-      "sourceSha256": "872c0a97ea835a512577edd04f5d217f1fb4eea3c453c9a7ad6c4409ab0f2a96",
-      "protectedStructureSha256": "88895510fd035c9c7dcdff2102fccd2fb3f5c6bcc70a3341ee0a5e5fc4b71060",
-      "translatedSha256": "2962ca61ed558d2afc63d5ad6f00b476b8c8c35bd70f364109f8fd7f4031a50c",
-      "translatedStructureSha256": "88895510fd035c9c7dcdff2102fccd2fb3f5c6bcc70a3341ee0a5e5fc4b71060"
+      "sourceSha256": "a88dce34d5fcad32b934c8d3f4bd0f40ff4cc06290112260c12952ad5fb88071",
+      "protectedStructureSha256": "a0b1d59ee34f69f59fe9aa85a29a0160a91bb15391d43d25a45247bd8c074d57",
+      "translatedSha256": "1c632587db11e1611688814b54306f2a46860d91f8d65509be874d4df850de36",
+      "translatedStructureSha256": "a0b1d59ee34f69f59fe9aa85a29a0160a91bb15391d43d25a45247bd8c074d57"
     },
     {
       "ownerSurfaceId": "zotero-bridge-cli",
@@ -1334,10 +1356,10 @@
       "relativePath": "references/commands/synthesis/index/status.md",
       "artifactPath": "zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/index/status.md",
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/index/status.md",
-      "sourceSha256": "519679007941d0452e007326fface167b9ff5339c8dcc2627aff34f076791b8b",
-      "protectedStructureSha256": "4a89662f83135de82e83f29932f5d12b4e090a2d48ad9fa05acba9d5b0ce2e84",
-      "translatedSha256": "564a3437806200d1f187132f48cf1c1a5f8b553cfb85e04e0f1aa237db4686c8",
-      "translatedStructureSha256": "4a89662f83135de82e83f29932f5d12b4e090a2d48ad9fa05acba9d5b0ce2e84"
+      "sourceSha256": "2fbd5987ad91ed392c35402ace84368c52f36f1ff906e4b2d6dd170702c6dcd4",
+      "protectedStructureSha256": "ee2ff15db856c559edf6e0d5e63274e1712ffdcf0fef3b74e2bf4fd59bdad594",
+      "translatedSha256": "1903ec9e682d91d89d3953eda09da9854a35d81328d2eff29e2e9f93a3f365e0",
+      "translatedStructureSha256": "ee2ff15db856c559edf6e0d5e63274e1712ffdcf0fef3b74e2bf4fd59bdad594"
     },
     {
       "ownerSurfaceId": "zotero-bridge-cli",
@@ -1895,9 +1917,9 @@
       "relativePath": "SKILL.md",
       "artifactPath": "zotero-library-agent/skills/zotero-research-synthesis/SKILL.md",
       "sourcePath": "addon/content/host-bridge-skills/zotero-research-synthesis/SKILL.md",
-      "sourceSha256": "dd35df6650ac5dfc1f312313e82fa85795eecab2fb1259c94e6dee81edf3ca10",
+      "sourceSha256": "80856d3847f4bb62b41f0384394bc3cfc59691c8490b2b2a683aaa1b42ae4136",
       "protectedStructureSha256": "c88e56d5e3fd828a9db6b5fbf44ae6224fa2f54f175ea1b852e4b4de7a11216a",
-      "translatedSha256": "210d1feb93b65ddb16debd4716734d9a741fb2ca220032ee97b078601723f618",
+      "translatedSha256": "0c94924d41484e86368a62f4e978190f5354436870400ab0ebc1f3709fca385f",
       "translatedStructureSha256": "c88e56d5e3fd828a9db6b5fbf44ae6224fa2f54f175ea1b852e4b4de7a11216a"
     }
   ]

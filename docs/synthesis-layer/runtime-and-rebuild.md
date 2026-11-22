@@ -494,7 +494,19 @@ scoring and source verification have independent budgets of 90, 30 and
 30 seconds within a five-minute foreground limit, including admission. Transport
 grace and result projection use the remaining time. Mixed searches run bounded lexical work alongside
 vector ranking. A timed-out phase preserves verified hits and reports reduced
-coverage. Semantic context reads use the source verification budget.
+coverage. Semantic context resolves the referenced passage and its immediate
+neighbors within the same source and published version. It uses the source
+verification budget and can retry a transient transport failure once within
+the same request deadline. It can run while another query is waiting for an
+embedding.
+
+Vector scoring reads only the ready groups in the requested scope. A mixed
+search can exhaust its lexical scan budget while vector coverage remains
+complete. When a transport failure leads Library search to return lexical
+results, the vector coverage includes the classified failure reason when
+available. A stale retrieval group reports `source_changed`. Result caps and
+the state of the citation graph and reference-sidecar caches are tracked
+independently.
 
 The Broker validates indexed matches using their current source version and
 UTF-16 range. Long sources use bounded range reads, including on continuation.

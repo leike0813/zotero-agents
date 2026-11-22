@@ -424,7 +424,13 @@ export function createNativeSynthesisLibraryRetrievalPort(options?: {
           connection = getReadyConnection();
         }
         if (!connection) {
-          const status = observeHealth ? await observeHealth() : undefined;
+          const status = observeHealth
+            ? await waitForBoundedPromise(observeHealth(), {
+                signal: control?.signal,
+                timeoutMs: Math.max(0, deadlineAtMs - Date.now()),
+                phase: "synthesis-search-health-recheck",
+              })
+            : undefined;
           throw serviceNotReadyError(status);
         }
         rpcClient ??= createSynthesisSidecarRpcClient({
@@ -436,7 +442,9 @@ export function createNativeSynthesisLibraryRetrievalPort(options?: {
         };
         for (;;) {
           const remainingMs = deadlineAtMs - Date.now();
-          if (remainingMs <= 0) throw unavailable("operation_timeout");
+          if (remainingMs <= 0) {
+            throw new SynthesisSidecarRpcError("request_timeout");
+          }
           try {
             result = await rpcClient.call({
               connection: rpcConnection(connection),
@@ -804,6 +812,13 @@ function serviceNotReadyError(
 }
 
 function normalizeRpcError(error: unknown) {
+  if (error instanceof BoundedWaitError) {
+    return normalizeSynthesisSidecarRpcError(
+      new SynthesisSidecarRpcError(
+        error.kind === "canceled" ? "request_canceled" : "request_timeout",
+      ),
+    );
+  }
   if (error instanceof SynthesisClientError) {
     return error;
   }
@@ -990,7 +1005,8 @@ function createNativePort(args: {
                   normalized.details?.retryable !== true ||
                   normalized.details?.sidecarReason !==
                     "transport_unavailable" ||
-                  !isSynthesisSidecarForegroundSearch(operation, payload)
+                  (operation !== "client.readSemanticContext" &&
+                    !isSynthesisSidecarForegroundSearch(operation, payload))
                 ) {
                   throw normalized;
                 }

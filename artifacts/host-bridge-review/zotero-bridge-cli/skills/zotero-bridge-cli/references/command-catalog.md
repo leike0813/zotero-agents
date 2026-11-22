@@ -357,7 +357,9 @@
 | `zotero-bridge synthesis cache refresh-reference-sidecar` | 启动一次 reference-sidecar 刷新 | [打开卡片](commands/synthesis/cache/refresh-reference-sidecar.md) |
 | `zotero-bridge synthesis cache status` | 读取 Synthesis cache 维护状态 | [打开卡片](commands/synthesis/cache/status.md) |
 | `zotero-bridge synthesis concept query` | 查询 Synthesis Concept KB 候选 | [打开卡片](commands/synthesis/concept/query.md) |
+| `zotero-bridge synthesis evidence context` | 读回已核验语义命中的相邻片段 | [打开卡片](commands/synthesis/evidence/context.md) |
 | `zotero-bridge synthesis evidence search` | 搜索元数据、全文与分析证据 | [打开卡片](commands/synthesis/evidence/search.md) |
+| `zotero-bridge synthesis evidence semantic-search` | 从发布的向量索引查找可引用的语义证据 | [打开卡片](commands/synthesis/evidence/semantic-search.md) |
 | `zotero-bridge synthesis graph get-layout` | 读取持久化的引文图布局坐标 | [打开卡片](commands/synthesis/graph/get-layout.md) |
 | `zotero-bridge synthesis graph get-metrics` | 读取所选论文的引用图指标 | [打开卡片](commands/synthesis/graph/get-metrics.md) |
 | `zotero-bridge synthesis graph get-slice` | 读取一个 Synthesis 引用图切片 | [打开卡片](commands/synthesis/graph/get-slice.md) |
@@ -429,11 +431,13 @@
 
 使用 `zotero-bridge surface describe 'synthesis evidence search'` 查看实时输入/输出 schema 与边界，然后再构造请求。`--query` 接收 JSON 请求容器，其中 `query` 属性是纯文本查询；该参数不接受原始文本。规范目标为 `synthesis.search_evidence`；命令只读，无需 Zotero UI approval。当前结果封装与续查字段以返回的 descriptor 为准。
 
+要用向量检索查找片段，请向 `synthesis evidence semantic-search` 提交 JSON 查询。要回读原文和最近的前后片段，请把返回的完整 `evidenceRef` 原样放进 `--query` 的 JSON 对象，再调用 `synthesis evidence context`。两个命令的 `coverage.vector` 都是字符串（`complete`、`limited` 或 `unavailable`），`issues` 是字符串代码数组。引用前先核对带 `match: true` 的目标行。引用失效时，重新执行语义检索。文库和 Topic 的混合检索使用含 `status` 和可选 `reason` 的对象表示向量覆盖。
+
 ## 库条目发现
 
 使用 `zotero-bridge surface describe 'library item search'` 查看当前请求、结果与 cursor 约定。此命令对符合条件的 Zotero 条目证据进行相关性排序以辅助发现；若用户需要完整清单，应使用确定性的列表/筛选读取。请将必填的非空搜索文本放入 `query` 属性；该属性位于 `--query` 所提供的 JSON 容器中。请求可选接收 `libraryIds`、`itemRefs`、`collectionRef`、`tag`、`itemType` 与 `sourceKinds`；提供的范围与筛选条件会取交集，因此每增加一项约束，候选范围都会收窄。显式空范围不表示“所有 libraries”。
 
-请求默认 `limit: 25`、`maxResults: 100`；`limit` 不得大于 `maxResults`，`limit` 上限为 100，`maxResults` 上限为 500。搜索文本最多 4096 个 UTF-16 代码单元。每页返回规范的 `results`、`status`、`method`、`coverage`、`issues`、`nextCursor`、`hasMore` 与 `total` 字段。判断结果是否完整前先查看 coverage 和 issues：`limited` 或来源覆盖不可用会限制正向或否定结论所能支持的范围。每条结果包含一个条目及其匹配来源证据；将匹配项作为发现线索，若要提出需要更多细节的主张，应读取实时条目或已交付的来源字节。
+请求默认 `limit: 25`、`maxResults: 100`。`limit` 不得大于 `maxResults`，`limit` 上限为 100，`maxResults` 上限为 500。搜索文本最多 4096 个 UTF-16 代码单元。每页返回 `results`、`status`、`method`、`coverage`、`issues`、`nextCursor`、`hasMore` 和 `total`。`method` 报告实际执行的方法（`lexical`、`vector` 或 `hybrid`）。`coverage` 为 `{ kind: "library", sources: { metadata, fulltext, analysis } }`，各类来源都有 `status` 和 `sourcesScanned`，可选的 `vector` 对象报告语义检索的覆盖程度。判断结果是否完整前先查看覆盖和问题。`limited` 或来源不可用都限制结果可支持的结论。`results` 每项都是一个 `{ item, matches }` 对。`item` 是常规条目摘要。`matches` 收录该条目的命中证据，每条含 `source`、`sourceVersion`、`location`、`matchedTerms` 和 `phraseMatch`。用命中发现资料，若结论需要更多细节，请读取当前条目或已交付的来源内容。
 
 续查时，将返回的不透明 `nextCursor` 原样放入同一 `--query` JSON 容器，并保持原 query、scope、source kinds 与边界不变。不要自行生成、解码或修复 cursor。如果服务返回 stale 或 basis-mismatch cursor 错误，保留该结构化错误，不要重试或悄悄使用被拒绝的 cursor 重跑；只有确实要执行新查询时才开始新的搜索。若用户需要确定性清单，改用 `library items list` 自己的筛选约定，并完成其独立 cursor 序列后再声称已穷尽。
 
@@ -441,9 +445,11 @@
 
 使用 `zotero-bridge surface describe 'synthesis topic search'` 查看当前请求、结果与 cursor 约定，然后再构造请求。此命令按 Topic 规范结构内容中的文本查找 Topic；已知清单应使用 `synthesis topic list`，读取已选 Topic 则使用 `synthesis topic get-context`。请将必填的非空搜索文本放入 `query` 属性；该属性位于 `--query` 所提供的 JSON 容器中。请求可选包含 `sections` 列表，列出规范 Topic section 名称，例如 `summary`、`claims` 或 `comparison_matrix`；未知 section 会在搜索开始前被拒绝，省略列表则搜索所有规范 section。规范目标为 `topics.search`；命令只读，无需 Zotero UI approval。
 
-请求默认 `limit: 25`、`maxResults: 100`；`limit` 不得大于 `maxResults`，`limit` 上限为 100，`maxResults` 上限为 500。搜索文本最多 4096 个 UTF-16 代码单元。每页返回规范的 `results`、`status`、`method`、`coverage`、`issues`、`nextCursor`、`hasMore` 与 `total` 字段；`method` 为 `lexical`，`coverage` 按规范 section 报告。每条结果对应一个 Topic，包含其 `topicId`、匹配的 `matchedSections` 与简明的 `matchReasons`；结果没有相关性分数，也不包含本地路径。`matchedSections` 只说明在哪些位置发现文本，不能证明 Topic 的结论。将结果视为完整前先检查 coverage 和 issues：`limited` 或 `null` 的 `total` 表示扫描不完整或结果集达到上限，因此不能据此确定完整匹配清单。选定 Topic 后，通过 `synthesis topic get-context` 读取，再提出超出搜索结果细节范围的主张。
+请求默认 `limit: 25`、`maxResults: 100`。`limit` 不得大于 `maxResults`，`limit` 上限为 100，`maxResults` 上限为 500。搜索文本最多 4096 个 UTF-16 代码单元。每页返回 `results`、`status`、`method`、`coverage`、`issues`、`nextCursor`、`hasMore` 和 `total`。`method` 报告实际执行的方法。仅匹配词法时为 `lexical`，所有命中来自语义检索时为 `vector`，融合两类候选时为 `hybrid`。`coverage` 按规范章节报告，也可包含描述整轮语义检索的 `vector` 对象 `{ status, reason? }`。每项结果对应一个 Topic，包含 `topicId`、匹配的 `matchedSections` 和简要的 `matchReasons`。`query_terms` 表示查询词匹配，`exact_phrase` 表示规范化短语匹配，`semantic` 表示向量检索对该命中有贡献。结果没有相关性分数或本地路径。`matchedSections` 说明找到文本的位置，引用论断仍需回读章节。结合 `coverage.vector` 和 `matchReasons` 解释结果。`coverage.vector` 描述整轮覆盖。单条结果的 `semantic` 表示该 Topic 经向量检索召回，或与词法命中合并。整轮向量覆盖完整时，也可能只有部分结果含 `semantic`。退回词法时，`coverage.vector.status` 可以是 `unavailable` 并附有限的 `reason`，每项仍可能只有 `query_terms` 或 `exact_phrase`。判断结果是否完整前先查看覆盖和问题。`limited` 或 `null` 的 `total` 表示扫描未完或达到结果上限。选定 Topic 后，用 `synthesis topic get-context` 读取详情，再做需要更多依据的判断。
 
 续查时，将返回的不透明 `nextCursor` 原样放入同一 `--query` JSON 容器，并保持原 query、sections 与每轮 `maxResults` 上限不变。不要自行生成、解码或修复 cursor。每轮搜索绑定其扫描过的所有规范 Topic，包括未匹配项：新增、删除或修改 Topic 都会使后续请求以 typed stale-cursor 错误被拒绝；cursor 过期、被淘汰或进程重启则会返回 expired-cursor 错误。候选依据未完整验证的搜索轮次不能签发 cursor。保留该结构化错误，不要重试或悄悄使用被拒绝的 cursor 重跑；只有确实要执行新查询时才开始新的搜索。若用户需要完整 Topic 清单，使用 `synthesis topic list` 自己的分页约定，并完成其独立 cursor 序列后再声称已穷尽。
+
+`coverage.vector` 和 `issues` 描述各章节覆盖之外的工作。`coverage.vector.status` 可以是 `complete`、`limited` 或 `unavailable`。可选的 `reason` 使用有限的代码，例如 `embedding_disabled` 或 `source_verification_timeout`。这些字段说明整轮语义检索的情况。`issues[].code` 使用统一的封闭代码集，同时包含 `sourceKind: null` 和 `affectedCount`，说明是什么限制了这轮检索。用单条结果的 `matchReasons` 解释 Topic 为何命中前，先检查整轮覆盖和问题。
 
 ## 完成检查
 

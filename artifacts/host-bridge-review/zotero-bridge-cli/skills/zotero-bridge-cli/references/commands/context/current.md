@@ -60,54 +60,80 @@ zotero-bridge context current [--endpoint <ENDPOINT>] [--operation-id <ID>] [--p
 ```json
 {
   "additionalProperties": false,
+  "description": "Bare current-view DTO returned by GET /bridge/v2/context/current and published by the CLI as data.",
   "properties": {
-    "approval": {
-      "type": "object"
-    },
-    "capability": {
-      "type": "string"
-    },
-    "data": {
-      "additionalProperties": true,
-      "description": "Result data owned by context.get_current_view, GET /bridge/v2/context/current.",
+    "currentCollection": {
+      "additionalProperties": false,
+      "description": "Optional current collection of the active library view; present only when exactly one collection is selected.",
       "properties": {
-        "currentCollection": {
-          "type": [
-            "object",
-            "null"
-          ]
-        },
-        "currentItem": {
-          "type": [
-            "object",
-            "null"
-          ]
-        },
-        "libraryId": {
-          "minimum": 1,
-          "type": "integer"
-        },
-        "libraryIds": {
-          "type": "array"
-        },
-        "selectedSources": {
-          "type": "array"
-        },
-        "selectionEmpty": {
-          "type": "boolean"
-        },
-        "target": {
-          "enum": [
-            "library",
-            "reader"
-          ],
+        "name": {
           "type": "string"
+        },
+        "ref": {
+          "additionalProperties": false,
+          "properties": {
+            "key": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "libraryId": {
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "libraryId",
+            "key"
+          ],
+          "type": "object"
         }
       },
-      "type": "object",
-      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+      "required": [
+        "ref",
+        "name"
+      ],
+      "type": "object"
+    },
+    "currentItem": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "libraryId": {
+      "minimum": 1,
+      "type": "integer"
+    },
+    "libraryIds": {
+      "items": {
+        "minimum": 1,
+        "type": "integer"
+      },
+      "type": "array"
+    },
+    "selectedSources": {
+      "items": {
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "selectionEmpty": {
+      "type": "boolean"
+    },
+    "target": {
+      "enum": [
+        "library",
+        "reader"
+      ],
+      "type": "string"
     }
   },
+  "required": [
+    "target",
+    "libraryIds",
+    "selectedSources",
+    "selectionEmpty"
+  ],
   "type": "object"
 }
 ```
@@ -181,54 +207,80 @@ zotero-bridge context current [--endpoint <ENDPOINT>] [--operation-id <ID>] [--p
   ],
   "resultSchema": {
     "additionalProperties": false,
+    "description": "Bare current-view DTO returned by GET /bridge/v2/context/current and published by the CLI as data.",
     "properties": {
-      "approval": {
-        "type": "object"
-      },
-      "capability": {
-        "type": "string"
-      },
-      "data": {
-        "additionalProperties": true,
-        "description": "Result data owned by context.get_current_view, GET /bridge/v2/context/current.",
+      "currentCollection": {
+        "additionalProperties": false,
+        "description": "Optional current collection of the active library view; present only when exactly one collection is selected.",
         "properties": {
-          "currentCollection": {
-            "type": [
-              "object",
-              "null"
-            ]
-          },
-          "currentItem": {
-            "type": [
-              "object",
-              "null"
-            ]
-          },
-          "libraryId": {
-            "minimum": 1,
-            "type": "integer"
-          },
-          "libraryIds": {
-            "type": "array"
-          },
-          "selectedSources": {
-            "type": "array"
-          },
-          "selectionEmpty": {
-            "type": "boolean"
-          },
-          "target": {
-            "enum": [
-              "library",
-              "reader"
-            ],
+          "name": {
             "type": "string"
+          },
+          "ref": {
+            "additionalProperties": false,
+            "properties": {
+              "key": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "libraryId": {
+                "minimum": 1,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "libraryId",
+              "key"
+            ],
+            "type": "object"
           }
         },
-        "type": "object",
-        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+        "required": [
+          "ref",
+          "name"
+        ],
+        "type": "object"
+      },
+      "currentItem": {
+        "type": [
+          "object",
+          "null"
+        ]
+      },
+      "libraryId": {
+        "minimum": 1,
+        "type": "integer"
+      },
+      "libraryIds": {
+        "items": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "type": "array"
+      },
+      "selectedSources": {
+        "items": {
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "selectionEmpty": {
+        "type": "boolean"
+      },
+      "target": {
+        "enum": [
+          "library",
+          "reader"
+        ],
+        "type": "string"
       }
     },
+    "required": [
+      "target",
+      "libraryIds",
+      "selectedSources",
+      "selectionEmpty"
+    ],
     "type": "object"
   },
   "summary": "Read current Zotero UI context",
@@ -255,13 +307,13 @@ zotero-bridge context current [--endpoint <ENDPOINT>] [--operation-id <ID>] [--p
 
 ## 操作契约
 
-- 规范 argv 路径：`context` `current`。
-- 输出边界：`fixed`；受管辖细节：{"strategy":"fixed"}。
-- 分页：`none`。
-- 类别：`read`；危险级别：`none`。
-- 结构化绑定模式：`none`。
-- 意图可见性：`visible`。
-- 操作别名：`context current`、`context`、`current`、`current-view`。
+- 规范 argv 路径：`context` `current`.
+- 输出边界：`fixed`; governed details: {"strategy":"fixed"}.
+- 分页：`none`.
+- 类别：`read`; danger: `none`.
+- 结构化绑定模式：`none`.
+- 意图可见性：`visible`.
+- 操作别名：`context current`, `context`, `current`, `current-view`.
 
 ### 效果
 

@@ -10,6 +10,8 @@ $env:ZOTERO_TEST_GREP = 'System E2E runner foundation|retrieval-semantic-search-
 npm run test:zotero:e2e
 ```
 
+并发检索后，CLI、MCP、ACP Chat 和 Workbench client 各自回读 metadata、全文、受管分析和 Topic 命中。每次回读须恰有一个 `match: true`，且内容与引用都和检索结果一致。随后通过 MCP 串行执行 16 次库条目搜索，核对向量参与及覆盖状态。隔离 runner 为该阶段的 Broker 私有端口绑定本轮 sidecar，结束后恢复默认 resolver。回读与串行搜索的端到端时间、覆盖及问题代码同样写入 `retrieval-search-bursts.json`。
+
 Workbench 页面耗时从点击提交算到本次请求返回终态，以请求 ID 对应结果。页面重开后的首次查询记录为冷查询，模型本身可能已经驻留。
 
 慢回环用例运行期间，隔离 profile 临时把 Gecko 的 `network.http.network-changed.timeout` 设为 90 秒，用例结束后恢复。默认设置下，Windows 报告网络接口变化约 5 秒后，Gecko 可能同时取消等待响应的本机 RPC 和编码连接，即使 sidecar 健康检查一直返回 ready。真实 Ollama 验收沿用宿主网络设置。

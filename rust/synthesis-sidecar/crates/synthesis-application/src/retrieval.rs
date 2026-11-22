@@ -794,18 +794,14 @@ impl RetrievalApplication {
             .iter()
             .filter(|group| !matches!(group.status.as_str(), "ready" | "missing"))
             .count();
-        let identities = groups
-            .iter()
-            .filter(|group| group.status == "ready")
-            .map(|group| group.item_identity.clone())
-            .collect::<BTreeSet<_>>()
-            .into_iter()
-            .collect::<Vec<_>>();
-        let ready_groups = groups
-            .iter()
-            .filter(|group| group.status == "ready")
-            .map(|group| group.group_id.clone())
-            .collect::<BTreeSet<_>>();
+        let mut ready_groups_by_item = BTreeMap::<_, Vec<_>>::new();
+        for group in groups.iter().filter(|group| group.status == "ready") {
+            ready_groups_by_item
+                .entry(group.item_identity.clone())
+                .or_default()
+                .push(group.group_id.as_str());
+        }
+        let identities = ready_groups_by_item.keys().cloned().collect::<Vec<_>>();
         let mut best: BTreeMap<String, ScoredFragment> = BTreeMap::new();
         let mut scoring_timed_out = false;
         let mut complete_identities = 0;
@@ -817,8 +813,12 @@ impl RetrievalApplication {
                 scoring_timed_out = true;
                 break;
             }
+            let group_ids = batch
+                .iter()
+                .flat_map(|identity| ready_groups_by_item[identity].iter().copied())
+                .collect::<Vec<_>>();
             let fragments = self.repository.with_reader(|repository| {
-                repository.list_retrieval_fragments_for_items(&publication, batch)
+                repository.list_scoring_fragments(&publication, batch, &group_ids)
             })?;
             for fragment in fragments {
                 if let Err(code) = score_checkpoint() {
@@ -827,9 +827,6 @@ impl RetrievalApplication {
                     }
                     scoring_timed_out = true;
                     break 'scoring;
-                }
-                if !ready_groups.contains(&fragment.group_id) {
-                    continue;
                 }
                 let Some(score) = cosine_from_original(&fragment.vector, &query_vector) else {
                     continue;
@@ -3546,6 +3543,61 @@ mod tests {
             [0, 2048, 4096]
         );
         assert_eq!(rows[1]["match"], true);
+        for (index, expected) in [(0, [0, 2048]), (2, [2048, 4096])] {
+            let boundary = app
+                .read_semantic_context(
+                    json!({"evidenceRef":rows[index]["evidenceRef"]}),
+                    &checkpoint(),
+                )
+                .unwrap();
+            let adjacent = boundary["results"].as_array().unwrap();
+            assert_eq!(
+                adjacent
+                    .iter()
+                    .map(|row| row["location"]["range"]["start"].as_u64().unwrap())
+                    .collect::<Vec<_>>(),
+                expected
+            );
+            assert_eq!(
+                adjacent.iter().filter(|row| row["match"] == true).count(),
+                1
+            );
+        }
+    }
+
+    #[test]
+    fn mixed_search_reports_stale_vector_groups_without_a_result_cap() {
+        let rows = vec![
+            (descriptor("AAAA", "title", "v1", 5), "alpha".to_owned()),
+            (descriptor("BBBB", "title", "v1", 4), "beta".to_owned()),
+        ];
+        let fixture = fixture("mixed-stale-coverage", rows.clone());
+        let app = fixture.application;
+        app.build(maintenance(), RetrievalBuildMode::Full, &checkpoint())
+            .unwrap();
+        let scored = app.query(json!({"query":"alpha"})).unwrap();
+        app.suspend_group(&scored.publication, &scored.results[0].group_id)
+            .unwrap();
+        let search =
+            crate::evidence_search::EvidenceSearchApplication::new(Arc::new(FakeSources { rows }))
+                .with_retrieval(Arc::new(app));
+        let request = json!({"query":"beta","libraryIds":[1]});
+        let passage = search.search(request.clone(), &checkpoint()).unwrap();
+        let library = search
+            .search_library_items_with_retrieval(request, &checkpoint())
+            .unwrap();
+        for result in [&passage, &library["result"]] {
+            assert_eq!(result["status"], "limited");
+            assert_eq!(result["total"], Value::Null);
+            assert_eq!(result["coverage"]["vector"]["status"], "limited");
+            let issues = result["issues"].as_array().unwrap();
+            assert!(issues.iter().any(|issue| issue["code"] == "source_changed"));
+            assert!(
+                !issues
+                    .iter()
+                    .any(|issue| issue["code"] == "result_budget_exhausted")
+            );
+        }
     }
 
     #[test]

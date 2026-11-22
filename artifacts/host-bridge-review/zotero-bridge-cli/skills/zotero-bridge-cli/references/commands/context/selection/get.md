@@ -72,42 +72,39 @@ zotero-bridge context selection get [--endpoint <ENDPOINT>] [--operation-id <ID>
 ```json
 {
   "additionalProperties": false,
+  "description": "Bare selection page DTO returned by GET /bridge/v2/context/selection and published by the CLI as data.",
   "properties": {
-    "approval": {
-      "type": "object"
+    "hasMore": {
+      "type": "boolean"
     },
-    "capability": {
-      "type": "string"
-    },
-    "data": {
-      "additionalProperties": true,
-      "description": "Result data owned by context.get_selected_items, GET /bridge/v2/context/selection.",
-      "properties": {
-        "hasMore": {
-          "type": "boolean"
-        },
-        "items": {
-          "type": "array"
-        },
-        "nextCursor": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "returned": {
-          "minimum": 0,
-          "type": "integer"
-        },
-        "total": {
-          "minimum": 0,
-          "type": "integer"
-        }
+    "items": {
+      "items": {
+        "type": "object"
       },
-      "type": "object",
-      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+      "type": "array"
+    },
+    "nextCursor": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "returned": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "total": {
+      "minimum": 0,
+      "type": "integer"
     }
   },
+  "required": [
+    "items",
+    "nextCursor",
+    "hasMore",
+    "returned",
+    "total"
+  ],
   "type": "object"
 }
 ```
@@ -240,15 +237,15 @@ zotero-bridge context selection get [--endpoint <ENDPOINT>] [--operation-id <ID>
   ],
   "outputBoundary": {
     "continuation": [
-      "data.nextCursor",
-      "data.hasMore",
-      "data.returned",
-      "data.total"
+      "nextCursor",
+      "hasMore",
+      "returned",
+      "total"
     ],
     "cursorInput": "cursor",
     "defaultLimit": 25,
     "maxLimit": 100,
-    "section": "data.items",
+    "section": "items",
     "strategy": "cursor"
   },
   "pagination": "cursor",
@@ -269,42 +266,39 @@ zotero-bridge context selection get [--endpoint <ENDPOINT>] [--operation-id <ID>
   ],
   "resultSchema": {
     "additionalProperties": false,
+    "description": "Bare selection page DTO returned by GET /bridge/v2/context/selection and published by the CLI as data.",
     "properties": {
-      "approval": {
-        "type": "object"
+      "hasMore": {
+        "type": "boolean"
       },
-      "capability": {
-        "type": "string"
-      },
-      "data": {
-        "additionalProperties": true,
-        "description": "Result data owned by context.get_selected_items, GET /bridge/v2/context/selection.",
-        "properties": {
-          "hasMore": {
-            "type": "boolean"
-          },
-          "items": {
-            "type": "array"
-          },
-          "nextCursor": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "returned": {
-            "minimum": 0,
-            "type": "integer"
-          },
-          "total": {
-            "minimum": 0,
-            "type": "integer"
-          }
+      "items": {
+        "items": {
+          "type": "object"
         },
-        "type": "object",
-        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+        "type": "array"
+      },
+      "nextCursor": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "returned": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "total": {
+        "minimum": 0,
+        "type": "integer"
       }
     },
+    "required": [
+      "items",
+      "nextCursor",
+      "hasMore",
+      "returned",
+      "total"
+    ],
     "type": "object"
   },
   "summary": "Read one exact page of selected Zotero items",
@@ -331,13 +325,13 @@ zotero-bridge context selection get [--endpoint <ENDPOINT>] [--operation-id <ID>
 
 ## 操作契约
 
-- 规范 argv 路径：`context` `selection` `get`。
-- 输出边界：`cursor`；受管辖的详情：{"continuation":["data.nextCursor","data.hasMore","data.returned","data.total"],"cursorInput":"cursor","defaultLimit":25,"maxLimit":100,"section":"data.items","strategy":"cursor"}。
-- 分页：`cursor`。
-- 类别：`read`；危险级别：`none`。
-- 结构化绑定模式：`none`。
-- 意图可见性：`visible`。
-- 操作别名：`context selection get`、`context`、`selection`、`get`、`cursor`、`CURSOR`、`limit`、`LIMIT`。
+- 规范 argv 路径：`context` `selection` `get`.
+- 输出边界：`cursor`; governed details: {"continuation":["nextCursor","hasMore","returned","total"],"cursorInput":"cursor","defaultLimit":25,"maxLimit":100,"section":"items","strategy":"cursor"}.
+- 分页：`cursor`.
+- 类别：`read`; danger: `none`.
+- 结构化绑定模式：`none`.
+- 意图可见性：`visible`.
+- 操作别名：`context selection get`, `context`, `selection`, `get`, `cursor`, `CURSOR`, `limit`, `LIMIT`.
 
 ### 效果
 

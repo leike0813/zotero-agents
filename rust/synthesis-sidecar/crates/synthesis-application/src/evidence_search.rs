@@ -1145,12 +1145,14 @@ impl EvidenceSearchApplication {
             .as_array()
             .cloned()
             .unwrap_or_default();
-        if outcome.limited {
-            add_issue(&mut issues, "result_budget_exhausted", None);
-        }
         for issue in &outcome.issues {
             if let Some(code) = issue.get("code").and_then(Value::as_str) {
-                add_issue(&mut issues, code, None);
+                add_issue_count(
+                    &mut issues,
+                    code,
+                    None,
+                    issue["affectedCount"].as_u64().unwrap_or(1) as usize,
+                );
             }
         }
         // Lexical ranking is frozen from the original lexical result set only;
@@ -1582,12 +1584,14 @@ impl EvidenceSearchApplication {
             }
         };
         *vector_coverage = Some(crate::retrieval::VectorCoverage::searched(&outcome));
-        if outcome.limited {
-            add_issue(issues, "result_budget_exhausted", None);
-        }
         for issue in &outcome.issues {
             if let Some(code) = issue.get("code").and_then(Value::as_str) {
-                add_issue(issues, code, None);
+                add_issue_count(
+                    issues,
+                    code,
+                    None,
+                    issue["affectedCount"].as_u64().unwrap_or(1) as usize,
+                );
             }
         }
         // Lexical ranking is frozen from the original lexical passages only,

@@ -653,6 +653,7 @@ describe("zotero host broker capability api", function () {
                     throw new SynthesisClientError(
                       "unavailable",
                       "Embedding is unavailable",
+                      { sidecarReason: "transport_unavailable" },
                     );
                   return {
                     ...(await lexicalPort.execute(request)),
@@ -676,6 +677,10 @@ describe("zotero host broker capability api", function () {
       assert.strictEqual(page.total, 2);
       assert.strictEqual(page.method, method);
       if (mode === "fallback") {
+        assert.deepEqual(page.coverage.vector, {
+          status: "unavailable",
+          reason: "transport_unavailable",
+        });
         assert.isTrue(
           page.issues.some((issue) => issue.code === "vector_unavailable"),
         );
@@ -760,7 +765,7 @@ describe("zotero host broker capability api", function () {
           if (projecting) expired = true;
           return getField.apply(this, args);
         };
-        Date.now = () => readClock() + (expired ? 121_000 : 0);
+        Date.now = () => readClock() + (expired ? 301_000 : 0);
         try {
           const limited = await broker.library.searchItems({
             ...request,

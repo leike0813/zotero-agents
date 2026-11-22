@@ -618,7 +618,7 @@ zotero-bridge bridge manifest
 zotero-bridge call <capability> [--input <JSON_OR_FILE>]
 zotero-bridge library items list --query '{"limit":50,"collectionKey":"COLL"}'
 zotero-bridge library snapshot --query '{"libraryId":1,"batchSize":200}'
-zotero-bridge library item search --query '{"query":"...","limit":10,"libraryId":1}'
+zotero-bridge library item search --query '{"query":"...","limit":10,"libraryIds":[1]}'
 zotero-bridge library item get (--key <key> | --id <id>) [--library-id <id>]
 zotero-bridge library item notes (--key <key> | --id <id>) [--limit <n>] [--cursor <opaque>]
 zotero-bridge library item attachments (--key <key> | --id <id>) [--library-id <id>] [--limit <n>] [--cursor <opaque>]
@@ -1801,7 +1801,9 @@ Capability input：
 {
   "query": "graph neural network",
   "limit": 10,
-  "libraryId": 1
+  "maxResults": 100,
+  "libraryIds": [1],
+  "sourceKinds": ["metadata"]
 }
 ```
 
@@ -1812,29 +1814,69 @@ Capability input：
   "capability": "library.search_items",
   "approval": "none",
   "data": {
-    "items": [
+    "results": [
       {
-        "id": 123,
-        "key": "ABCD1234",
-        "libraryId": 1,
-        "itemType": "journalArticle",
-        "title": "Paper title",
-        "creators": ["Author One"],
-        "year": "2026",
-        "date": "2026-05-21",
-        "publicationTitle": "Journal",
-        "tags": ["tag"],
-        "collections": [1]
+        "item": {
+          "ref": { "libraryId": 1, "key": "ABCD1234" },
+          "kind": "regular",
+          "itemType": "journalArticle",
+          "title": "Graph neural network survey",
+          "parentRef": null,
+          "state": "active",
+          "revision": "12",
+          "tags": ["tag"],
+          "collectionRefs": [{ "libraryId": 1, "key": "COLL" }],
+          "creators": [{ "representation": "two_field", "creatorType": "author", "firstName": "Author", "lastName": "One" }],
+          "year": "2026",
+          "date": "2026-05-21",
+          "publicationTitle": "Journal"
+        },
+        "matches": [
+          {
+            "source": { "kind": "metadata", "field": "title" },
+            "sourceVersion": "v1",
+            "location": { "unit": "field", "field": "title", "range": { "start": 0, "end": 20 } },
+            "matchedTerms": ["graph", "neural", "network"],
+            "phraseMatch": true
+          }
+        ]
       }
     ],
-    "truncated": false
+    "status": "completed",
+    "method": "lexical",
+    "coverage": {
+      "kind": "library",
+      "sources": {
+        "metadata": { "status": "complete", "sourcesScanned": 12 },
+        "fulltext": { "status": "not_requested", "sourcesScanned": 0 },
+        "analysis": { "status": "not_requested", "sourcesScanned": 0 }
+      }
+    },
+    "issues": [],
+    "nextCursor": null,
+    "hasMore": false,
+    "total": 1
   }
 }
 ```
 
-`--query` 必须解码为只含 `query`、`limit`、`libraryId` 的 JSON object，
-其中 `query` 是非空字符串。`text`、裸文本和额外字段会在连接 Host Bridge
-之前返回 `command_input_invalid`；错误详情中的 `phase` 为
+`data.results` 的每个元素是一个 `{ item, matches }` 对：`item` 是 regular item
+摘要，`matches` 是该条目的命中来源证据，每条带 `source`、`sourceVersion`、
+`location`、`matchedTerms` 和 `phraseMatch`。`method` 报告实际执行的方法
+（`lexical`、`vector` 或 `hybrid`），`coverage` 是
+`{ kind: "library", sources: { metadata, fulltext, analysis } }`，每个来源带
+`status` 和 `sourcesScanned`，并可带一个可选 `vector` 对象说明语义检索这一轮
+进行到什么程度。`status`、`issues` 和 `total` 一起界定这一页是否已经覆盖完整
+范围：`limited`、来源覆盖不可用或 `total` 为 `null` 时，响应不能证明完整命中
+清单。
+
+`--query` 必须解码为共享搜索请求契约的 JSON object：必填非空字符串 `query`，
+可选 `limit`（默认 25，最大 100）、`maxResults`（默认 100，最大 500）、
+`cursor`，以及可选 `libraryIds`、`itemRefs`、`collectionRef`、`tag`、
+`itemType`、`sourceKinds` 范围过滤。省略 `sourceKinds` 时 `metadata`、
+`fulltext` 和 `analysis` 三者都参与；上例显式只请求 `metadata`，因此另外两类的
+`coverage` 状态是 `not_requested`。`text`、裸文本和契约外字段会在连接
+Host Bridge 之前返回 `command_input_invalid`；错误详情中的 `phase` 为
 `command_input`，并包含命令名、参数 ID 和具体 schema violations。
 
 ### 12.9 `library item get`

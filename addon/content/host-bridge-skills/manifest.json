@@ -3,7 +3,7 @@
   "cli": {
     "version": "0.5.2-dev.6",
     "buildFingerprint": "9431e8bd4e75a72e26fa380dd63fb7f5221a39bf7d6d3f74e5117be7ee4132e2",
-    "commandCatalogChecksum": "f282d25de4edc1193d980614d707432d25db4cbe8bd5fbcf17ac44cc331e5a00"
+    "commandCatalogChecksum": "ef9f886c481e1438b42bab59309e658cf89719528af7da82d1ce770de6b1c56e"
   },
   "surfaces": [
     {
@@ -57,8 +57,8 @@
   "files": [
     {
       "path": "zotero-bridge-cli/assets/agent-surface.json",
-      "bytes": 2284136,
-      "sha256": "5f93a33693850d21876213e0e520bb753c1192a6fd5ac1820439f5d0e67095f2"
+      "bytes": 2284478,
+      "sha256": "9a4f4b465dbc60aba06060ac7042c44a42f883690a375c4ff62610e1ab12737d"
     },
     {
       "path": "zotero-bridge-cli/assets/output.schema.json",
@@ -77,8 +77,8 @@
     },
     {
       "path": "zotero-bridge-cli/references/command-catalog.md",
-      "bytes": 44367,
-      "sha256": "382309bfe396c6718da2d24bcd09e317e526c69bc10ccaf5f3d634dc90f88cf7"
+      "bytes": 47079,
+      "sha256": "cacb86ec12da0a5549a33b0eb5fdac7b458f6147d21d2c9f83d9d6654765503f"
     },
     {
       "path": "zotero-bridge-cli/references/commands/acquisition/activate.md",
@@ -162,13 +162,13 @@
     },
     {
       "path": "zotero-bridge-cli/references/commands/context/current.md",
-      "bytes": 9284,
-      "sha256": "b3f94a155f6ddf45773b8d2d9fb85cbb166a80752d9efd78720f7fc756b9b4bf"
+      "bytes": 10288,
+      "sha256": "e82db7913b549a3e29d632dc3e03a76f1c7271533860006abe371f2cb67a8c13"
     },
     {
       "path": "zotero-bridge-cli/references/commands/context/selection/get.md",
-      "bytes": 11671,
-      "sha256": "09d7dc2b904409556cb7b3b6fb02ba5cfabe6ea65a5d02dbc4b53ecfcf8561c8"
+      "bytes": 11121,
+      "sha256": "09cb3546eacd57165a5ad65220a87b6c5ab8473a6f11477171298029e89e36bf"
     },
     {
       "path": "zotero-bridge-cli/references/commands/debug/acp-skill-run/reapply-result.md",
@@ -946,5 +946,5 @@
       "sha256": "80856d3847f4bb62b41f0384394bc3cfc59691c8490b2b2a683aaa1b42ae4136"
     }
   ],
-  "aggregateSha256": "2a05a68c83ce0c19e6471fba6017040d575a43605c7a5ecd70a8196edeee1a9b"
+  "aggregateSha256": "0e2e1d65cfc63cfa1836b88e7feba4e33fd511fdba166a8790d05a5c4f040a44"
 }

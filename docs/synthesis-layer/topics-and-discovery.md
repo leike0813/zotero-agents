@@ -68,22 +68,44 @@ remains optional for complete artifacts and section patches.
 
 Each result contains `topicId`, `matchedSections`, and `matchReasons`.
 `query_terms` identifies lexical coverage; `exact_phrase` identifies a normalized
-phrase match. Multiple matching fields or sections produce one result per
-Topic. The C2 Rust kernel orders by distinct query-term coverage, phrase match,
-field importance, then canonical Topic identity. Definition (`topic`) and
-`summary` lead field importance; other sections follow the schema inventory.
-Identity, hash, path, status,
-and code fields do not contribute searchable text.
+phrase match; `semantic` is a dedicated reason that marks a match contributed by
+the vector pass rather than by lexical term or phrase coverage. Multiple matching
+fields or sections produce one result per Topic. The C2 Rust kernel orders by
+distinct query-term coverage, phrase match, field importance, then canonical
+Topic identity. Definition (`topic`) and `summary` lead field importance; other
+sections follow the schema inventory. Identity, hash, path, status, and code
+fields do not contribute searchable text.
 
 The common envelope contains exactly `results`, `status`, `method`, `coverage`,
-`issues`, `nextCursor`, `hasMore`, and `total`. Method is `lexical`, and coverage
-is `{ kind: "topic", sections: [{ section, status }] }`. Issues use the shared
-closed codes with `sourceKind: null`; unreadable or invalid candidates, scan
-budgets, and result caps report partial work without exposing paths or scores.
-Only a complete uncapped scan reports `completed` and an exact numeric total;
-an incomplete or capped scan reports `limited` and null total. An unavailable
-canonical source reports `unavailable`. A complete scan with no matches returns
-zero total.
+`issues`, `nextCursor`, `hasMore`, and `total`. `method` reports the execution
+that actually ran: `lexical` for a round that stayed on the lexical kernel,
+`vector` for a round whose matches all came from the semantic pass, and `hybrid`
+for a round that fused lexical and semantic candidates. Coverage is
+`{ kind: "topic", sections: [{ section, status }] }` plus an optional `vector`
+object `{ status, reason? }` that reports how far the semantic pass got. Issues
+use the shared closed codes with `sourceKind: null`; unreadable or invalid
+candidates, scan budgets, and result caps report partial work without exposing
+paths or scores. Only a complete uncapped scan reports `completed` and an exact
+numeric total; an incomplete or capped scan reports `limited` and null total. An
+unavailable canonical source reports `unavailable`. A complete scan with no
+matches returns zero total.
+
+`coverage.vector` reports the semantic pass for the whole round. Its `status`
+is `complete`, `limited`, or `unavailable`. Its optional `reason` can be a code
+such as `embedding_disabled` or `source_verification_timeout`. A Topic's
+`semantic` match reason means the semantic pass found that Topic independently
+or confirmed an existing lexical match. A round can
+report `coverage.vector.status` `complete` while only some of its results carry
+the `semantic` reason, and a round that fell back to lexical work can report
+`coverage.vector.status` `unavailable` with a `reason` while every result still
+carries only `query_terms` or `exact_phrase`.
+
+When vector enhancement participates, the shared hybrid fusion keeps equal
+lexical contributions equal and resolves final ties by canonical Topic
+identity. An enhancement that is disabled, paused, incompatible, or that fails
+within its own deadline leaves the round executable as `lexical` on the full
+original query, with a truthful `method` and the bounded `coverage.vector`
+reason; degraded lexical work is never presented as a semantic result.
 
 The application reads at most 64 current Topic candidates, 4096 root directory
 entries, and 32 MiB of actual canonical bytes per round. It limits extracted
@@ -95,12 +117,15 @@ time inside its existing request deadline to project a partial result.
 
 A continuation reads frozen results, revalidating canonical root membership
 and the manifest/artifact/content basis of every scanned candidate, including
-non-matches. It never repeats lexical matching. An incomplete basis cannot
-produce a cursor. Changed membership or content fails with a typed stale-cursor
-reason; expiry, eviction, and process restart fail with an expired-cursor reason.
+non-matches. It never repeats matching, lexical or semantic, and never re-encodes
+the query. An incomplete basis cannot produce a cursor. Changed membership or
+content fails with a typed stale-cursor reason; expiry, eviction, and process
+restart fail with an expired-cursor reason.
 The application retains at most eight frozen rounds for 60 seconds. Page size
 may change within the request bounds; query, canonical sections, and
-`maxResults` must keep their round identity. `hasMore` refers only to remaining
+`maxResults` must keep their round identity; an enhanced round also binds the
+retrieval publication it was fused against, so a replaced index fails the
+continuation instead of switching methods. `hasMore` refers only to remaining
 pages inside the frozen result bound. Start
 a fresh query explicitly after either failure. Read a matching Topic's canonical
 structure through the existing `topics.getContext({ topicId, view: "semantic" })`

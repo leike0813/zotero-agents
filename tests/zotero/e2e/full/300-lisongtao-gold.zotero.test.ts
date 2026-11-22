@@ -1,7 +1,10 @@
 import { assert } from "chai";
 import { config } from "../../../../package.json";
 import { SYNTHESIS_EVIDENCE_SOURCE_MAX_UTF16 } from "../../../../packages/synthesis-contracts/src/search";
-import type { SynthesisSemanticEvidenceSearchRequest } from "../../../../packages/synthesis-contracts/src/retrieval";
+import type {
+  SynthesisSemanticEvidenceContextResult,
+  SynthesisSemanticEvidenceSearchRequest,
+} from "../../../../packages/synthesis-contracts/src/retrieval";
 import {
   listSidecarDiscoveries,
   readSystemE2ESidecarConnection,
@@ -9,8 +12,15 @@ import {
 } from "../../../../scripts/system-e2e/healthGate";
 import {
   createNativeSynthesisClientComposition,
+  createNativeSynthesisLibraryLexicalPort,
+  createNativeSynthesisLibraryRetrievalPort,
   createNativeSynthesisRetrievalPort,
 } from "../../../../src/modules/synthesisClient/nativeComposition";
+import {
+  createZoteroHostCapabilityBroker,
+  resolveZoteroHostCapabilityBroker,
+} from "../../../../src/modules/zoteroHostCapabilityBroker";
+import { ensureZoteroMcpServer } from "../../../../src/modules/hostBridge/mcp/zoteroMcpServer";
 import { createDefaultSynthesisUiState } from "../../../../src/modules/synthesis/uiModel";
 import { createZoteroSynthesisHostReadPort } from "../../../../src/modules/synthesis/libraryAdapter";
 import { toSynthesisWorkbenchReadState } from "../../../../src/modules/synthesisClient/workbenchUiAdapter";
@@ -97,6 +107,16 @@ async function waitUntil<Value>(
   timeoutMs = 60_000,
 ) {
   return waitUntilBounded(read, timeoutMs, "synthesis-e2e-condition");
+}
+
+async function resolveHostBridgeCliForE2E() {
+  const injectedPath = readDiagnosticsEnv("ZOTERO_BRIDGE_CLI");
+  if (!injectedPath) return resolveHostBridgeCliBinary();
+  assert.isTrue(
+    await IOUtils.exists(injectedPath),
+    "ZOTERO_BRIDGE_CLI must point to the runner-built CLI",
+  );
+  return { available: true as const, binaryPath: injectedPath };
 }
 
 async function connectNativeSidecar(
@@ -225,6 +245,226 @@ async function assertSignedEvidenceResults(
   }
 }
 
+type SemanticContextSourceKind = "metadata" | "fulltext" | "analysis" | "topic";
+
+type SemanticContextPassage = {
+  kind: SemanticContextSourceKind;
+  evidenceRef: SignedEvidenceRef;
+  content: string;
+};
+
+function assertSemanticContextMatch(
+  context: SynthesisSemanticEvidenceContextResult,
+  passage: SemanticContextPassage,
+) {
+  assert.equal(context.status, "completed");
+  const matches = context.results.filter((row) => row.match === true);
+  assert.lengthOf(
+    matches,
+    1,
+    `${passage.kind} context must resolve exactly one match`,
+  );
+  const matched = matches[0]!;
+  assert.equal(matched.content, passage.content);
+  assert.deepEqual(matched.evidenceRef, passage.evidenceRef);
+  assert.equal(matched.source.kind, passage.kind);
+}
+
+async function collectSemanticContextPassages(
+  composition: NativeSidecarComposition,
+  requests: Array<{
+    kind: SemanticContextSourceKind;
+    request: SynthesisSemanticEvidenceSearchRequest;
+  }>,
+) {
+  const passages: SemanticContextPassage[] = [];
+  for (const { kind, request } of requests) {
+    const result = await composition.client.searchSemanticEvidence(request);
+    assert.equal(result.status, "completed");
+    const passage = result.results.find((row) => row.source.kind === kind);
+    assert.isOk(passage, `${kind} search must return a passage`);
+    passages.push({
+      kind,
+      evidenceRef: passage!.evidenceRef,
+      content: passage!.content,
+    });
+  }
+  return passages;
+}
+
+async function runSemanticContextReadbacks(
+  passages: SemanticContextPassage[],
+  workbenchClientContext: (
+    evidenceRef: SignedEvidenceRef,
+  ) => Promise<SynthesisSemanticEvidenceContextResult>,
+  cliProfilePath: string,
+) {
+  const cli = await resolveHostBridgeCliForE2E();
+  if (!cli.available) throw new Error(cli.code);
+  const bridge = getHostBridgeServerStatus();
+  assert.equal(bridge.status, "running");
+  const mcpEndpoint = bridge.endpoint.replace(/\/bridge\/v2\/?$/, "/mcp");
+  const token = getHostBridgeToken();
+  const invokeCli = async (passage: SemanticContextPassage) => {
+    const result = await executeOneShotSubprocess({
+      command: cli.binaryPath,
+      args: [
+        "--endpoint",
+        bridge.endpoint,
+        "--profile",
+        cliProfilePath,
+        "synthesis",
+        "evidence",
+        "context",
+        "--query",
+        JSON.stringify({ evidenceRef: passage.evidenceRef }),
+      ],
+      environment: buildSubprocessEnvironment({
+        ZOTERO_BRIDGE_TOKEN: token,
+      }),
+      timeoutMs: 120_000,
+    });
+    assert.equal(result.outcome, "exited");
+    assert.equal(result.exitCode, 0, result.stderr);
+    const envelope = JSON.parse(result.stdout);
+    assert.isTrue(envelope.ok, JSON.stringify(envelope.error));
+    return envelope.data?.data ?? envelope.data;
+  };
+  const invokeMcp = async (passage: SemanticContextPassage) => {
+    const response = await fetch(mcpEndpoint, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${token}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: `semantic-context-${Date.now()}-${Math.random()}`,
+        method: "tools/call",
+        params: {
+          name: "synthesis.read_semantic_context",
+          arguments: { evidenceRef: passage.evidenceRef },
+        },
+      }),
+    });
+    assert.equal(response.status, 200);
+    const envelope = await response.json();
+    assert.isUndefined(envelope.error, JSON.stringify(envelope.error));
+    return envelope.result?.structuredContent?.data;
+  };
+  const routes: Array<{
+    route: string;
+    elapsedMs: number;
+    sources: Array<{ kind: SemanticContextSourceKind; elapsedMs: number }>;
+  }> = [];
+  const overallStartedAt = Date.now();
+  for (const [route, invoke] of [
+    ["cli", invokeCli],
+    ["mcp", invokeMcp],
+    [
+      "workbench-client",
+      async (passage: SemanticContextPassage) =>
+        await workbenchClientContext(passage.evidenceRef),
+    ],
+  ] as const) {
+    const startedAt = Date.now();
+    const sources: Array<{
+      kind: SemanticContextSourceKind;
+      elapsedMs: number;
+    }> = [];
+    for (const passage of passages) {
+      const sourceStartedAt = Date.now();
+      assertSemanticContextMatch(await invoke(passage), passage);
+      sources.push({
+        kind: passage.kind,
+        elapsedMs: Date.now() - sourceStartedAt,
+      });
+    }
+    routes.push({
+      route,
+      elapsedMs: Date.now() - startedAt,
+      sources,
+    });
+  }
+  return { totalElapsedMs: Date.now() - overallStartedAt, routes };
+}
+
+async function runSerialLibraryItemSearches(args: {
+  mcpEndpoint: string;
+  token: string;
+  itemRefs: Array<{ libraryId: number; key: string }>;
+}) {
+  // These queries deliberately avoid the mock embedding fixture's 11.5s phrase.
+  const queries = [
+    "卫星遥感与土壤水分估算研究",
+    "全文：通过遥感",
+    "土壤湿度变化机制",
+    "城市道路交通流量预测研究",
+  ];
+  const overallStartedAt = Date.now();
+  const calls: Array<{
+    index: number;
+    query: string;
+    method: string;
+    status: string;
+    vectorCoverage: { status: string; reason?: string } | undefined;
+    issues: unknown[];
+    elapsedMs: number;
+  }> = [];
+  for (let round = 0; round < 4; round += 1) {
+    for (const query of queries) {
+      const index = calls.length + 1;
+      const startedAt = Date.now();
+      const response = await fetch(args.mcpEndpoint, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${args.token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: `library-item-search-${index}`,
+          method: "tools/call",
+          params: {
+            name: "library.search_items",
+            arguments: {
+              query,
+              limit: 8,
+              itemRefs: args.itemRefs,
+              sourceKinds: ["metadata", "fulltext", "analysis"],
+            },
+          },
+        }),
+      });
+      assert.equal(response.status, 200);
+      const envelope = await response.json();
+      assert.isUndefined(envelope.error, JSON.stringify(envelope.error));
+      const result = envelope.result?.structuredContent?.data;
+      assert.isOk(result, `library item search ${index} returned no result`);
+      assert.equal(result.method === "lexical", false, JSON.stringify(result));
+      assert.equal(
+        result.coverage?.vector?.status,
+        "complete",
+        JSON.stringify(result),
+      );
+      calls.push({
+        index,
+        query,
+        method: result.method,
+        status: result.status,
+        vectorCoverage: result.coverage?.vector,
+        issues: result.issues ?? [],
+        elapsedMs: Date.now() - startedAt,
+      });
+    }
+  }
+  return {
+    totalElapsedMs: Date.now() - overallStartedAt,
+    delayFreeQueries: true,
+    calls,
+  };
+}
+
 async function runSemanticSearchBursts(
   request: SynthesisSemanticEvidenceSearchRequest,
   item: Zotero.Item,
@@ -233,7 +473,7 @@ async function runSemanticSearchBursts(
   workbenchClientSearch: () => Promise<unknown>,
   cliProfilePath: string,
 ) {
-  const cli = await resolveHostBridgeCliBinary();
+  const cli = await resolveHostBridgeCliForE2E();
   if (!cli.available) throw new Error(cli.code);
   const bridge = getHostBridgeServerStatus();
   assert.equal(bridge.status, "running");
@@ -937,6 +1177,20 @@ describe("Synthesis E2E gold library", function () {
           elapsedMs: number;
           toolElapsedMs: number[];
         }> = [];
+        let semanticContextPassages: SemanticContextPassage[] = [];
+        let acpContext:
+          | {
+              elapsedMs: number;
+              contexts: Array<{
+                sourceKind: SemanticContextSourceKind;
+                matchCount: number;
+                sourceKindMatches: boolean;
+                contentMatches: boolean;
+                refMatches: boolean;
+                elapsedMs: number;
+              }>;
+            }
+          | undefined;
         try {
           assert.isTrue(await IOUtils.exists(acpFixturePath));
           assert.isNotEmpty(acpBackend.command);
@@ -1089,6 +1343,107 @@ describe("Synthesis E2E gold library", function () {
               ),
             });
           }
+          semanticContextPassages = await collectSemanticContextPassages(
+            topicClient!,
+            [
+              {
+                kind: "metadata",
+                request: {
+                  query: "卫星遥感与土壤水分估算研究",
+                  target: "paper",
+                  itemRefs: [
+                    { libraryId: items[0].libraryID, key: items[0].key },
+                  ],
+                  sourceKinds: ["metadata"],
+                  limit: 8,
+                },
+              },
+              {
+                kind: "fulltext",
+                request: {
+                  query: "全文：通过遥感",
+                  target: "paper",
+                  itemRefs: [
+                    { libraryId: items[0].libraryID, key: items[0].key },
+                  ],
+                  sourceKinds: ["fulltext"],
+                  limit: 8,
+                },
+              },
+              {
+                kind: "analysis",
+                request: {
+                  query: "土壤湿度变化机制",
+                  target: "paper",
+                  itemRefs: [
+                    { libraryId: items[0].libraryID, key: items[0].key },
+                  ],
+                  sourceKinds: ["analysis"],
+                  limit: 8,
+                },
+              },
+              {
+                kind: "topic",
+                request: {
+                  query: topic.definition,
+                  target: "topic",
+                  topicIds: [topic.id],
+                  limit: 8,
+                },
+              },
+            ],
+          );
+          const acpContextStartedAt = Date.now();
+          await sendAcpConversationPrompt({
+            backendId: acpBackendId,
+            conversationId: acpConversationId,
+            message: `system-e2e:semantic-context ${JSON.stringify({
+              requests: semanticContextPassages.map((passage) => ({
+                sourceKind: passage.kind,
+                evidenceRef: passage.evidenceRef,
+                expectedContent: passage.content,
+              })),
+            })}`,
+          });
+          acpSnapshot = getAcpConversationSnapshot(
+            acpBackendId,
+            acpConversationId,
+          );
+          assert.equal(acpSnapshot.status, "connected");
+          assert.isFalse(acpSnapshot.busy);
+          const contextPage = await readAcpConversationTranscriptPage({
+            backendId: acpBackendId,
+            conversationId: acpConversationId,
+            limit: 80,
+          });
+          const contextAssistant = [...contextPage.items]
+            .reverse()
+            .find(
+              (entry) => entry.kind === "message" && entry.role === "assistant",
+            );
+          assert.isOk(contextAssistant, "ACP context result is missing");
+          const contextResult = JSON.parse(
+            (contextAssistant as { text: string }).text,
+          );
+          assert.isUndefined(
+            contextResult.error?.code,
+            `ACP context readback failed: ${JSON.stringify(contextResult.error)}`,
+          );
+          assert.lengthOf(contextResult.contexts, 4);
+          for (const [index, context] of contextResult.contexts.entries()) {
+            assert.equal(
+              context.sourceKind,
+              semanticContextPassages[index]!.kind,
+            );
+            assert.equal(context.matchCount, 1);
+            assert.isTrue(context.sourceKindMatches);
+            assert.isTrue(context.contentMatches);
+            assert.isTrue(context.refMatches);
+          }
+          acpContext = {
+            elapsedMs: Date.now() - acpContextStartedAt,
+            contexts: contextResult.contexts,
+          };
           const bridgeAfterAcp = getHostBridgeServerStatus();
           assert.isAtLeast(
             bridgeAfterAcp.requestCount,
@@ -1134,6 +1489,12 @@ describe("Synthesis E2E gold library", function () {
         restoreHostBridgeSynthesisResolver =
           bindTestDefaultSynthesisClient(connectionInfo);
         let searchBursts: Awaited<ReturnType<typeof runSemanticSearchBursts>>;
+        let semanticContextReadbacks: Awaited<
+          ReturnType<typeof runSemanticContextReadbacks>
+        >;
+        let libraryItemSearches: Awaited<
+          ReturnType<typeof runSerialLibraryItemSearches>
+        >;
         try {
           searchBursts = await runSemanticSearchBursts(
             searchRequest,
@@ -1143,6 +1504,41 @@ describe("Synthesis E2E gold library", function () {
             () => topicClient!.client.searchSemanticEvidence(searchRequest),
             cliProfilePath,
           );
+          semanticContextReadbacks = await runSemanticContextReadbacks(
+            semanticContextPassages,
+            (evidenceRef) =>
+              topicClient!.client.readSemanticContext({ evidenceRef }),
+            cliProfilePath,
+          );
+          const libraryBroker = createZoteroHostCapabilityBroker(undefined, {
+            lexicalPort: createNativeSynthesisLibraryLexicalPort({
+              getReadyConnection: () => connectionInfo,
+            }),
+            retrievalPort: createNativeSynthesisLibraryRetrievalPort({
+              getReadyConnection: () => connectionInfo,
+            }),
+          });
+          try {
+            const bridge = getHostBridgeServerStatus();
+            assert.equal(bridge.status, "running");
+            await ensureZoteroMcpServer({
+              hostBridgeStatus: bridge,
+              resolveZoteroHostCapabilityBroker: () => libraryBroker,
+            });
+            libraryItemSearches = await runSerialLibraryItemSearches({
+              mcpEndpoint: bridge.endpoint.replace(/\/bridge\/v2\/?$/, "/mcp"),
+              token: getHostBridgeToken(),
+              itemRefs: items
+                .filter((item) => item.isRegularItem())
+                .map((item) => ({ libraryId: item.libraryID, key: item.key })),
+            });
+            assert.lengthOf(libraryItemSearches.calls, 16);
+          } finally {
+            await ensureZoteroMcpServer({
+              hostBridgeStatus: getHostBridgeServerStatus(),
+              resolveZoteroHostCapabilityBroker,
+            });
+          }
         } finally {
           restoreHostBridgeSynthesisResolver?.();
           restoreHostBridgeSynthesisResolver = undefined;
@@ -1332,6 +1728,9 @@ describe("Synthesis E2E gold library", function () {
               publication: publicationRef.value,
               surfaceBursts: searchBursts,
               acpChat: acpSearchBursts,
+              acpContext,
+              semanticContext: semanticContextReadbacks,
+              libraryItemSearches,
               workbench: workbenchSearchTimings,
               sidecarLifecycle: sidecarAfterBursts.status,
             },

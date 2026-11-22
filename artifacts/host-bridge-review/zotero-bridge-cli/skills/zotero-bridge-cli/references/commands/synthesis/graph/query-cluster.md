@@ -52,15 +52,23 @@ zotero-bridge synthesis graph query-cluster [--endpoint <ENDPOINT>] [--operation
   "additionalProperties": false,
   "properties": {
     "clusterPolicy": {
-      "type": "string"
+      "enum": [
+        "source_only",
+        "include_external",
+        "bounded_external"
+      ]
     },
     "cluster_policy": {
-      "type": "string"
+      "enum": [
+        "source_only",
+        "include_external",
+        "bounded_external"
+      ]
     },
     "maxEdges": {
       "minimum": 0,
       "type": [
-        "number",
+        "integer",
         "string"
       ]
     },
@@ -74,14 +82,14 @@ zotero-bridge synthesis graph query-cluster [--endpoint <ENDPOINT>] [--operation
     "maxNodes": {
       "minimum": 1,
       "type": [
-        "number",
+        "integer",
         "string"
       ]
     },
     "max_edges": {
       "minimum": 0,
       "type": [
-        "number",
+        "integer",
         "string"
       ]
     },
@@ -95,7 +103,7 @@ zotero-bridge synthesis graph query-cluster [--endpoint <ENDPOINT>] [--operation
     "max_nodes": {
       "minimum": 1,
       "type": [
-        "number",
+        "integer",
         "string"
       ]
     },
@@ -129,15 +137,23 @@ zotero-bridge synthesis graph query-cluster [--endpoint <ENDPOINT>] [--operation
   "additionalProperties": false,
   "properties": {
     "clusterPolicy": {
-      "type": "string"
+      "enum": [
+        "source_only",
+        "include_external",
+        "bounded_external"
+      ]
     },
     "cluster_policy": {
-      "type": "string"
+      "enum": [
+        "source_only",
+        "include_external",
+        "bounded_external"
+      ]
     },
     "maxEdges": {
       "minimum": 0,
       "type": [
-        "number",
+        "integer",
         "string"
       ]
     },
@@ -151,14 +167,14 @@ zotero-bridge synthesis graph query-cluster [--endpoint <ENDPOINT>] [--operation
     "maxNodes": {
       "minimum": 1,
       "type": [
-        "number",
+        "integer",
         "string"
       ]
     },
     "max_edges": {
       "minimum": 0,
       "type": [
-        "number",
+        "integer",
         "string"
       ]
     },
@@ -172,7 +188,7 @@ zotero-bridge synthesis graph query-cluster [--endpoint <ENDPOINT>] [--operation
     "max_nodes": {
       "minimum": 1,
       "type": [
-        "number",
+        "integer",
         "string"
       ]
     },
@@ -344,15 +360,23 @@ zotero-bridge synthesis graph query-cluster --query '{}'
         "additionalProperties": false,
         "properties": {
           "clusterPolicy": {
-            "type": "string"
+            "enum": [
+              "source_only",
+              "include_external",
+              "bounded_external"
+            ]
           },
           "cluster_policy": {
-            "type": "string"
+            "enum": [
+              "source_only",
+              "include_external",
+              "bounded_external"
+            ]
           },
           "maxEdges": {
             "minimum": 0,
             "type": [
-              "number",
+              "integer",
               "string"
             ]
           },
@@ -366,14 +390,14 @@ zotero-bridge synthesis graph query-cluster --query '{}'
           "maxNodes": {
             "minimum": 1,
             "type": [
-              "number",
+              "integer",
               "string"
             ]
           },
           "max_edges": {
             "minimum": 0,
             "type": [
-              "number",
+              "integer",
               "string"
             ]
           },
@@ -387,7 +411,7 @@ zotero-bridge synthesis graph query-cluster --query '{}'
           "max_nodes": {
             "minimum": 1,
             "type": [
-              "number",
+              "integer",
               "string"
             ]
           },
@@ -447,15 +471,23 @@ zotero-bridge synthesis graph query-cluster --query '{}'
     "additionalProperties": false,
     "properties": {
       "clusterPolicy": {
-        "type": "string"
+        "enum": [
+          "source_only",
+          "include_external",
+          "bounded_external"
+        ]
       },
       "cluster_policy": {
-        "type": "string"
+        "enum": [
+          "source_only",
+          "include_external",
+          "bounded_external"
+        ]
       },
       "maxEdges": {
         "minimum": 0,
         "type": [
-          "number",
+          "integer",
           "string"
         ]
       },
@@ -469,14 +501,14 @@ zotero-bridge synthesis graph query-cluster --query '{}'
       "maxNodes": {
         "minimum": 1,
         "type": [
-          "number",
+          "integer",
           "string"
         ]
       },
       "max_edges": {
         "minimum": 0,
         "type": [
-          "number",
+          "integer",
           "string"
         ]
       },
@@ -490,7 +522,7 @@ zotero-bridge synthesis graph query-cluster --query '{}'
       "max_nodes": {
         "minimum": 1,
         "type": [
-          "number",
+          "integer",
           "string"
         ]
       },

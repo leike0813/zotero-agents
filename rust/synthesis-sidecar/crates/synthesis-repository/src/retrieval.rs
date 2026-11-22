@@ -207,26 +207,27 @@ impl Repository {
         version: &str,
     ) -> Result<Vec<(String, String, String)>, String> {
         let mut stmt = self.connection()?.prepare(
-            "WITH hit AS (
+            "WITH hit AS MATERIALIZED (
                SELECT f.publication_id,f.group_id,f.fragment_id,f.range_start FROM synt_retrieval_fragment f
                JOIN synt_retrieval_group g USING (publication_id,group_id)
                WHERE f.publication_id=?1 AND f.item_identity=?2 AND f.fragment_id=?3
                  AND f.source_version=?4 AND g.source_version=?4 AND g.status='ready'
-             ), neighbors AS (
-               SELECT f.fragment_id, f.source_json, f.location_json, f.range_start
-               FROM hit JOIN synt_retrieval_fragment f USING (publication_id,group_id)
-               WHERE f.source_version=?4 AND f.item_identity=?2
-                 AND f.fragment_id IN (
-                   hit.fragment_id,
-                   (SELECT fragment_id FROM synt_retrieval_fragment
-                    WHERE publication_id=?1 AND group_id=hit.group_id AND source_version=?4
-                      AND range_start<hit.range_start ORDER BY range_start DESC, fragment_id LIMIT 1),
-                   (SELECT fragment_id FROM synt_retrieval_fragment
-                    WHERE publication_id=?1 AND group_id=hit.group_id AND source_version=?4
-                      AND range_start>hit.range_start ORDER BY range_start, fragment_id LIMIT 1)
-                 )
+             ), chosen AS MATERIALIZED (
+               SELECT publication_id,fragment_id FROM hit
+               UNION ALL
+               SELECT publication_id,(SELECT fragment_id FROM synt_retrieval_fragment
+                 WHERE publication_id=?1 AND item_identity=?2 AND group_id=hit.group_id AND source_version=?4
+                   AND range_start<hit.range_start ORDER BY range_start DESC,fragment_id LIMIT 1)
+               FROM hit
+               UNION ALL
+               SELECT publication_id,(SELECT fragment_id FROM synt_retrieval_fragment
+                 WHERE publication_id=?1 AND item_identity=?2 AND group_id=hit.group_id AND source_version=?4
+                   AND range_start>hit.range_start ORDER BY range_start,fragment_id LIMIT 1)
+               FROM hit
              )
-             SELECT fragment_id,source_json,location_json FROM neighbors ORDER BY range_start,fragment_id"
+             SELECT f.fragment_id,f.source_json,f.location_json FROM chosen
+             JOIN synt_retrieval_fragment f USING (publication_id,fragment_id)
+             ORDER BY f.range_start,f.fragment_id"
         ).map_err(map_sqlite_error)?;
         stmt.query_map(
             rusqlite::params![publication, identity, fragment, version],
@@ -651,23 +652,54 @@ impl Repository {
         publication_id: &str,
         item_identities: &[String],
     ) -> Result<Vec<RetrievalFragmentRecord>, String> {
+        self.read_retrieval_fragments_for_items(publication_id, item_identities, None)
+    }
+
+    pub fn list_scoring_fragments(
+        &self,
+        publication_id: &str,
+        item_identities: &[String],
+        scoped_group_ids: &[&str],
+    ) -> Result<Vec<RetrievalFragmentRecord>, String> {
+        if scoped_group_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let group_ids =
+            serde_json::to_string(scoped_group_ids).map_err(|_| "invalid_retrieval_group")?;
+        self.read_retrieval_fragments_for_items(publication_id, item_identities, Some(&group_ids))
+    }
+
+    fn read_retrieval_fragments_for_items(
+        &self,
+        publication_id: &str,
+        item_identities: &[String],
+        scoped_group_ids: Option<&str>,
+    ) -> Result<Vec<RetrievalFragmentRecord>, String> {
         if item_identities.len() > RETRIEVAL_MAX_SCOPED_IDS {
             return Err("retrieval_scope_limit_exceeded".into());
         }
         if item_identities.is_empty() {
             return Ok(Vec::new());
         }
+        let groups = if scoped_group_ids.is_some() {
+            "AND group_id IN (SELECT value FROM json_each(?2))"
+        } else {
+            ""
+        };
         let sql = format!(
             "SELECT publication_id,group_id,fragment_id,item_identity,library_id,
                     source_json,source_version,range_start,range_end,location_json,vector
              FROM synt_retrieval_fragment
-             WHERE publication_id=?1 AND item_identity IN ({})
+             WHERE publication_id=?1 {groups} AND item_identity IN ({})
              ORDER BY fragment_id ASC",
             placeholders(item_identities.len())
         );
         let mut statement = self.connection()?.prepare(&sql).map_err(map_sqlite_error)?;
-        let mut bindings: Vec<&dyn rusqlite::ToSql> = Vec::with_capacity(item_identities.len() + 1);
+        let mut bindings: Vec<&dyn rusqlite::ToSql> = Vec::with_capacity(item_identities.len() + 2);
         bindings.push(&publication_id);
+        if let Some(ref group_ids) = scoped_group_ids {
+            bindings.push(group_ids);
+        }
         for identity in item_identities {
             bindings.push(identity);
         }

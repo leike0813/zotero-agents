@@ -1,18 +1,18 @@
 # Host Bridge 中文审阅镜像
 
-生成时间：2026-11-19T01:10:16.841Z
+生成时间：2026-11-22T10:08:30.336Z
 
 本目录按发布面所有权保存中文译文；继承内容只在其所有者目录出现一次。有效组成由下表的继承链和文件数表达。
 
 | 发布面 | 类型 | 继承链 | 自有文件 | 继承文件 | 有效文件 |
 | --- | --- | --- | ---: | ---: | ---: |
-| `zotero-bridge-cli` | `minimum-core` | `zotero-bridge-cli` | 146 | 0 | 146 |
-| `zotero-library-agent` | `generic-agent` | `zotero-bridge-cli` → `zotero-library-agent` | 13 | 146 | 159 |
-| `zotero-librarian` | `hosted-agent` | `zotero-bridge-cli` → `zotero-library-agent` → `zotero-librarian` | 6 | 159 | 165 |
+| `zotero-bridge-cli` | `minimum-core` | `zotero-bridge-cli` | 148 | 0 | 148 |
+| `zotero-library-agent` | `generic-agent` | `zotero-bridge-cli` → `zotero-library-agent` | 13 | 148 | 161 |
+| `zotero-librarian` | `hosted-agent` | `zotero-bridge-cli` → `zotero-library-agent` → `zotero-librarian` | 6 | 161 | 167 |
 
 ## zotero-bridge-cli
 
-- [zotero-bridge-cli/skills/zotero-bridge-cli/references/command-catalog.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/command-catalog.md): Zotero Bridge 命令目录：按任务族索引规范命令、自然语言线索与命令卡片链接，新增 acquisition 全文获取命令族。
+- [zotero-bridge-cli/skills/zotero-bridge-cli/references/command-catalog.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/command-catalog.md): 按任务导航 CLI 命令及其契约，涵盖库检索、Topic 发现、语义覆盖和证据回读。
 - [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/acquisition/activate.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/acquisition/activate.md): 在任务页面中激活当前观察到的链接，消费 pageRef 与 targetRef，返回会话及页面状态。
 - [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/acquisition/cancel-download.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/acquisition/cancel-download.md): 取消任务内的下载并清理临时下载资源，不回滚已提交的 Zotero 附件。
 - [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/acquisition/download.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/acquisition/download.md): 按幂等键启动异步任务下载，返回 downloadRef 供后续轮询，不直接改动 Zotero 库。
@@ -29,8 +29,8 @@
 - [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/bridge/profile/inspect.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/bridge/profile/inspect.md): 检查已脱敏的 Zotero Bridge 连接 profile
 - [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/bridge/status.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/bridge/status.md): 不经认证检查 Zotero Bridge 服务健康
 - [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/call/index.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/call/index.md): 高级诊断用原始 capability 调用
-- [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/context/current.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/context/current.md): 读取当前 Zotero UI 上下文
-- [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/context/selection/get.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/context/selection/get.md): 读取所选 Zotero items 的一页精确内容
+- [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/context/current.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/context/current.md): 读取 Zotero 当前视图的类型、选中来源和可用的条目或集合引用。
+- [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/context/selection/get.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/context/selection/get.md): 按照当前选择的固定基准读取条目分页，使用返回游标继续。
 - [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/debug/acp-skill-run/reapply-result.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/debug/acp-skill-run/reapply-result.md): 对一个已存在的 ACP skill run 结果重新运行 applyResult
 - [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/debug/persistence.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/debug/persistence.md): 读取仅用于调试的持久化诊断信息
 - [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/debug/status.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/debug/status.md): 读取仅调试的 Zotero Bridge 服务运行时状态
@@ -111,21 +111,23 @@
 - [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/artifact/resolve-topic-digest.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/artifact/resolve-topic-digest.md): 解析 topic 论文摘要
 - [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/cache/invalidate.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/cache/invalidate.md): 使受限 Synthesis 缓存范围失效
 - [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/cache/refresh-reference-sidecar.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/cache/refresh-reference-sidecar.md): 启动 reference-sidecar 刷新
-- [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/cache/status.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/cache/status.md): 读取 Synthesis cache 维护状态
+- [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/cache/status.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/cache/status.md): 查看 Synthesis 索引与派生模型的缓存状态。
 - [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/concept/query.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/concept/query.md): 查询 Synthesis Concept KB 候选
+- [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/evidence/context.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/evidence/context.md): 用完整证据引用回读原文及相邻片段，检查来源和发布版本。
 - [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/evidence/search.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/evidence/search.md): 说明如何在 Zotero 中按限定范围搜索元数据、全文与分析证据，以及参数、结果和失败恢复约定。
+- [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/evidence/semantic-search.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/evidence/semantic-search.md): 从发布的向量索引检索论文或 Topic 片段，取得可回读的证据引用。
 - [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/graph/get-layout.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/graph/get-layout.md): 读取持久化的引用图布局坐标
 - [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/graph/get-metrics.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/graph/get-metrics.md): 读取所选论文的 citation graph metrics
 - [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/graph/get-slice.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/graph/get-slice.md): 读取一段 Synthesis 引文图
 - [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/graph/overview.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/graph/overview.md): 读取分页的 Synthesis citation graph 概览
-- [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/graph/query-cluster.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/graph/query-cluster.md): 查询一个 topic 作用域的引用图 cluster
+- [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/graph/query-cluster.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/graph/query-cluster.md): 查询受过滤条件约束的引文图聚类结果。
 - [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/graph/rank-external-references.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/graph/rank-external-references.md): 从引文图对外部参考文献排名
 - [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/graph/rank-library-papers.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/graph/rank-library-papers.md): 从引文图 metrics 对库内论文排名
 - [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/graph/refresh-metrics.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/graph/refresh-metrics.md): 刷新持久化的引文图复杂指标
 - [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/graph/update.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/graph/update.md): 启动 citation graph 更新
 - [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/index/library/get.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/index/library/get.md): 全局选项可出现在叶命令之前或之后。使用 `--schema` 检查原始结构化输入 schema，而无需加载 profile 或连接 Zotero。
 - [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/index/reference/get.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/index/reference/get.md): 全局选项可出现在叶命令之前或之后。使用 `--schema` 检查原始结构化输入 schema，而无需加载 profile 或连接 Zotero。
-- [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/index/status.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/index/status.md): 读取 Synthesis index 维护状态
+- [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/index/status.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/index/status.md): 读取 Synthesis 文库和参考文献索引就绪状态。
 - [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/insight/attention-queue.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/insight/attention-queue.md): 读取聚合 graph/artifact/reference attention 条目
 - [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/resolver/resolve.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/resolver/resolve.md): 将 topic resolver 解析为论文集
 - [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/schema/get.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/schema/get.md): 读取 Synthesis Layer schema 元数据
@@ -173,7 +175,7 @@
 - [zotero-library-agent/skills/zotero-literature-analysis/references/playbook.md](zotero-library-agent/skills/zotero-literature-analysis/references/playbook.md): 文献分析 Playbook：证据分级、分析工作流与产物格式。
 - [zotero-library-agent/skills/zotero-literature-analysis/SKILL.md](zotero-library-agent/skills/zotero-literature-analysis/SKILL.md): zotero-literature-analysis Skill：对选定文献执行有界分析并产出可核实结果。
 - [zotero-library-agent/skills/zotero-research-synthesis/references/playbook.md](zotero-library-agent/skills/zotero-research-synthesis/references/playbook.md): 研究综合 Playbook：话题规划、来源边界、分歧保留与导出验证。
-- [zotero-library-agent/skills/zotero-research-synthesis/SKILL.md](zotero-library-agent/skills/zotero-research-synthesis/SKILL.md): zotero-research-synthesis Skill：将限定来源集合合成为主张图与综合报告。
+- [zotero-library-agent/skills/zotero-research-synthesis/SKILL.md](zotero-library-agent/skills/zotero-research-synthesis/SKILL.md): 按已核验的 Zotero 证据开展综合分析和 Topic 研究，保留依据、限制和交接信息。
 
 ## zotero-librarian
 
