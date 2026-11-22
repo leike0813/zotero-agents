@@ -20,6 +20,7 @@ import type {
 } from "../../src/workflows/types";
 import { generateSourceReferenceId } from "../../packages/synthesis-contracts/src/sourceReferenceArtifact";
 import {
+  configurePluginMutationAuthorityStorageFaultForTests,
   getLiteratureArtifactMigrationRun,
   listLiteratureArtifactMigrationRuns,
   listLiteratureArtifactMigrationSets,
@@ -1851,7 +1852,7 @@ describe("literature artifact migration", function () {
     assert.isNull(service.getActiveSnapshot());
   });
 
-  it("fails the run on a failed set, stops later writes, and publishes apply progress", async function () {
+  it("persists an unclassified set failure and applies the next parent", async function () {
     const sets: LegacyArtifactSetInput[] = ["A", "B", "C"].map(
       (suffix, index) => ({
         libraryId: 1,
@@ -1871,8 +1872,16 @@ describe("literature artifact migration", function () {
     const service = createLiteratureArtifactMigrationService({
       host: {
         scanLibrary: async () => sets,
-        applySet: async ({ parentRef }) => {
+        applySet: async ({ parentRef, runId }) => {
           appliedParents.push(parentRef.key);
+          if (parentRef.key === "PARENT-C") {
+            assert.deepEqual(
+              listLiteratureArtifactMigrationSets({ runId, limit: 10 }).map(
+                ({ outcome }) => outcome,
+              ),
+              ["applied", "failed", "preview"],
+            );
+          }
           return parentRef.key === "PARENT-B"
             ? {
                 outcome: "failed" as const,
@@ -1899,11 +1908,11 @@ describe("literature artifact migration", function () {
     });
 
     assert.isTrue(result.ok);
-    if (!result.ok) throw new Error("expected durable failed result");
-    assert.equal(result.state, "failed");
-    assert.equal(result.processedCount, 2);
-    assert.equal(result.remainingCount, 1);
-    assert.deepEqual(appliedParents, ["PARENT-A", "PARENT-B"]);
+    if (!result.ok) throw new Error("expected a settled migration");
+    assert.equal(result.state, "completed_with_attention");
+    assert.equal(result.processedCount, 3);
+    assert.equal(result.remainingCount, 0);
+    assert.deepEqual(appliedParents, ["PARENT-A", "PARENT-B", "PARENT-C"]);
     assert.include(
       getLiteratureArtifactMigrationRun(result.runId)?.diagnostics,
       "mutation:execution_failed",
@@ -1914,60 +1923,9 @@ describe("literature artifact migration", function () {
         { completed: 0, total: 3 },
         { completed: 1, total: 3 },
         { completed: 2, total: 3 },
+        { completed: 3, total: 3 },
       ],
     );
-    assert.deepEqual(
-      listLiteratureArtifactMigrationSets({
-        runId: result.runId,
-        limit: 10,
-      }).map(({ outcome }) => outcome),
-      ["applied", "failed", "preview"],
-    );
-  });
-
-  it("continues later sets after a safe candidate-local failure", async function () {
-    const sets: LegacyArtifactSetInput[] = ["A", "B", "C"].map(
-      (suffix, index) => ({
-        libraryId: 1,
-        parentRef: { libraryId: 1, key: `PARENT-${suffix}` },
-        references: [
-          { title: `Study ${index + 1}`, year: 2024, authors: ["Ada"] },
-        ],
-      }),
-    );
-    const appliedParents: string[] = [];
-    const service = createLiteratureArtifactMigrationService({
-      host: {
-        scanLibrary: async () => sets,
-        applySet: async ({ parentRef }) => {
-          appliedParents.push(parentRef.key);
-          return parentRef.key === "PARENT-B"
-            ? {
-                outcome: "failed" as const,
-                reason: "failed",
-                diagnostics: ["mutation:resource_limited"],
-                continueSafe: true as const,
-              }
-            : { outcome: "applied" as const };
-        },
-      },
-      candidateIdFactory: (ordinal) => `candidate-${ordinal}`,
-    });
-    const preview = await service.scan({ libraryId: 1 });
-    assert.isTrue(preview.ok);
-    if (!preview.ok) throw new Error("expected migration preview");
-
-    const result = await service.apply({
-      scanOperationId: preview.operationId,
-      candidateIds: preview.candidates.map(({ candidateId }) => candidateId),
-    });
-
-    assert.isTrue(result.ok);
-    if (!result.ok) throw new Error("expected durable attention result");
-    assert.equal(result.state, "completed_with_attention");
-    assert.equal(result.processedCount, 3);
-    assert.equal(result.remainingCount, 0);
-    assert.deepEqual(appliedParents, ["PARENT-A", "PARENT-B", "PARENT-C"]);
     assert.deepEqual(
       listLiteratureArtifactMigrationSets({
         runId: result.runId,
@@ -1977,37 +1935,49 @@ describe("literature artifact migration", function () {
     );
   });
 
-  it("stops later writes for every unsafe terminal outcome", async function () {
+  it("isolates parent repair and exceptions and stops only for an explicit run blocker", async function () {
     const scenarios = [
       {
         label: "repair-required",
-        result: { outcome: "repair_required" as const, reason: "cleanup" },
-        state: "completed_with_attention",
+        apply: () => ({
+          outcome: "repair_required" as const,
+          reason: "cleanup",
+        }),
+        receipt: "repair_required",
       },
       {
-        label: "residual-effect",
-        result: { outcome: "failed" as const, reason: "residual_effect" },
-        state: "failed",
+        label: "exception",
+        apply: () => {
+          throw new Error("candidate adapter interrupted");
+        },
+        receipt: "repair_required",
       },
       {
-        label: "ambiguous",
-        result: { outcome: "failed" as const, reason: "ambiguous" },
-        state: "failed",
+        label: "library-not-writable",
+        apply: () => ({
+          outcome: "failed" as const,
+          runBlocker: "library_not_writable" as const,
+        }),
+        receipt: "failed",
+        blocksRun: true,
       },
       {
-        label: "infrastructure",
-        result: { outcome: "failed" as const, reason: "execution_failed" },
-        state: "failed",
+        label: "authority-receipt-unavailable",
+        apply: () => ({
+          outcome: "repair_required" as const,
+          runBlocker: "authority_receipt_unavailable" as const,
+        }),
+        receipt: "repair_required",
+        blocksRun: true,
       },
       {
         label: "canceled",
-        result: { outcome: "failed" as const, reason: "canceled" },
-        state: "failed",
-      },
-      {
-        label: "authority-unavailable",
-        result: { outcome: "failed" as const, reason: "unavailable" },
-        state: "failed",
+        apply: () => ({
+          outcome: "failed" as const,
+          runBlocker: "canceled" as const,
+        }),
+        receipt: "failed",
+        blocksRun: true,
       },
     ];
     for (const scenario of scenarios) {
@@ -2031,7 +2001,9 @@ describe("literature artifact migration", function () {
             })),
           applySet: async ({ parentRef }) => {
             appliedParents.push(parentRef.key);
-            return scenario.result;
+            return parentRef.key.endsWith("-A")
+              ? scenario.apply()
+              : { outcome: "applied" as const };
           },
         },
       });
@@ -2044,10 +2016,128 @@ describe("literature artifact migration", function () {
       });
       assert.isTrue(result.ok);
       if (!result.ok) throw new Error("expected terminal migration result");
-      assert.equal(result.state, scenario.state, scenario.label);
-      assert.equal(result.processedCount, 1, scenario.label);
-      assert.equal(result.remainingCount, 1, scenario.label);
-      assert.deepEqual(appliedParents, [`${scenario.label}-A`], scenario.label);
+      assert.equal(
+        result.state,
+        scenario.blocksRun ? "failed" : "completed_with_attention",
+        scenario.label,
+      );
+      assert.equal(
+        result.remainingCount,
+        scenario.blocksRun ? 1 : 0,
+        scenario.label,
+      );
+      assert.deepEqual(
+        appliedParents,
+        scenario.blocksRun
+          ? [`${scenario.label}-A`]
+          : [`${scenario.label}-A`, `${scenario.label}-B`],
+        scenario.label,
+      );
+      assert.deepEqual(
+        service
+          .listReceipts({ runId: result.runId })
+          .map(({ outcome }) => outcome),
+        [scenario.receipt, scenario.blocksRun ? "preview" : "applied"],
+        scenario.label,
+      );
+    }
+  });
+
+  it("isolates an uncertain parent only while its authority receipt can be retained", async function () {
+    const parents = ["FIRST", "SECOND"].map((key) => ({ libraryId: 1, key }));
+    const broker = createFailClosedZoteroHostCapabilityBroker({
+      library: {
+        listItems: async () => ({
+          items: parents.map((ref) => ({
+            kind: "regular",
+            ref,
+            title: ref.key,
+          })),
+          hasMore: false,
+          nextCursor: null,
+        }),
+        getItemNotes: async (parent) => ({
+          notes: [
+            { ref: { libraryId: parent.libraryId, key: `NOTE-${parent.key}` } },
+          ],
+          hasMore: false,
+          nextCursor: null,
+        }),
+      },
+    });
+    for (const storageFailed of [false, true]) {
+      const admitted: string[] = [];
+      const service = createLiteratureArtifactMigrationService({
+        host: createLiteratureArtifactMigrationHostFromZoteroBroker(broker, {
+          localControl: {
+            readLegacyForMigration: async () => ({
+              kind: "legacy",
+              html: '<span data-zs-payload="references-json"></span>',
+              revision: "legacy-1",
+              payloads: [
+                {
+                  payloadType: "references-json",
+                  value: {
+                    items: [{ title: "A Study", year: 2024, authors: ["Ada"] }],
+                  },
+                },
+              ],
+            }),
+            applyParentSet: async ({ operationId, parentRef }, scope) => {
+              try {
+                return await executeReservedMutation({
+                  scope,
+                  operationId,
+                  operation: "managed_note.apply_parent_set",
+                  semanticInput: { parentRef },
+                  async execute() {
+                    admitted.push(parentRef.key);
+                    if (storageFailed) {
+                      configurePluginMutationAuthorityStorageFaultForTests(
+                        "terminal",
+                      );
+                    }
+                    throw new MutationAuthorityExecutionError(
+                      "unknown",
+                      "execution_failed",
+                      "verification",
+                      "reconcile",
+                      { phase: "verification", recovery: "reconcile" },
+                      "The parent effect requires verification",
+                    );
+                  },
+                });
+              } finally {
+                configurePluginMutationAuthorityStorageFaultForTests(undefined);
+              }
+            },
+          },
+        }),
+      });
+      const preview = await service.scan({ libraryId: 1 });
+      if (!preview.ok) throw new Error(preview.code);
+      const result = await service.apply({
+        scanOperationId: preview.operationId,
+        candidateIds: preview.candidates.map(({ candidateId }) => candidateId),
+      });
+      if (!result.ok) throw new Error(result.code);
+      assert.deepEqual(
+        admitted,
+        storageFailed ? ["FIRST"] : ["FIRST", "SECOND"],
+      );
+      assert.equal(
+        result.state,
+        storageFailed ? "failed" : "completed_with_attention",
+      );
+      const receipts = service.listReceipts({ runId: result.runId });
+      assert.deepEqual(
+        receipts.map(({ outcome }) => outcome),
+        storageFailed
+          ? ["repair_required", "preview"]
+          : ["repair_required", "repair_required"],
+      );
+      if (storageFailed)
+        assert.equal(result.reason, "authority_receipt_unavailable");
     }
   });
 
@@ -2155,7 +2245,8 @@ describe("literature artifact migration", function () {
       scanOperationId: preview.operationId,
       candidateIds: [preview.candidates[0]!.candidateId],
     });
-    assert.isFalse(result.ok);
+    if (!result.ok) throw new Error(result.code);
+    assert.equal(result.state, "completed_with_attention");
     assert.notInclude(
       JSON.stringify(listLiteratureArtifactMigrationRuns({ limit: 10 })),
       secret,
@@ -2171,7 +2262,7 @@ describe("literature artifact migration", function () {
       })[0],
       {
         title: "",
-        outcome: "failed",
+        outcome: "repair_required",
         diagnostics: ["apply_failed:migration_error"],
       },
     );
@@ -3060,78 +3151,86 @@ describe("literature artifact migration", function () {
     assert.equal(continuedParentCount, 101);
   });
 
-  it("shares the active gate, stops between sets, and pages durable receipts", async function () {
-    const sets: LegacyArtifactSetInput[] = [
-      {
-        libraryId: 1,
-        parentRef: { libraryId: 1, key: "PARENT-A" },
-        references: [{ title: "A Study", year: 2024, authors: ["Ada"] }],
-      },
-      {
-        libraryId: 1,
-        parentRef: { libraryId: 1, key: "PARENT-B" },
-        references: [{ title: "B Study", year: 2023, authors: ["Grace"] }],
-      },
-    ];
-    let releaseFirst: (() => void) | undefined;
-    const firstSetStarted = new Promise<void>((resolve) => {
-      releaseFirst = resolve;
+  for (const reason of ["user_stopped", "host_shutdown"] as const) {
+    it(`stops between sets on ${reason} and pages durable receipts`, async function () {
+      const sets: LegacyArtifactSetInput[] = [
+        {
+          libraryId: 1,
+          parentRef: { libraryId: 1, key: "PARENT-A" },
+          references: [{ title: "A Study", year: 2024, authors: ["Ada"] }],
+        },
+        {
+          libraryId: 1,
+          parentRef: { libraryId: 1, key: "PARENT-B" },
+          references: [{ title: "B Study", year: 2023, authors: ["Grace"] }],
+        },
+      ];
+      let releaseFirst: (() => void) | undefined;
+      const firstSetStarted = new Promise<void>((resolve) => {
+        releaseFirst = resolve;
+      });
+      let applied = 0;
+      const host = {
+        scanLibrary: async () => sets,
+        applySet: async ({ parentRef }: { parentRef: { key: string } }) => {
+          applied += 1;
+          if (parentRef.key === "PARENT-A") {
+            await firstSetStarted;
+          }
+          return { outcome: "applied" as const };
+        },
+      };
+      const service = createLiteratureArtifactMigrationService({ host });
+      const preview = await service.scan({ libraryId: 1 });
+      const applying = service.apply({
+        scanOperationId: preview.operationId,
+        candidateIds: preview.candidates.map(
+          (candidate) => candidate.candidateId,
+        ),
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const busy = await service.scan({ libraryId: 1 });
+      assert.equal(busy.ok, false);
+      if (busy.ok) throw new Error("expected active migration gate");
+      assert.equal(busy.code, "busy");
+      assert.equal(
+        service.stop({
+          runId: preview.runId,
+          ...(reason === "host_shutdown" ? { reason } : {}),
+        }).ok,
+        true,
+      );
+      releaseFirst?.();
+      const result = await applying;
+      assert.equal(result.ok, true);
+      if (!result.ok) throw new Error("expected migration result");
+      assert.equal(result.state, "completed_with_attention");
+      assert.equal(result.reason, reason);
+      assert.equal(result.processedCount, 1);
+      assert.equal(result.remainingCount, 1);
+      assert.equal(applied, 1);
+      const firstPage = service.listReceiptsPage({
+        runId: preview.runId,
+        limit: 1,
+      });
+      assert.equal(firstPage.items.length, 1);
+      assert.isString(firstPage.nextCursor);
+      const secondPage = service.listReceiptsPage({
+        runId: preview.runId,
+        limit: 1,
+        cursor: firstPage.nextCursor || undefined,
+      });
+      assert.equal(secondPage.items.length, 1);
+      assert.notEqual(firstPage.items[0]?.operationId, preview.operationId);
+      assert.notEqual(
+        firstPage.items[0]?.operationId,
+        secondPage.items[0]?.operationId,
+      );
+      assert.equal(
+        listLiteratureArtifactMigrationSets({ runId: preview.runId, limit: 10 })
+          .length,
+        2,
+      );
     });
-    let applied = 0;
-    const host = {
-      scanLibrary: async () => sets,
-      applySet: async ({ parentRef }: { parentRef: { key: string } }) => {
-        applied += 1;
-        if (parentRef.key === "PARENT-A") {
-          await firstSetStarted;
-        }
-        return { outcome: "applied" as const };
-      },
-    };
-    const service = createLiteratureArtifactMigrationService({ host });
-    const preview = await service.scan({ libraryId: 1 });
-    const applying = service.apply({
-      scanOperationId: preview.operationId,
-      candidateIds: preview.candidates.map(
-        (candidate) => candidate.candidateId,
-      ),
-    });
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    const busy = await service.scan({ libraryId: 1 });
-    assert.equal(busy.ok, false);
-    if (busy.ok) throw new Error("expected active migration gate");
-    assert.equal(busy.code, "busy");
-    assert.equal(service.stop({ runId: preview.runId }).ok, true);
-    releaseFirst?.();
-    const result = await applying;
-    assert.equal(result.ok, true);
-    if (!result.ok) throw new Error("expected migration result");
-    assert.equal(result.state, "completed_with_attention");
-    assert.equal(result.reason, "user_stopped");
-    assert.equal(result.processedCount, 1);
-    assert.equal(result.remainingCount, 1);
-    assert.equal(applied, 1);
-    const firstPage = service.listReceiptsPage({
-      runId: preview.runId,
-      limit: 1,
-    });
-    assert.equal(firstPage.items.length, 1);
-    assert.isString(firstPage.nextCursor);
-    const secondPage = service.listReceiptsPage({
-      runId: preview.runId,
-      limit: 1,
-      cursor: firstPage.nextCursor || undefined,
-    });
-    assert.equal(secondPage.items.length, 1);
-    assert.notEqual(firstPage.items[0]?.operationId, preview.operationId);
-    assert.notEqual(
-      firstPage.items[0]?.operationId,
-      secondPage.items[0]?.operationId,
-    );
-    assert.equal(
-      listLiteratureArtifactMigrationSets({ runId: preview.runId, limit: 10 })
-        .length,
-      2,
-    );
-  });
+  }
 });

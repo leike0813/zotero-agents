@@ -1512,19 +1512,21 @@ function assertRuntimeMoveInspectionBudget(entries: number, depth: number) {
   }
 }
 
+export function isRuntimePathMissingError(error: unknown) {
+  return (
+    error !== null &&
+    typeof error === "object" &&
+    (("code" in error &&
+      (error.code === "ENOENT" || error.code === "NS_ERROR_FILE_NOT_FOUND")) ||
+      ("name" in error && error.name === "NotFoundError"))
+  );
+}
+
 async function runtimePathExistsStrict(path: string) {
   try {
     return (await statRuntimePathInternal(path, true, false)).exists;
   } catch (error) {
-    if (
-      error &&
-      typeof error === "object" &&
-      (("code" in error &&
-        (error.code === "ENOENT" ||
-          error.code === "NS_ERROR_FILE_NOT_FOUND")) ||
-        ("name" in error && error.name === "NotFoundError"))
-    )
-      return false;
+    if (isRuntimePathMissingError(error)) return false;
     throw error;
   }
 }

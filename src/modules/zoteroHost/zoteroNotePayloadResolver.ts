@@ -8,7 +8,12 @@ import {
   ZoteroNotePayloadResourceLimitError,
   type ZoteroNotePayloadBlock,
 } from "./notePayloadCodec";
-import { readRuntimeBytes, statRuntimePath } from "../runtimePersistence";
+import {
+  isRuntimePathMissingError,
+  readRuntimeBytes,
+  statRuntimePath,
+  statRuntimePathStrict,
+} from "../runtimePersistence";
 import { queryZoteroChildItemPage } from "./zoteroLibraryPageQuery";
 import { sha256Hex } from "../../utils/sha256";
 import { yieldToEventLoop } from "../../utils/runtimeCompatibility";
@@ -53,26 +58,38 @@ async function readAttachmentPath(attachment: any, checkCanceled?: () => void) {
   return path;
 }
 
+export class ZoteroNotePayloadAttachmentMissingError extends Error {
+  constructor() {
+    super("Embedded payload attachment file is missing");
+    this.name = "ZoteroNotePayloadAttachmentMissingError";
+  }
+}
+
 async function readAttachmentBytes(
   attachment: any,
   checkCanceled?: () => void,
   maxBytes = NOTE_PAYLOAD_MAX_BYTES,
 ) {
-  const path = await readAttachmentPath(attachment, checkCanceled);
-  if (!path) {
-    throw new Error("embedded payload attachment path is missing");
+  try {
+    const path = await readAttachmentPath(attachment, checkCanceled);
+    if (!path) throw new ZoteroNotePayloadAttachmentMissingError();
+    const stat = await statRuntimePathStrict(path);
+    checkCanceled?.();
+    if (!stat.exists) throw new ZoteroNotePayloadAttachmentMissingError();
+    if (stat.isDir)
+      throw new Error("Embedded payload attachment is a directory");
+    if (stat.size > maxBytes) {
+      throw new ZoteroNotePayloadResourceLimitError("attachment", maxBytes);
+    }
+    const bytes = await readRuntimeBytes(path);
+    checkCanceled?.();
+    return bytes;
+  } catch (error) {
+    if (isRuntimePathMissingError(error)) {
+      throw new ZoteroNotePayloadAttachmentMissingError();
+    }
+    throw error;
   }
-  const stat = await statRuntimePath(path);
-  checkCanceled?.();
-  if (!stat.exists || stat.isDir) {
-    throw new Error("embedded payload attachment is unavailable");
-  }
-  if (stat.size > maxBytes) {
-    throw new ZoteroNotePayloadResourceLimitError("attachment", maxBytes);
-  }
-  const bytes = await readRuntimeBytes(path);
-  checkCanceled?.();
-  return bytes;
 }
 
 type PayloadPageCursor = {

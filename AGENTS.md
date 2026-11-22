@@ -253,6 +253,8 @@
 
 # Workflow 执行结算硬约束
 
+- [文献产物迁移](docs/components/literature-artifact-migration.md) 按父条目隔离写入和回执。单组失败或待修复后继续尝试独立候选，整批停止须有取消、宿主关闭、库不可写或回执不可持久化等共享条件的证据。
+
 - 文献/研究包导出显式使用 `failurePolicy: "record_partial"`，以 payload、图片、笔记、附件和文献为局部失败单元；默认调用保留严格行为。恢复只改变导出副本，问题材料与报告纳入完整性清单且不参与正常受管导入。取消、任务超时、宿主关闭、目标写入失败和全局资源耗尽必须终止任务并保留旧目标；资源清理不得释放其它成功单元。
 
 - 本地 JobQueue 只消费中立执行结果；SkillRunner 进度、失败分类与 canonical 结算由其 run domain 持有，经 runSeam 组合。结算通知必须在 JobRecord 的原始结果、状态和元数据可读之后发布；普通 job update 不得再次推导 canonical 事件。dispatch idle、远端终态与 Host apply 完成保持独立。

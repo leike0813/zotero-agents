@@ -34,6 +34,7 @@ import {
 import {
   getLiteratureArtifactMigrationRun,
   getPrimaryLiteratureArtifactMigrationIssue,
+  getPluginMutationAuthorityEntry,
   listLiteratureArtifactMigrationRuns,
   listLiteratureArtifactMigrationSets,
   upsertLiteratureArtifactMigrationRun,
@@ -247,6 +248,16 @@ export type LiteratureArtifactMigrationScanProgress = {
   candidateCount: number;
 };
 
+type MigrationApplyResult = {
+  outcome: "applied" | "changed_since_scan" | "repair_required" | "failed";
+  reason?: string;
+  diagnostics?: string[];
+  runBlocker?:
+    | "canceled"
+    | "library_not_writable"
+    | "authority_receipt_unavailable";
+};
+
 export type LiteratureArtifactMigrationHost = {
   scanLibrary: (args: {
     libraryId: number;
@@ -256,18 +267,14 @@ export type LiteratureArtifactMigrationHost = {
       progress: LiteratureArtifactMigrationScanProgress,
     ) => boolean;
   }) => Promise<LegacyArtifactSetInput[]>;
+  /** Writes are confined to the candidate parent and its owned artifacts. */
   applySet: (args: {
     runId: string;
     libraryId: number;
     parentRef: MigrationPortableItemRef;
     candidate: LiteratureArtifactMigrationApplyCandidate;
     operationId: string;
-  }) => Promise<{
-    outcome: "applied" | "changed_since_scan" | "repair_required" | "failed";
-    reason?: string;
-    diagnostics?: string[];
-    continueSafe?: true;
-  }>;
+  }) => Promise<MigrationApplyResult>;
 };
 
 type LiteratureArtifactMigrationLocalControl = Pick<
@@ -428,12 +435,7 @@ function mutationResultToMigrationOutcome(
     candidateId: string;
     ordinal: number;
   },
-): {
-  outcome: "applied" | "repair_required" | "failed";
-  reason?: string;
-  diagnostics?: string[];
-  continueSafe?: true;
-} {
+): MigrationApplyResult {
   if (result.outcome === "committed" || result.outcome === "unchanged") {
     return { outcome: "applied" };
   }
@@ -455,11 +457,12 @@ function mutationResultToMigrationOutcome(
     `affected_count:${result.attempt.affectedRefs.length}`,
     `residual_count:${result.attempt.residualRefs.length}`,
   ];
+  const needsRepair =
+    result.outcome === "repair_required" ||
+    result.outcome === "unknown" ||
+    result.attempt.residualRefs.length > 0;
   appendRuntimeLog({
-    level:
-      result.outcome === "repair_required" || result.outcome === "unknown"
-        ? "warn"
-        : "error",
+    level: needsRepair ? "warn" : "error",
     scope: "state-machine",
     runId: context.runId,
     component: "literature-artifact-migration",
@@ -480,17 +483,9 @@ function mutationResultToMigrationOutcome(
     },
   });
   return {
-    outcome:
-      result.outcome === "repair_required" || result.outcome === "unknown"
-        ? "repair_required"
-        : "failed",
+    outcome: needsRepair ? "repair_required" : "failed",
     reason: result.outcome,
     diagnostics,
-    ...(result.outcome === "failed" &&
-    result.attempt.residualRefs.length === 0 &&
-    CONTINUATION_SAFE_MIGRATION_CODES.has(result.attempt.error.code)
-      ? { continueSafe: true as const }
-      : {}),
   };
 }
 
@@ -529,14 +524,6 @@ const MIGRATION_FAILURE_CODES = new Set([
   "unavailable",
   "canceled",
   "cancelled",
-]);
-
-const CONTINUATION_SAFE_MIGRATION_CODES = new Set([
-  "resource_limited",
-  "invalid_artifact",
-  "legacy_artifact_requires_migration",
-  "conflict",
-  "not_found",
 ]);
 
 function migrationFailureCode(error: unknown): string {
@@ -926,6 +913,15 @@ export function createLiteratureArtifactMigrationHostFromZoteroBroker(
       candidate,
       operationId,
     }) => {
+      const control = options.workflowControl;
+      if (control?.signal?.aborted) {
+        return { outcome: "failed", runBlocker: "canceled" };
+      }
+      if (
+        (await localControl.isLibraryWritable?.(libraryId, control)) === false
+      ) {
+        return { outcome: "failed", runBlocker: "library_not_writable" };
+      }
       const current = await readLegacyParentSet(
         library,
         localControl,
@@ -995,16 +991,35 @@ export function createLiteratureArtifactMigrationHostFromZoteroBroker(
           : {}),
         ...(migrationCleanup ? { migrationCleanup } : {}),
       };
-      const result = await localControl.applyParentSet(
-        input,
-        normalizeMigrationScope(libraryId),
-        options.workflowControl,
-      );
+      const scope = normalizeMigrationScope(libraryId);
+      const result = await localControl.applyParentSet(input, scope, control);
       const applied = mutationResultToMigrationOutcome(result, {
         runId,
         candidateId: candidate.candidateId,
         ordinal: candidate.ordinal,
       });
+      if (
+        control?.signal?.aborted ||
+        ("attempt" in result &&
+          result.attempt.error.code === "canceled" &&
+          object(result.attempt.error.details)?.reason === "host_shutdown")
+      ) {
+        return { ...applied, runBlocker: "canceled" };
+      }
+      if (result.outcome === "unknown") {
+        // An uncertain parent outcome can be contained once its receipt is durable.
+        try {
+          if (
+            getPluginMutationAuthorityEntry(scope.ownerId, operationId)
+              ?.state === "terminal"
+          ) {
+            return applied;
+          }
+        } catch {
+          // Shared authority storage could not be read.
+        }
+        return { ...applied, runBlocker: "authority_receipt_unavailable" };
+      }
       if (applied.outcome !== "applied") return applied;
       if (!hasVerifiedCanonicalParentSet(result, parentRef, entries)) {
         return {
@@ -1043,6 +1058,7 @@ type RuntimeActive = {
   runId: string;
   operationId: string;
   stopped: boolean;
+  stopReason?: "host_shutdown";
   phase: "scanning" | "converting" | "deciding" | "applying";
   progress?: LiteratureArtifactMigrationScanProgress;
 };
@@ -1873,23 +1889,10 @@ export function createLiteratureArtifactMigrationService(
       phase: "applying",
       progress: initialApplyProgress,
     };
-    args.onProgress?.({ ...initialApplyProgress });
-    publishMigrationChange();
     const selected = requestedIds.map((candidateId) => known.get(candidateId)!);
     const excluded = plan.preview.candidates.filter(
       (candidate) => !requestedIds.includes(candidate.candidateId),
     );
-    for (const candidate of excluded) {
-      const runtimeCandidate = plan.candidates.get(candidate.candidateId)!;
-      persistCandidate(
-        plan.preview.runId,
-        applyOperationId,
-        candidate,
-        runtimeCandidate.conversion,
-        "skipped",
-        ["excluded_from_final_selection"],
-      );
-    }
     const blocked = selected.filter(
       (candidate) => candidate.classification === "blocked",
     );
@@ -1901,6 +1904,16 @@ export function createLiteratureArtifactMigrationService(
     ) =>
       newRuntimeId(`literature-migration-set-${candidate.ordinal}`, idFactory);
     let applyProgress = 0;
+    const reportApplyProgress = (
+      progress: LiteratureArtifactMigrationScanProgress,
+    ) => {
+      try {
+        args.onProgress?.({ ...progress });
+      } catch {
+        // Progress observers do not own migration settlement.
+      }
+      publishMigrationChange();
+    };
     const publishApplyProgress = () => {
       applyProgress += 1;
       if (runtimeActive?.runId !== plan.preview.runId) return;
@@ -1909,74 +1922,74 @@ export function createLiteratureArtifactMigrationService(
         total: requestedIds.length,
         candidateCount: requestedIds.length,
       };
-      args.onProgress?.({ ...runtimeActive.progress });
-      publishMigrationChange();
+      reportApplyProgress(runtimeActive.progress);
     };
-    for (const candidate of blocked) {
-      const runtimeCandidate = plan.candidates.get(candidate.candidateId);
-      if (runtimeCandidate) {
-        persistCandidate(
-          plan.preview.runId,
-          receiptOperationId(candidate),
-          candidate,
-          runtimeCandidate.conversion,
-          "blocked",
-          ["blocked_candidate_requires_no_force_apply"],
-        );
-        publishApplyProgress();
-      }
-    }
-    for (const candidate of skippedReview) {
-      const runtimeCandidate = plan.candidates.get(candidate.candidateId);
-      if (runtimeCandidate) {
-        persistCandidate(
-          plan.preview.runId,
-          receiptOperationId(candidate),
-          candidate,
-          runtimeCandidate.conversion,
-          "skipped",
-          ["review_confirmation_required"],
-        );
-        publishApplyProgress();
-      }
-    }
     const toApply = selected.filter(
-      (candidate) =>
-        candidate.classification !== "blocked" &&
-        !skippedReview.includes(candidate),
+      (candidate) => candidate.classification === "ready",
     );
-    upsertLiteratureArtifactMigrationRun({
-      ...entry,
-      state: "applying",
-      operationId: applyOperationId,
-      updatedAt: nowIso(),
-    });
-    let processedCount =
-      excluded.length + blocked.length + skippedReview.length;
-    let remainingCount = plan.preview.candidates.length - processedCount;
+    let processedCount = 0;
+    const setCount = plan.preview.candidates.length;
     let attention = blocked.length > 0 || skippedReview.length > 0;
     let reason = blocked.length
       ? "blocked_candidate"
       : skippedReview.length
         ? "review_required"
         : "";
-    let failed = false;
-    let stopScheduling = false;
+    let runBlocker: MigrationApplyResult["runBlocker"];
     const failureDiagnostics: string[] = [];
     try {
+      reportApplyProgress(initialApplyProgress);
+      const unselected = [
+        {
+          candidates: excluded,
+          outcome: "skipped",
+          diagnostic: "excluded_from_final_selection",
+          requested: false,
+        },
+        {
+          candidates: blocked,
+          outcome: "blocked",
+          diagnostic: "blocked_candidate_requires_no_force_apply",
+          requested: true,
+        },
+        {
+          candidates: skippedReview,
+          outcome: "skipped",
+          diagnostic: "review_confirmation_required",
+          requested: true,
+        },
+      ] as const;
+      for (const group of unselected) {
+        for (const candidate of group.candidates) {
+          persistCandidate(
+            plan.preview.runId,
+            group.requested ? receiptOperationId(candidate) : applyOperationId,
+            candidate,
+            plan.candidates.get(candidate.candidateId)!.conversion,
+            group.outcome,
+            [group.diagnostic],
+          );
+          processedCount += 1;
+          if (group.requested) publishApplyProgress();
+        }
+      }
+      upsertLiteratureArtifactMigrationRun({
+        ...entry,
+        state: "applying",
+        operationId: applyOperationId,
+        updatedAt: nowIso(),
+      });
       for (const candidate of toApply) {
         if (runtimeActive?.stopped || plan.stopped) {
           attention = true;
-          reason = "user_stopped";
+          reason = runtimeActive?.stopReason || "user_stopped";
           break;
         }
         const runtimeCandidate = plan.candidates.get(candidate.candidateId);
         if (!runtimeCandidate)
           throw new Error("candidate input is no longer available");
         const setOperationId = receiptOperationId(candidate);
-        let applied: Awaited<
-          ReturnType<LiteratureArtifactMigrationHost["applySet"]>
-        >;
+        let applied: MigrationApplyResult;
         try {
           applied = await options.host.applySet({
             runId: plan.preview.runId,
@@ -1989,127 +2002,57 @@ export function createLiteratureArtifactMigrationService(
             operationId: setOperationId,
           });
         } catch (error) {
-          processedCount += 1;
-          remainingCount = Math.max(
-            0,
-            plan.preview.candidates.length - processedCount,
-          );
-          persistCandidate(
-            plan.preview.runId,
-            setOperationId,
-            candidate,
-            runtimeCandidate.conversion,
-            "failed",
-            [`apply_failed:${migrationFailureCode(error)}`],
-          );
-          publishApplyProgress();
-          throw error;
+          applied = {
+            outcome: "repair_required",
+            diagnostics: [`apply_failed:${migrationFailureCode(error)}`],
+          };
         }
-        processedCount += 1;
-        remainingCount = Math.max(
-          0,
-          plan.preview.candidates.length - processedCount,
+        const diagnostics = [
+          ...(applied.diagnostics ??
+            (applied.outcome === "applied"
+              ? []
+              : [applied.reason || applied.outcome])),
+          ...(applied.runBlocker ? [`run_blocker:${applied.runBlocker}`] : []),
+        ];
+        persistCandidate(
+          plan.preview.runId,
+          setOperationId,
+          candidate,
+          runtimeCandidate.conversion,
+          applied.outcome,
+          diagnostics,
         );
-        if (applied.outcome === "repair_required") {
-          persistCandidate(
-            plan.preview.runId,
-            setOperationId,
-            candidate,
-            runtimeCandidate.conversion,
-            "repair_required",
-            applied.diagnostics || [
-              applied.reason || "cleanup requires repair",
-            ],
-          );
+        processedCount += 1;
+        if (applied.outcome !== "applied") {
           attention = true;
-          reason = reason || "repair_required";
-          stopScheduling = true;
-        } else if (applied.outcome === "failed") {
-          const diagnostics = applied.diagnostics || [
-            applied.reason || "apply_failed",
-          ];
-          failureDiagnostics.push(...diagnostics);
-          persistCandidate(
-            plan.preview.runId,
-            setOperationId,
-            candidate,
-            runtimeCandidate.conversion,
-            "failed",
-            diagnostics,
-          );
-          if (applied.continueSafe) {
-            attention = true;
-            reason = reason || applied.reason || "apply_failed";
-          } else {
-            failed = true;
-            reason = applied.reason || "apply_failed";
+          reason ||= applied.reason || applied.outcome;
+          if (applied.outcome !== "changed_since_scan") {
+            failureDiagnostics.push(...diagnostics);
           }
-        } else if (applied.outcome === "changed_since_scan") {
-          persistCandidate(
-            plan.preview.runId,
-            setOperationId,
-            candidate,
-            runtimeCandidate.conversion,
-            "changed_since_scan",
-            applied.diagnostics || [applied.reason || "changed_since_scan"],
-          );
-          attention = true;
-          reason = reason || "changed_since_scan";
-        } else {
-          persistCandidate(
-            plan.preview.runId,
-            setOperationId,
-            candidate,
-            runtimeCandidate.conversion,
-            "applied",
-            applied.diagnostics,
-          );
         }
         publishApplyProgress();
         const current = getLiteratureArtifactMigrationRun(plan.preview.runId);
-        if (current) {
-          upsertLiteratureArtifactMigrationRun({
-            ...current,
-            state: "applying",
-            operationId: applyOperationId,
-            processedCount,
-            remainingCount,
-            updatedAt: nowIso(),
-          });
-        }
-        if (failed || stopScheduling) break;
-      }
-    } catch (error) {
-      const current = getLiteratureArtifactMigrationRun(plan.preview.runId);
-      if (current) {
+        if (!current) throw new Error("migration run receipt is unavailable");
         upsertLiteratureArtifactMigrationRun({
           ...current,
-          state: "failed",
-          reason: "apply_failed",
+          state: "applying",
+          operationId: applyOperationId,
           processedCount,
-          remainingCount,
-          terminalAt: nowIso(),
+          remainingCount: setCount - processedCount,
           updatedAt: nowIso(),
-          diagnostics: boundLiteratureArtifactMigrationDiagnostics([
-            ...(current.diagnostics || []),
-            `apply_failed:${migrationFailureCode(error)}`,
-          ]),
         });
+        runBlocker = applied.runBlocker;
+        if (runBlocker) break;
       }
-      runtimePlans.delete(scanOperationId);
-      runtimeActive = null;
-      publishMigrationChange();
-      return failure("stale_plan", "migration apply failed", {
-        runId: plan.preview.runId,
-      });
-    }
-    const finalState = failed
-      ? "failed"
-      : reason === "user_stopped" || attention
-        ? "completed_with_attention"
-        : "completed";
-    const current = getLiteratureArtifactMigrationRun(plan.preview.runId);
-    if (current) {
+      const current = getLiteratureArtifactMigrationRun(plan.preview.runId);
+      if (!current) throw new Error("migration run receipt is unavailable");
+      const finalState = runBlocker
+        ? "failed"
+        : attention
+          ? "completed_with_attention"
+          : "completed";
+      const remainingCount = setCount - processedCount;
+      reason = runBlocker || reason;
       upsertLiteratureArtifactMigrationRun({
         ...current,
         operationId: applyOperationId,
@@ -2124,29 +2067,57 @@ export function createLiteratureArtifactMigrationService(
           ...failureDiagnostics,
         ]),
       });
+      return {
+        ok: true,
+        runId: plan.preview.runId,
+        operationId: applyOperationId,
+        state: finalState,
+        reason,
+        processedCount,
+        remainingCount,
+        setCount,
+      };
+    } catch (error) {
+      try {
+        const current = getLiteratureArtifactMigrationRun(plan.preview.runId);
+        if (current) {
+          upsertLiteratureArtifactMigrationRun({
+            ...current,
+            state: "failed",
+            reason: "apply_failed",
+            processedCount,
+            remainingCount: setCount - processedCount,
+            terminalAt: nowIso(),
+            updatedAt: nowIso(),
+            diagnostics: boundLiteratureArtifactMigrationDiagnostics([
+              ...(current.diagnostics || []),
+              ...failureDiagnostics,
+              `apply_failed:${migrationFailureCode(error)}`,
+            ]),
+          });
+        }
+      } catch {
+        // An unavailable store can only reconcile the last durable state later.
+      }
+      return failure("stale_plan", "migration apply failed", {
+        runId: plan.preview.runId,
+      });
+    } finally {
+      runtimePlans.delete(scanOperationId);
+      runtimeActive = null;
+      publishMigrationChange();
     }
-    runtimePlans.delete(scanOperationId);
-    runtimeActive = null;
-    publishMigrationChange();
-    return {
-      ok: true,
-      runId: plan.preview.runId,
-      operationId: applyOperationId,
-      state: finalState,
-      reason,
-      processedCount,
-      remainingCount,
-      setCount: plan.preview.candidates.length,
-    };
   }
 
   function stop(args: {
     runId: string;
+    reason?: "host_shutdown";
   }): { ok: true } | LiteratureArtifactMigrationFailure {
     const runId = text(args.runId);
     if (!runtimeActive || runtimeActive.runId !== runId)
       return failure("not_found", "migration run is not active", { runId });
     runtimeActive.stopped = true;
+    if (args.reason) runtimeActive.stopReason = args.reason;
     const plan = [...runtimePlans.values()].find(
       (entry) => entry.preview.runId === runId,
     );

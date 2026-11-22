@@ -291,14 +291,18 @@ Windows path-length failure that otherwise prevents payload files from being
 written before the transaction starts.
 
 Mutation authority outcomes retain their side-effect meaning. `committed` and
-`unchanged` become `applied`; `repair_required` and `unknown` remain
-repair-required because an effect may exist. A typed candidate-local failure is
-continuation-safe only when it has no residual refs and its code is
-`resource_limited`, `invalid_artifact`, `legacy_artifact_requires_migration`,
-`conflict`, or `not_found`; later sets continue and the run completes with
-attention. Residual, ambiguous, infrastructure, canceled, unavailable, and
-repair-required outcomes stop later admissions. Earlier set receipts remain
-intact in every case.
+`unchanged` become `applied`. Uncertain or residual effects confined to the
+parent set are recorded as `repair_required`. Each set settles individually.
+After persisting its outcome, migration attempts the next eligible parent even
+if the prior set failed or needs repair. The run finishes
+`completed_with_attention` when it has unresolved sets.
+
+When a legacy payload file disappears before the parent-set transaction, the
+attempt reports `not_found` in the read phase and preserves the legacy notes and
+attachment records. A fresh scan also reports `not_found` in the candidate's
+diagnostics. Cancellation, host shutdown, loss of library write access, or
+failure to retain required receipts stops new writes. Earlier receipts remain
+intact, and a fresh scan can find unattempted sets.
 
 ## Durable lifecycle
 

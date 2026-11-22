@@ -49,6 +49,7 @@ import { openHelpCenterTab } from "./modules/helpCenterTab";
 import {
   LITERATURE_ARTIFACT_MIGRATION_DEFINITION_VERSION,
   getLiteratureArtifactMigrationActiveSnapshot,
+  getLiteratureArtifactMigrationService,
   hasLiteratureArtifactMigrationPreview,
   subscribeLiteratureArtifactMigrationChanges,
 } from "./modules/literatureArtifactMigration";
@@ -1398,6 +1399,13 @@ async function runShutdownStepWithTimeout(
 }
 
 async function onShutdown(): Promise<void> {
+  const migration = getLiteratureArtifactMigrationActiveSnapshot();
+  if (migration) {
+    getLiteratureArtifactMigrationService()?.stop({
+      runId: migration.runId,
+      reason: "host_shutdown",
+    });
+  }
   await runShutdownStepWithTimeout(
     "native-acquisition-shutdown",
     shutdownNativeAcquisition,

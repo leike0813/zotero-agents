@@ -6,7 +6,11 @@ import {
   encodeBase64Utf8,
   WORKBENCH_EMBEDDED_PAYLOAD_MARKER,
 } from "../../../../src/modules/zoteroHost/notePayloadCodec";
-import { runtimePathExists } from "../../../../src/modules/runtimePersistence";
+import {
+  removeRuntimePathStrict,
+  runtimePathExists,
+  writeRuntimeBytes,
+} from "../../../../src/modules/runtimePersistence";
 import {
   createLiteratureArtifactMigrationHostFromZoteroBroker,
   createLiteratureArtifactMigrationService,
@@ -176,6 +180,89 @@ async function queryChildIds(parentId: number) {
 }
 
 describeZotero("managed note transaction in Zotero", function () {
+  it("continues with the next parent when a legacy payload disappears before writing", async function () {
+    this.timeout(120000);
+    const missing = await createParent("Migration temporarily missing payload");
+    const healthy = await createParent("Migration readable payload");
+    const makeReferences = (parent: Zotero.Item) =>
+      createLegacyAttachmentPayloadNote({
+        parent,
+        title: "References",
+        noteKind: "references",
+        payloadType: "references-json",
+        payload: { items: [{ title: "A Study", year: 2024 }] },
+      });
+    const source = await makeReferences(missing);
+    const next = await makeReferences(healthy);
+    const originalHtml = source.note.getNote();
+    const payloadPath = String(await source.attachment.getFilePathAsync());
+    const originalBytes = await IOUtils.read(payloadPath);
+    try {
+      const broker = createZoteroHostCapabilityBroker();
+      const localControl = getZoteroManagedNoteLocalControl(broker);
+      const service = createLiteratureArtifactMigrationService({
+        host: createLiteratureArtifactMigrationHostFromZoteroBroker(broker, {
+          localControl: {
+            ...localControl,
+            async applyParentSet(input, scope, control) {
+              if (input.parentRef.key === missing.key) {
+                await removeRuntimePathStrict(payloadPath);
+              }
+              return localControl.applyParentSet(input, scope, control);
+            },
+          },
+        }),
+      });
+      const preview = await service.scan({
+        libraryId: missing.libraryID,
+        parentRefs: [parentRef(missing), parentRef(healthy)],
+      });
+      if (!preview.ok) throw new Error(preview.code);
+      const candidates = [missing, healthy].map((parent) => {
+        const candidate = preview.candidates.find(
+          (entry) => entry.parentRef.key === parent.key,
+        );
+        assert.equal(candidate?.classification, "ready");
+        return candidate!.candidateId;
+      });
+      const result = await service.apply({
+        scanOperationId: preview.operationId,
+        candidateIds: candidates,
+      });
+      if (!result.ok) throw new Error(result.code);
+      const diagnostics = service.buildDiagnosticBundle({
+        runId: result.runId,
+      });
+      assert.equal(result.state, "completed_with_attention");
+      assert.equal(result.processedCount, 2);
+      if (!diagnostics.ok) throw new Error(diagnostics.code);
+      assert.includeMembers(diagnostics.bundle.sets[0]?.diagnostics || [], [
+        "mutation:not_found",
+        "phase:read",
+        "affected_count:0",
+        "residual_count:0",
+      ]);
+      assert.equal(source.note.getNote(), originalHtml);
+      assert.deepEqual(source.note.getAttachments(), [source.attachment.id]);
+      assert.isFalse(await runtimePathExists(payloadPath));
+      const converted = await localControl.readForTransfer(
+        parentRef(next.note),
+      );
+      assert.equal(converted.detail.kind, "managed");
+      const rescanned = await service.scan({
+        libraryId: missing.libraryID,
+        parentRefs: [parentRef(missing)],
+      });
+      if (!rescanned.ok) throw new Error(rescanned.code);
+      assert.equal(rescanned.candidates[0]?.classification, "blocked");
+      assert.include(rescanned.candidates[0]?.diagnostics || [], "not_found");
+    } finally {
+      await writeRuntimeBytes(payloadPath, originalBytes);
+      resetLiteratureArtifactMigrationRuntimeForTests();
+      await Zotero.Items.trashTx([missing.id, healthy.id]);
+    }
+  });
+
   it("migrates v1/v2 and dual-v2 payload pairs through the Dashboard service", async function () {
     this.timeout(180000);
     const score = literatureScore();
@@ -316,7 +403,8 @@ describeZotero("managed note transaction in Zotero", function () {
           });
         } finally {
           db.executeTransaction = originalExecuteTransaction;
-          for (const poisoned of poisonedAttachments) {
+          // Cleanup transactions can replace the same attachment methods again.
+          for (const poisoned of poisonedAttachments.reverse()) {
             poisoned.attachment.getField = poisoned.getField;
             (poisoned.attachment as any).getDisplayTitle =
               poisoned.getDisplayTitle;

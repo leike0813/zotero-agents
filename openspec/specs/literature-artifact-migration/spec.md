@@ -116,10 +116,9 @@ The UI SHALL submit only a scan operation identity and runtime-issued candidate 
 - **AND** the set SHALL be `repair_required` and the run SHALL be `completed_with_attention`.
 
 #### Scenario: An infrastructure failure occurs before a set commits
-- **WHEN** a database or transaction failure prevents the set's commit
-- **THEN** the set and run SHALL report a typed failure
-- **AND** the runtime SHALL stop claiming later sets while preserving every earlier committed receipt
-- **AND** independently committed sets SHALL not be rolled back by a global coordinator.
+- **WHEN** the transaction for one parent set fails and the batch can still record receipts and admit independent sets
+- **THEN** migration SHALL preserve the set's failure receipt and attempt the next eligible parent set
+- **AND** independently committed sets SHALL remain intact.
 
 ### Requirement: Migration lifecycle SHALL be durable, single-flight, and restart-safe
 
@@ -321,20 +320,24 @@ Migration SHALL read embedded legacy payloads through a private bounded recovery
 - **THEN** the candidate SHALL remain blocked without writing or cleanup
 - **AND** migration SHALL NOT offer an accept-damaged-input bypass.
 
-### Requirement: Migration batches SHALL continue only after proven candidate-local terminal failures
+### Requirement: Migration batches SHALL isolate outcomes by parent set
 
-Each failed set SHALL preserve its typed authority receipt. A failed set MAY allow later sets to run only when its authority outcome is terminal, has zero residual effects, and has a candidate-local code explicitly classified as continuation-safe. A repair-required or ambiguous outcome SHALL stop further writes. A run that continued past one or more safe failures SHALL finish `completed_with_attention`.
+Each parent-set operation SHALL confine effects to its parent and owned artifacts. Migration SHALL durably record each set outcome before attempting the next eligible independent set. A run that finishes processing with failed or repair-required sets SHALL report `completed_with_attention`.
 
 #### Scenario: Candidate-local validation failure has no residual effects
-- **WHEN** a set terminates with zero residual effects and code `resource_limited`, `invalid_artifact`, `legacy_artifact_requires_migration`, `conflict`, or `not_found`
-- **THEN** the set SHALL remain failed with its receipt
-- **AND** later approved sets SHALL continue
-- **AND** the run SHALL finish `completed_with_attention`.
+- **WHEN** a parent set fails without residual effects
+- **THEN** migration SHALL preserve the failed set's receipt
+- **AND** later eligible independent sets SHALL be attempted regardless of the failed set's error code.
+
+#### Scenario: A parent set needs repair
+- **WHEN** applying a parent set throws with unverified effects, or its uncertain or residual effects are confined to that parent
+- **THEN** migration SHALL record the set as repair-required and preserve available authority evidence
+- **AND** later eligible independent sets SHALL be attempted once the set outcome is durable.
 
 #### Scenario: Failure is unsafe to continue
-- **WHEN** a set is repair-required, canceled, unavailable, infrastructure-failed, invalid-request, missing or unknown in authority, or has residual effects
-- **THEN** migration SHALL stop scheduling new writes
-- **AND** it SHALL preserve the terminal evidence for operator attention.
+- **WHEN** the run is canceled, the host shuts down, the library is no longer writable, or required run, set, or mutation evidence cannot be persisted
+- **THEN** migration SHALL stop admitting new writes and preserve earlier receipts and any available evidence for the affected set
+- **AND** unattempted sets SHALL remain eligible for a fresh scan.
 
 ### Requirement: Migration decisions SHALL publish atomically
 

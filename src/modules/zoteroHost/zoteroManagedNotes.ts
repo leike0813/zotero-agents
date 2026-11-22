@@ -21,6 +21,7 @@ import {
 import {
   listNotePayloadBlocksForItemPage,
   selectPreferredNotePayloadBlock,
+  ZoteroNotePayloadAttachmentMissingError,
 } from "./zoteroNotePayloadResolver";
 import { hashSynthesisContractCanonicalJson } from "../../../packages/synthesis-contracts/src/index";
 import type {
@@ -166,7 +167,7 @@ export type ManagedNoteTransferResult = {
 };
 
 export type ZoteroManagedNoteLocalControl = Readonly<{
-  /** Host-only library mutability fact used by the migration planner. */
+  /** Host-only library mutability fact used for migration admission. */
   isLibraryWritable?(
     libraryId: number,
     control?: WorkflowCallControl,
@@ -324,6 +325,11 @@ export async function readLegacyManagedNoteForMigration(
       maxPayloadBytes: MIGRATION_NOTE_PAYLOAD_MAX_BYTES,
     });
   } catch (error) {
+    if (error instanceof ZoteroNotePayloadAttachmentMissingError) {
+      throw new ManagedNoteOwnerError("not_found", error.message, {
+        kind: "attachment",
+      });
+    }
     if (error instanceof ZoteroNotePayloadResourceLimitError) {
       throw new ManagedNoteOwnerError(
         "resource_limited",

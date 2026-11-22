@@ -26,6 +26,7 @@ import {
 import {
   collectPayloadAnchors,
   listNotePayloadBlocksForItemPage,
+  ZoteroNotePayloadAttachmentMissingError,
   ZoteroNotePayloadCursorError,
   ZoteroNotePayloadPageLimitError,
 } from "./zoteroHost/zoteroNotePayloadResolver";
@@ -5692,6 +5693,31 @@ async function listMutationPayloadBlocks(
       );
     }
     cursor = page.nextCursor;
+  }
+}
+
+async function readMigrationPayloadsBeforeWrite(
+  note: Zotero.Item,
+  control?: WorkflowCallControl,
+) {
+  try {
+    return await listMutationPayloadBlocks(
+      note,
+      control,
+      MIGRATION_NOTE_PAYLOAD_MAX_BYTES,
+    );
+  } catch (error) {
+    if (error instanceof ZoteroNotePayloadAttachmentMissingError) {
+      throw new MutationAuthorityExecutionError(
+        "failed",
+        "not_found",
+        "read",
+        "refresh_and_retry_new_operation",
+        { kind: "attachment" },
+        error.message,
+      );
+    }
+    throw error;
   }
 }
 
@@ -11624,13 +11650,9 @@ async function executeManagedParentSetMutation(
               plan.parent = current.parent;
               plan.note = current.note;
               if (plan.note) {
-                const blocks = await listMutationPayloadBlocks(
-                  plan.note,
-                  control,
-                  plan.entry.migrationSourceRef
-                    ? MIGRATION_NOTE_PAYLOAD_MAX_BYTES
-                    : undefined,
-                );
+                const blocks = plan.entry.migrationSourceRef
+                  ? await readMigrationPayloadsBeforeWrite(plan.note, control)
+                  : await listMutationPayloadBlocks(plan.note, control);
                 plan.legacyPayloadBlocks = blocks;
                 plan.payloadBlocks = blocks.filter(
                   (block) => block.payloadType === plan.payload.payloadType,
@@ -11842,10 +11864,9 @@ async function executeManagedParentSetMutation(
                   }
                 }
                 if (plan.entry.migrationSourceRef && plan.note) {
-                  const currentBlocks = await listMutationPayloadBlocks(
+                  const currentBlocks = await readMigrationPayloadsBeforeWrite(
                     plan.note,
                     control,
-                    MIGRATION_NOTE_PAYLOAD_MAX_BYTES,
                   );
                   if (
                     migrationPayloadSourceFacts(currentBlocks) !==
