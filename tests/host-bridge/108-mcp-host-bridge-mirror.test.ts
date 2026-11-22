@@ -346,6 +346,76 @@ describe("MCP Host Bridge capability mirror", function () {
     assert.strictEqual(response.result.structuredContent.retryable, false);
   });
 
+  it("passes only HTTP-classified transient search failures through MCP", async function () {
+    const cases = [
+      {
+        tool: "topics.search",
+        reason: "foreground_search_queue_full",
+        retryable: true,
+      },
+      {
+        tool: "synthesis.search_evidence",
+        reason: "service_not_ready",
+        retryable: true,
+      },
+      {
+        tool: "topics.search",
+        reason: "transport_unavailable",
+        retryable: true,
+      },
+      {
+        tool: "synthesis.search_evidence",
+        reason: "sidecar_health_identity_mismatch",
+        retryable: false,
+      },
+    ];
+    let calls = 0;
+    const client = createSynthesisClientFromPort({
+      async searchTopics() {
+        const failure = cases[calls++]!;
+        throw new SynthesisClientError(
+          "unavailable",
+          "Synthesis search temporarily unavailable",
+          { sidecarReason: failure.reason, retryable: true },
+        );
+      },
+      async searchEvidence() {
+        const failure = cases[calls++]!;
+        throw new SynthesisClientError(
+          "unavailable",
+          "Synthesis search temporarily unavailable",
+          { sidecarReason: failure.reason, retryable: true },
+        );
+      },
+    });
+
+    for (const [index, failure] of cases.entries()) {
+      const response: any = await handleZoteroMcpRequestForTests(
+        {
+          jsonrpc: "2.0",
+          id: `search-retryability-${index}`,
+          method: "tools/call",
+          params: {
+            name: failure.tool,
+            arguments: { query: "graph" },
+          },
+        },
+        { resolveSynthesisClient: () => client },
+      );
+
+      assert.isTrue(response.result.isError);
+      assert.strictEqual(
+        response.result.structuredContent.reasonCode,
+        failure.reason,
+      );
+      assert.strictEqual(
+        response.result.structuredContent.retryable,
+        failure.retryable,
+      );
+    }
+    assert.strictEqual(calls, cases.length);
+  });
+
   it("delivers the complete topic planning context through a registered file", async function () {
     const client = createSynthesisClientFromPort({
       async listWorkflowTopicOptions() {

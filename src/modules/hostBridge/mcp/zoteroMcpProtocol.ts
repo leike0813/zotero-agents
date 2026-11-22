@@ -12,6 +12,10 @@ import type { DirectResearchBundleApplication } from "../workflow/researchBundle
 import { validateHostBridgeCapabilityInput } from "../server/hostBridgeCapabilityContract";
 import { HostBridgeCursorError } from "../server/hostBridgePagination";
 import {
+  isRetryableHostBridgeSynthesisFailure,
+  synthesisFailureReasonCode,
+} from "../server/synthesisFailurePolicy";
+import {
   ZoteroHostCapabilityError,
   type ZoteroHostCanonicalMutationControl,
   type ZoteroHostCapabilityBroker,
@@ -290,6 +294,12 @@ function validateJsonRpcId(id: unknown) {
 
 const MCP_LIBRARY_LIST_LIMIT_DEFAULT = 25;
 const MCP_LIBRARY_LIST_LIMIT_MAX = 50;
+const MCP_SYNTHESIS_SEARCH_CAPABILITIES = new Set([
+  "library.search_items",
+  "synthesis.search_evidence",
+  "synthesis.search_semantic_evidence",
+  "topics.search",
+]);
 
 function summarizeCurrentView(context: CurrentViewDto) {
   const parts = [
@@ -336,6 +346,7 @@ function buildToolErrorResult(args: {
   tool: string;
   message: string;
   errorCode: string;
+  reasonCode?: string;
   retryable?: boolean;
   retryAfterMs?: number;
   details?: unknown;
@@ -346,6 +357,7 @@ function buildToolErrorResult(args: {
     isError: true,
     structuredContent: {
       error_code: args.errorCode,
+      ...(args.reasonCode ? { reasonCode: args.reasonCode } : {}),
       retryable: Boolean(args.retryable),
       retry_after_ms:
         Number.isFinite(Number(args.retryAfterMs)) &&
@@ -1600,8 +1612,7 @@ export async function handleZoteroMcpJsonRpc(
         const isInvalidLibraryCursor =
           error instanceof ZoteroLibraryCursorError;
         const searchError =
-          (toolName === "topics.search" ||
-            toolName === "synthesis.search_evidence") &&
+          MCP_SYNTHESIS_SEARCH_CAPABILITIES.has(toolName) &&
           error instanceof SynthesisClientError
             ? error
             : null;
@@ -1618,6 +1629,15 @@ export async function handleZoteroMcpJsonRpc(
             : isInvalidLibraryCursor
               ? error.code
               : (brokerError?.code ?? searchError?.code);
+        const searchFailure = MCP_SYNTHESIS_SEARCH_CAPABILITIES.has(toolName)
+          ? (brokerError ?? searchError)
+          : null;
+        const searchFailureDetails = searchFailure?.details as
+          | Record<string, unknown>
+          | undefined;
+        const searchReasonCode = searchFailure
+          ? synthesisFailureReasonCode(searchFailureDetails, searchFailure.code)
+          : undefined;
         await options.onToolCall?.({
           toolName,
           arguments: toolArguments,
@@ -1634,7 +1654,18 @@ export async function handleZoteroMcpJsonRpc(
               tool: toolName,
               message,
               errorCode: structuredCode,
-              retryable: brokerError?.retryable ?? false,
+              ...(searchFailure && typeof searchReasonCode === "string"
+                ? { reasonCode: searchReasonCode }
+                : {}),
+              retryable: searchFailure
+                ? isRetryableHostBridgeSynthesisFailure({
+                    errorCode: searchFailure.code,
+                    reasonCode: searchReasonCode,
+                    retryable: brokerError
+                      ? brokerError.retryable
+                      : searchFailureDetails?.retryable,
+                  })
+                : (brokerError?.retryable ?? false),
               details:
                 error instanceof ZoteroLibraryCursorError
                   ? error.details

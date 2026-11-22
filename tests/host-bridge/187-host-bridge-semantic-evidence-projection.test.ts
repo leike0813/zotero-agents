@@ -2,6 +2,7 @@ import { assert } from "chai";
 import fs from "node:fs";
 import path from "node:path";
 import type { SynthesisClient } from "../../packages/synthesis-contracts/src/client";
+import { SynthesisClientError } from "../../packages/synthesis-contracts/src/common";
 import { executeHostBridgeCapability } from "../../src/modules/hostBridgeCapabilityRegistry";
 import { handleZoteroMcpJsonRpc } from "../../src/modules/hostBridge/mcp/zoteroMcpProtocol";
 import { getHostBridgeApprovalRequirement } from "../../src/modules/hostBridge/permissions/hostBridgePermissionManager";
@@ -146,6 +147,70 @@ describe("Host Bridge semantic evidence projection", function () {
       "Invalid arguments for synthesis.search_semantic_evidence",
     );
     assert.deepEqual(calls, []);
+  });
+
+  it("maps semantic search failures with the shared transient classification", async function () {
+    const cases = [
+      {
+        code: "unavailable" as const,
+        reason: "foreground_search_queue_full",
+        retryable: true,
+      },
+      {
+        code: "unavailable" as const,
+        reason: "service_not_ready",
+        retryable: true,
+      },
+      {
+        code: "unavailable" as const,
+        reason: "identity_mismatch",
+        retryable: false,
+      },
+      {
+        code: "invalid_request" as const,
+        reason: "transport_unavailable",
+        retryable: false,
+      },
+    ];
+    let current = 0;
+    const client = {
+      async searchSemanticEvidence() {
+        const failure = cases[current++]!;
+        throw new SynthesisClientError(failure.code, "Semantic search failed", {
+          reason: failure.reason,
+          retryable: true,
+        });
+      },
+      async readSemanticContext() {
+        return evidenceResult;
+      },
+    } as unknown as SynthesisClient;
+
+    for (const [index, failure] of cases.entries()) {
+      const response: any = await handleZoteroMcpJsonRpc(
+        {
+          jsonrpc: "2.0",
+          id: `semantic-retryability-${index}`,
+          method: "tools/call",
+          params: {
+            name: "synthesis.search_semantic_evidence",
+            arguments: searchRequest,
+          },
+        },
+        contextFor(client),
+      );
+
+      assert.isTrue(response.result?.isError);
+      assert.equal(
+        response.result.structuredContent.reasonCode,
+        failure.reason,
+      );
+      assert.equal(
+        response.result.structuredContent.retryable,
+        failure.retryable,
+      );
+    }
+    assert.equal(current, cases.length);
   });
 
   it("publishes both CLI commands on the shared retrieval contract", function () {

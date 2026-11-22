@@ -37,6 +37,10 @@ import type {
   HostBridgeStatusSnapshot,
 } from "../hostBridgeProtocol";
 import { hostBridgeError, hostBridgeOk } from "../hostBridgeProtocol";
+import {
+  isRetryableHostBridgeSynthesisFailure,
+  synthesisFailureReasonCode,
+} from "../synthesisFailurePolicy";
 import type { HostHttpRequest } from "../hostHttpRequestReader";
 import { parseHostHttpJsonBody } from "../hostHttpRequestReader";
 import type {
@@ -338,11 +342,7 @@ function synthesisReadErrorResponse(
     topicContextDiagnostics?: boolean;
   } = {},
 ) {
-  const reasonCode =
-    error.details?.sidecarReason ??
-    error.details?.reasonCode ??
-    error.details?.reason ??
-    error.code;
+  const reasonCode = synthesisFailureReasonCode(error.details, error.code);
   const cursorFailure =
     options.searchCursor === true &&
     (error.code === "conflict" || reasonCode === "search_cursor_expired");
@@ -368,12 +368,11 @@ function synthesisReadErrorResponse(
             : error.code === "unavailable" || error.code === "storage_busy"
               ? [503, "Service Unavailable", "capability"]
               : [500, "Internal Server Error", "internal"];
-  const retryable =
-    error.code === "unavailable" &&
-    error.details?.retryable === true &&
-    (reasonCode === "transport_unavailable" ||
-      reasonCode === "foreground_search_queue_full" ||
-      reasonCode === "service_not_ready");
+  const retryable = isRetryableHostBridgeSynthesisFailure({
+    errorCode: error.code,
+    reasonCode,
+    retryable: error.details?.retryable,
+  });
   return context.respond(
     status,
     statusText,
