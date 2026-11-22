@@ -1,6 +1,6 @@
 {
   "cliSchema": "zotero-bridge.cli.v5",
-  "commandCatalogChecksum": "3b9eb93ef81df140234619e202616eb8a9a1f1313cde0c1010d0e8d4d97f976b",
+  "commandCatalogChecksum": "f282d25de4edc1193d980614d707432d25db4cbe8bd5fbcf17ac44cc331e5a00",
   "commands": [
     {
       "approvalContract": {
@@ -63380,18 +63380,118 @@
       ],
       "resultSchema": {
         "additionalProperties": false,
+        "oneOf": [
+          {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "capability"
+                  ]
+                },
+                {
+                  "required": [
+                    "approval"
+                  ]
+                },
+                {
+                  "required": [
+                    "data"
+                  ]
+                }
+              ]
+            },
+            "required": [
+              "schema",
+              "generatedAt",
+              "status",
+              "readOnly",
+              "cacheView",
+              "supportedInvalidateScopes"
+            ]
+          },
+          {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "schema"
+                  ]
+                },
+                {
+                  "required": [
+                    "generatedAt"
+                  ]
+                },
+                {
+                  "required": [
+                    "status"
+                  ]
+                },
+                {
+                  "required": [
+                    "readOnly"
+                  ]
+                },
+                {
+                  "required": [
+                    "cacheView"
+                  ]
+                },
+                {
+                  "required": [
+                    "supportedInvalidateScopes"
+                  ]
+                }
+              ]
+            },
+            "required": [
+              "capability",
+              "approval",
+              "data"
+            ]
+          }
+        ],
         "properties": {
           "approval": {
-            "type": "object"
+            "minLength": 1,
+            "type": "string"
+          },
+          "cacheView": {
+            "const": true
           },
           "capability": {
-            "type": "string"
+            "const": "synthesis.operation.get"
           },
           "data": {
             "additionalProperties": true,
             "description": "Result data owned by synthesis.operation.get, GET /bridge/v2/synthesis/cache/status.",
             "type": "object",
             "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+          },
+          "generatedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "readOnly": {
+            "const": true
+          },
+          "schema": {
+            "const": "host-bridge.synthesis-cache-status.v1"
+          },
+          "status": {
+            "const": "available"
+          },
+          "supportedInvalidateScopes": {
+            "items": {
+              "enum": [
+                "topic",
+                "graph",
+                "index"
+              ]
+            },
+            "type": "array",
+            "uniqueItems": true
           }
         },
         "type": "object"
@@ -65105,15 +65205,23 @@
             "additionalProperties": false,
             "properties": {
               "clusterPolicy": {
-                "type": "string"
+                "enum": [
+                  "source_only",
+                  "include_external",
+                  "bounded_external"
+                ]
               },
               "cluster_policy": {
-                "type": "string"
+                "enum": [
+                  "source_only",
+                  "include_external",
+                  "bounded_external"
+                ]
               },
               "maxEdges": {
                 "minimum": 0,
                 "type": [
-                  "number",
+                  "integer",
                   "string"
                 ]
               },
@@ -65127,14 +65235,14 @@
               "maxNodes": {
                 "minimum": 1,
                 "type": [
-                  "number",
+                  "integer",
                   "string"
                 ]
               },
               "max_edges": {
                 "minimum": 0,
                 "type": [
-                  "number",
+                  "integer",
                   "string"
                 ]
               },
@@ -65148,7 +65256,7 @@
               "max_nodes": {
                 "minimum": 1,
                 "type": [
-                  "number",
+                  "integer",
                   "string"
                 ]
               },
@@ -65208,15 +65316,23 @@
         "additionalProperties": false,
         "properties": {
           "clusterPolicy": {
-            "type": "string"
+            "enum": [
+              "source_only",
+              "include_external",
+              "bounded_external"
+            ]
           },
           "cluster_policy": {
-            "type": "string"
+            "enum": [
+              "source_only",
+              "include_external",
+              "bounded_external"
+            ]
           },
           "maxEdges": {
             "minimum": 0,
             "type": [
-              "number",
+              "integer",
               "string"
             ]
           },
@@ -65230,14 +65346,14 @@
           "maxNodes": {
             "minimum": 1,
             "type": [
-              "number",
+              "integer",
               "string"
             ]
           },
           "max_edges": {
             "minimum": 0,
             "type": [
-              "number",
+              "integer",
               "string"
             ]
           },
@@ -65251,7 +65367,7 @@
           "max_nodes": {
             "minimum": 1,
             "type": [
-              "number",
+              "integer",
               "string"
             ]
           },
@@ -66787,17 +66903,54 @@
         }
       ],
       "resultSchema": {
-        "additionalProperties": true,
+        "additionalProperties": false,
         "properties": {
-          "response": {
-            "additionalProperties": true,
-            "description": "Response object returned by GET /bridge/v2/synthesis/index/status.",
-            "type": "object",
-            "x-openPropertiesReason": "The mapped local endpoint or service owns fields inside response; the command envelope is closed."
+          "cacheView": {
+            "const": true
+          },
+          "generatedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "indexes": {
+            "const": [
+              "library",
+              "reference",
+              "topic",
+              "graph"
+            ]
+          },
+          "readOnly": {
+            "const": true
+          },
+          "schema": {
+            "const": "host-bridge.synthesis-index-status.v1"
+          },
+          "status": {
+            "const": "available"
+          },
+          "supportedInvalidateScopes": {
+            "items": {
+              "enum": [
+                "topic",
+                "graph",
+                "index"
+              ]
+            },
+            "type": "array",
+            "uniqueItems": true
           }
         },
-        "type": "object",
-        "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
+        "required": [
+          "schema",
+          "generatedAt",
+          "status",
+          "readOnly",
+          "cacheView",
+          "supportedInvalidateScopes",
+          "indexes"
+        ],
+        "type": "object"
       },
       "summary": "Read Synthesis index maintenance status",
       "targets": [

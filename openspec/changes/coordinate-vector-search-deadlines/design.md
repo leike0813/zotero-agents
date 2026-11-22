@@ -9,9 +9,9 @@ which vector hits can be returned.
 ## Decisions
 
 - The production operation manifest supplies foreground deadlines across the
-  sidecar, Broker and Bridge transports. A search has separate 30-second
-  encoding, scoring and source verification budgets inside a 120-second
-  foreground envelope. Lexical scans keep their existing work bounds.
+  sidecar, Broker and Bridge transports. A search has 90 seconds for encoding,
+  30 seconds for scoring and 30 seconds for verification. Queue time counts
+  toward the five-minute foreground envelope. Lexical scans keep their work bounds.
 - Start vector candidate selection independently of the lexical scan after
   resolving hard scope. Use bounded concurrency and keep existing ranking,
   source validation, result paging and publication identity.

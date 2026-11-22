@@ -908,6 +908,8 @@ Fields:
 | `paper_ref` / `paperRef` | string | — |
 | `max_external_nodes` / `maxExternalNodes` | number/string | 0–250 |
 | `cluster_policy` / `clusterPolicy` | `"source_only"` \| `"include_external"` \| `"bounded_external"` | — |
+| `max_nodes` / `maxNodes` | number/string | 1–500; defaults to 100 |
+| `max_edges` / `maxEdges` | number/string | 0–500; defaults to 200 |
 
 All fields are optional.
 
@@ -927,8 +929,15 @@ Structured content:
 Behavior notes:
 
 - `source_only` returns only edges between the specified papers.
-- `include_external` includes external references without a node cap.
+- `include_external` includes external references within the bounded node and
+  edge page.
 - `bounded_external` limits external nodes to `max_external_nodes`.
+- Node and edge limits are clamped to the service hard bounds. A clamped or
+  incomplete page remains successful and reports `diagnostics.truncated`;
+  returned and cluster counts describe the returned page. Bound DOI aliases
+  such as `DOI:10.1000/xyz123` resolve to their library paper node.
+- Unknown paper refs are returned in `diagnostics.unknown_paper_refs`, including
+  when they accompany references that did resolve.
 - Read-only cache view.
 
 ### `citation_graph.get_overview`

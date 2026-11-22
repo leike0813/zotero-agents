@@ -49,7 +49,10 @@ topic-scoped citation graph clusters.
 
 - **WHEN** an agent or runtime calls `zotero-bridge synthesis graph query-cluster`
 - **THEN** the input SHALL accept source paper refs, include flags, max external nodes, and a documented `cluster_policy` enum
-- **AND** the response SHALL include bounded cluster counts, edge summaries, canonical reference counts, unresolved counts, diagnostics, and graph stale status.
+- **AND** the input SHALL accept `maxNodes`/`max_nodes` and `maxEdges`/`max_edges` as bounded page controls
+- **AND** bound DOI aliases SHALL resolve to their library paper nodes
+- **AND** unknown refs SHALL be reported even when mixed with known refs
+- **AND** the response SHALL include bounded page counts, edge summaries, canonical reference counts, unresolved counts, truncation diagnostics, and graph stale status.
 
 ### Requirement: CLI exposes current Synthesis capability mappings
 

@@ -1,5 +1,15 @@
 ## ADDED Requirements
 
+### Requirement: The Host SHALL measure and respect endpoint capacity
+
+Runtime query and document encoding SHALL share an endpoint budget across connection aliases. An untested endpoint SHALL receive one request at a time. A successful explicit performance test MAY permit two concurrent requests. The saved test SHALL bind to the existing request configuration and credential revision.
+
+#### Scenario: A valid embedding service is slow or fails paired requests
+
+- **WHEN** the functional probe returns valid query and document vectors and the performance probe exceeds its recommended limits or fails a concurrent round
+- **THEN** settings show the measured performance, a reliability warning and serial operation
+- **AND** saving or testing settings does not start index maintenance
+
 ### Requirement: Foreground vector search SHALL allocate time by phase
 
 Foreground vector search and recommendations SHALL allocate separate bounded time to query encoding, exact scoring and source verification. Transport budgets SHALL allow the operation to return its result and verified partial results SHALL remain available when a later phase times out.
@@ -63,7 +73,7 @@ The Workbench SHALL provide a Vector search tab after Index, with separate indic
 #### Scenario: Complete a slow semantic search
 
 - **WHEN** query encoding and scoring each finish within their own phase budget
-- **THEN** the explorer SHALL allow up to 120 seconds for the operation including a separate source verification budget
+- **THEN** the explorer SHALL allow up to five minutes including admission, up to 90 seconds for query encoding, and 30 seconds each for scoring and source verification
 
 #### Scenario: Diagnose a failed query
 

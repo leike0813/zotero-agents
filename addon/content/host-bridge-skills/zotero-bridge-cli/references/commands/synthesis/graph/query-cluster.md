@@ -52,15 +52,23 @@ Required: `false`.
   "additionalProperties": false,
   "properties": {
     "clusterPolicy": {
-      "type": "string"
+      "enum": [
+        "source_only",
+        "include_external",
+        "bounded_external"
+      ]
     },
     "cluster_policy": {
-      "type": "string"
+      "enum": [
+        "source_only",
+        "include_external",
+        "bounded_external"
+      ]
     },
     "maxEdges": {
       "minimum": 0,
       "type": [
-        "number",
+        "integer",
         "string"
       ]
     },
@@ -74,14 +82,14 @@ Required: `false`.
     "maxNodes": {
       "minimum": 1,
       "type": [
-        "number",
+        "integer",
         "string"
       ]
     },
     "max_edges": {
       "minimum": 0,
       "type": [
-        "number",
+        "integer",
         "string"
       ]
     },
@@ -95,7 +103,7 @@ Required: `false`.
     "max_nodes": {
       "minimum": 1,
       "type": [
-        "number",
+        "integer",
         "string"
       ]
     },
@@ -129,15 +137,23 @@ Required: `false`.
   "additionalProperties": false,
   "properties": {
     "clusterPolicy": {
-      "type": "string"
+      "enum": [
+        "source_only",
+        "include_external",
+        "bounded_external"
+      ]
     },
     "cluster_policy": {
-      "type": "string"
+      "enum": [
+        "source_only",
+        "include_external",
+        "bounded_external"
+      ]
     },
     "maxEdges": {
       "minimum": 0,
       "type": [
-        "number",
+        "integer",
         "string"
       ]
     },
@@ -151,14 +167,14 @@ Required: `false`.
     "maxNodes": {
       "minimum": 1,
       "type": [
-        "number",
+        "integer",
         "string"
       ]
     },
     "max_edges": {
       "minimum": 0,
       "type": [
-        "number",
+        "integer",
         "string"
       ]
     },
@@ -172,7 +188,7 @@ Required: `false`.
     "max_nodes": {
       "minimum": 1,
       "type": [
-        "number",
+        "integer",
         "string"
       ]
     },
@@ -344,15 +360,23 @@ This closed descriptor is the machine-readable command contract returned by `sur
         "additionalProperties": false,
         "properties": {
           "clusterPolicy": {
-            "type": "string"
+            "enum": [
+              "source_only",
+              "include_external",
+              "bounded_external"
+            ]
           },
           "cluster_policy": {
-            "type": "string"
+            "enum": [
+              "source_only",
+              "include_external",
+              "bounded_external"
+            ]
           },
           "maxEdges": {
             "minimum": 0,
             "type": [
-              "number",
+              "integer",
               "string"
             ]
           },
@@ -366,14 +390,14 @@ This closed descriptor is the machine-readable command contract returned by `sur
           "maxNodes": {
             "minimum": 1,
             "type": [
-              "number",
+              "integer",
               "string"
             ]
           },
           "max_edges": {
             "minimum": 0,
             "type": [
-              "number",
+              "integer",
               "string"
             ]
           },
@@ -387,7 +411,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
           "max_nodes": {
             "minimum": 1,
             "type": [
-              "number",
+              "integer",
               "string"
             ]
           },
@@ -447,15 +471,23 @@ This closed descriptor is the machine-readable command contract returned by `sur
     "additionalProperties": false,
     "properties": {
       "clusterPolicy": {
-        "type": "string"
+        "enum": [
+          "source_only",
+          "include_external",
+          "bounded_external"
+        ]
       },
       "cluster_policy": {
-        "type": "string"
+        "enum": [
+          "source_only",
+          "include_external",
+          "bounded_external"
+        ]
       },
       "maxEdges": {
         "minimum": 0,
         "type": [
-          "number",
+          "integer",
           "string"
         ]
       },
@@ -469,14 +501,14 @@ This closed descriptor is the machine-readable command contract returned by `sur
       "maxNodes": {
         "minimum": 1,
         "type": [
-          "number",
+          "integer",
           "string"
         ]
       },
       "max_edges": {
         "minimum": 0,
         "type": [
-          "number",
+          "integer",
           "string"
         ]
       },
@@ -490,7 +522,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
       "max_nodes": {
         "minimum": 1,
         "type": [
-          "number",
+          "integer",
           "string"
         ]
       },

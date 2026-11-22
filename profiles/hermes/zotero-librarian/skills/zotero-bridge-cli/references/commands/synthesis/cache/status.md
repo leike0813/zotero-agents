@@ -74,18 +74,118 @@ This command has no separate field-mapping program. Its binding mode is executab
 ```json
 {
   "additionalProperties": false,
+  "oneOf": [
+    {
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "capability"
+            ]
+          },
+          {
+            "required": [
+              "approval"
+            ]
+          },
+          {
+            "required": [
+              "data"
+            ]
+          }
+        ]
+      },
+      "required": [
+        "schema",
+        "generatedAt",
+        "status",
+        "readOnly",
+        "cacheView",
+        "supportedInvalidateScopes"
+      ]
+    },
+    {
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "schema"
+            ]
+          },
+          {
+            "required": [
+              "generatedAt"
+            ]
+          },
+          {
+            "required": [
+              "status"
+            ]
+          },
+          {
+            "required": [
+              "readOnly"
+            ]
+          },
+          {
+            "required": [
+              "cacheView"
+            ]
+          },
+          {
+            "required": [
+              "supportedInvalidateScopes"
+            ]
+          }
+        ]
+      },
+      "required": [
+        "capability",
+        "approval",
+        "data"
+      ]
+    }
+  ],
   "properties": {
     "approval": {
-      "type": "object"
+      "minLength": 1,
+      "type": "string"
+    },
+    "cacheView": {
+      "const": true
     },
     "capability": {
-      "type": "string"
+      "const": "synthesis.operation.get"
     },
     "data": {
       "additionalProperties": true,
       "description": "Result data owned by synthesis.operation.get, GET /bridge/v2/synthesis/cache/status.",
       "type": "object",
       "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+    },
+    "generatedAt": {
+      "format": "date-time",
+      "type": "string"
+    },
+    "readOnly": {
+      "const": true
+    },
+    "schema": {
+      "const": "host-bridge.synthesis-cache-status.v1"
+    },
+    "status": {
+      "const": "available"
+    },
+    "supportedInvalidateScopes": {
+      "items": {
+        "enum": [
+          "topic",
+          "graph",
+          "index"
+        ]
+      },
+      "type": "array",
+      "uniqueItems": true
     }
   },
   "type": "object"
@@ -206,18 +306,118 @@ This closed descriptor is the machine-readable command contract returned by `sur
   ],
   "resultSchema": {
     "additionalProperties": false,
+    "oneOf": [
+      {
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "capability"
+              ]
+            },
+            {
+              "required": [
+                "approval"
+              ]
+            },
+            {
+              "required": [
+                "data"
+              ]
+            }
+          ]
+        },
+        "required": [
+          "schema",
+          "generatedAt",
+          "status",
+          "readOnly",
+          "cacheView",
+          "supportedInvalidateScopes"
+        ]
+      },
+      {
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "schema"
+              ]
+            },
+            {
+              "required": [
+                "generatedAt"
+              ]
+            },
+            {
+              "required": [
+                "status"
+              ]
+            },
+            {
+              "required": [
+                "readOnly"
+              ]
+            },
+            {
+              "required": [
+                "cacheView"
+              ]
+            },
+            {
+              "required": [
+                "supportedInvalidateScopes"
+              ]
+            }
+          ]
+        },
+        "required": [
+          "capability",
+          "approval",
+          "data"
+        ]
+      }
+    ],
     "properties": {
       "approval": {
-        "type": "object"
+        "minLength": 1,
+        "type": "string"
+      },
+      "cacheView": {
+        "const": true
       },
       "capability": {
-        "type": "string"
+        "const": "synthesis.operation.get"
       },
       "data": {
         "additionalProperties": true,
         "description": "Result data owned by synthesis.operation.get, GET /bridge/v2/synthesis/cache/status.",
         "type": "object",
         "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+      },
+      "generatedAt": {
+        "format": "date-time",
+        "type": "string"
+      },
+      "readOnly": {
+        "const": true
+      },
+      "schema": {
+        "const": "host-bridge.synthesis-cache-status.v1"
+      },
+      "status": {
+        "const": "available"
+      },
+      "supportedInvalidateScopes": {
+        "items": {
+          "enum": [
+            "topic",
+            "graph",
+            "index"
+          ]
+        },
+        "type": "array",
+        "uniqueItems": true
       }
     },
     "type": "object"

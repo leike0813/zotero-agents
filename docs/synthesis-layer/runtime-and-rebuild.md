@@ -490,9 +490,9 @@ application and routes are still under implementation.
 
 The operation manifest supplies the outer budget for Library, Evidence and
 Topic search, dedicated semantic search, and similarity. Encoding, exact
-scoring and source verification each have up to 30 seconds within a
-120-second foreground limit. Transport grace and result projection use the
-remaining time. Mixed searches run the existing bounded lexical work alongside
+scoring and source verification have independent budgets of 90, 30 and
+30 seconds within a five-minute foreground limit, including admission. Transport
+grace and result projection use the remaining time. Mixed searches run bounded lexical work alongside
 vector ranking. A timed-out phase preserves verified hits and reports reduced
 coverage. Semantic context reads use the source verification budget.
 
@@ -596,7 +596,17 @@ the previous configuration and encrypted credential and does not start the
 probe. The focused regression covers that rollback. Writes for different
 connections are serialized so one save cannot lose another connection's
 credential-list entry; their probes remain outside that write queue and may
-overlap.
+overlap when they use different endpoints.
+
+The explicit test reserves its endpoint while it measures the first query, a
+warm query, two pairs of simultaneous requests and an eight-document batch.
+The suggested upper bounds are 15, 2, 4 and 8 seconds respectively. Slow
+responses or an unsuccessful pair produce a visible performance warning.
+Connection aliases share HTTP capacity. Runtime encoding starts with one slot
+and may use two after a successful capacity test. A busy endpoint returns to
+serial operation for a minute and honors service wait hints. Foreground
+queries take precedence between document batches, with a waiting document
+admitted after three queries. Canceling a queued request prevents dispatch.
 
 The preset catalog contains six protocol service templates, the LM Studio,
 vLLM, Xinference, Azure OpenAI and Jina provider presets, and local templates

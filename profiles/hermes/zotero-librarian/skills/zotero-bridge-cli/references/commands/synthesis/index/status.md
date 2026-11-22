@@ -59,17 +59,54 @@ This command has no separate field-mapping program. Its binding mode is executab
 
 ```json
 {
-  "additionalProperties": true,
+  "additionalProperties": false,
   "properties": {
-    "response": {
-      "additionalProperties": true,
-      "description": "Response object returned by GET /bridge/v2/synthesis/index/status.",
-      "type": "object",
-      "x-openPropertiesReason": "The mapped local endpoint or service owns fields inside response; the command envelope is closed."
+    "cacheView": {
+      "const": true
+    },
+    "generatedAt": {
+      "format": "date-time",
+      "type": "string"
+    },
+    "indexes": {
+      "const": [
+        "library",
+        "reference",
+        "topic",
+        "graph"
+      ]
+    },
+    "readOnly": {
+      "const": true
+    },
+    "schema": {
+      "const": "host-bridge.synthesis-index-status.v1"
+    },
+    "status": {
+      "const": "available"
+    },
+    "supportedInvalidateScopes": {
+      "items": {
+        "enum": [
+          "topic",
+          "graph",
+          "index"
+        ]
+      },
+      "type": "array",
+      "uniqueItems": true
     }
   },
-  "type": "object",
-  "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
+  "required": [
+    "schema",
+    "generatedAt",
+    "status",
+    "readOnly",
+    "cacheView",
+    "supportedInvalidateScopes",
+    "indexes"
+  ],
+  "type": "object"
 }
 ```
 
@@ -142,17 +179,54 @@ This closed descriptor is the machine-readable command contract returned by `sur
     }
   ],
   "resultSchema": {
-    "additionalProperties": true,
+    "additionalProperties": false,
     "properties": {
-      "response": {
-        "additionalProperties": true,
-        "description": "Response object returned by GET /bridge/v2/synthesis/index/status.",
-        "type": "object",
-        "x-openPropertiesReason": "The mapped local endpoint or service owns fields inside response; the command envelope is closed."
+      "cacheView": {
+        "const": true
+      },
+      "generatedAt": {
+        "format": "date-time",
+        "type": "string"
+      },
+      "indexes": {
+        "const": [
+          "library",
+          "reference",
+          "topic",
+          "graph"
+        ]
+      },
+      "readOnly": {
+        "const": true
+      },
+      "schema": {
+        "const": "host-bridge.synthesis-index-status.v1"
+      },
+      "status": {
+        "const": "available"
+      },
+      "supportedInvalidateScopes": {
+        "items": {
+          "enum": [
+            "topic",
+            "graph",
+            "index"
+          ]
+        },
+        "type": "array",
+        "uniqueItems": true
       }
     },
-    "type": "object",
-    "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
+    "required": [
+      "schema",
+      "generatedAt",
+      "status",
+      "readOnly",
+      "cacheView",
+      "supportedInvalidateScopes",
+      "indexes"
+    ],
+    "type": "object"
   },
   "summary": "Read Synthesis index maintenance status",
   "targets": [
