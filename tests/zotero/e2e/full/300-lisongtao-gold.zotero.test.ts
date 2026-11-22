@@ -228,7 +228,6 @@ async function runSemanticSearchBursts(
   composition: NativeSidecarComposition,
   workbenchClientSearch: () => Promise<unknown>,
   cliProfilePath: string,
-  startsWarm = false,
 ) {
   const cli = await resolveHostBridgeCliBinary();
   if (!cli.available) throw new Error(cli.code);
@@ -306,7 +305,6 @@ async function runSemanticSearchBursts(
     temperature: "cold" | "warm";
     elapsedMs: number;
   }>;
-  let firstSearch = !startsWarm;
   for (const [route, invoke] of [
     ["cli", invokeCli],
     ["mcp", invokeMcp],
@@ -318,10 +316,9 @@ async function runSemanticSearchBursts(
       bursts.push({
         route,
         size,
-        temperature: firstSearch ? "cold" : "warm",
+        temperature: "warm",
         elapsedMs: Date.now() - startedAt,
       });
-      firstSearch = false;
     }
   }
   return bursts;
@@ -336,12 +333,7 @@ function bindTestDefaultSynthesisClient(
         getReadyConnection: () => connection,
       }),
   );
-  let restored = false;
-  return () => {
-    if (restored) return;
-    setDefaultSynthesisClientCompositionFactoryForTests(null);
-    restored = true;
-  };
+  return () => setDefaultSynthesisClientCompositionFactoryForTests(null);
 }
 
 async function waitForAutomaticHealthAfter(
@@ -667,7 +659,13 @@ describe("Synthesis E2E gold library", function () {
         fixture.path,
         "isolated-bridge-profile.json",
       );
+      const networkTimeout = "network.http.network-changed.timeout";
+      const previousTimeout = Services.prefs.prefHasUserValue(networkTimeout)
+        ? Services.prefs.getIntPref(networkTimeout)
+        : undefined;
       try {
+        // Keep Gecko's link-change pruning from interrupting the silent 11.5s loopback fixture.
+        if (!liveOllama) Services.prefs.setIntPref(networkTimeout, 90);
         let paperIndex = 0;
         for (const [title, abstract, fullText] of [
           [
@@ -1138,7 +1136,6 @@ describe("Synthesis E2E gold library", function () {
             topicClient,
             () => topicClient!.client.searchSemanticEvidence(searchRequest),
             cliProfilePath,
-            true,
           );
         } finally {
           restoreHostBridgeSynthesisResolver?.();
@@ -1242,11 +1239,23 @@ describe("Synthesis E2E gold library", function () {
             ),
           );
           const startedAt = Date.now();
-          submit.click();
-          const loading = () =>
-            doc.querySelector("#retrieval-search-panel .retrieval-notice[role=status]");
-          await waitUntilBounded(loading, 10_000, "workbench-search-started");
-          await waitUntilBounded(() => !loading(), 65_000, "workbench-search-settled");
+          const frame = doc.defaultView!;
+          let requestId: number | undefined;
+          let settled = false;
+          const observe = (event: MessageEvent) => {
+            if (event.data?.type !== "synthesis:chrome") return;
+            const slot = event.data.payload?.retrievalExplorer?.search;
+            if (!slot || JSON.parse(slot.owner).query !== query) return;
+            if (slot.status === "loading") requestId = slot.requestId;
+            else if (slot.requestId === requestId) settled = true;
+          };
+          frame.addEventListener("message", observe);
+          try {
+            submit.click();
+            await waitUntilBounded(() => settled, 65_000, "workbench-search-settled");
+          } finally {
+            frame.removeEventListener("message", observe);
+          }
           return startedAt;
         };
         const workbenchSearchTimings: Array<{
@@ -1416,6 +1425,10 @@ describe("Synthesis E2E gold library", function () {
           );
         }
       } finally {
+        if (!liveOllama) {
+          if (previousTimeout === undefined) Services.prefs.clearUserPref(networkTimeout);
+          else Services.prefs.setIntPref(networkTimeout, previousTimeout);
+        }
         for (const [key, value] of oldPrefs) {
           if (value == null) clearPref(key);
           else setPref(key, value);
