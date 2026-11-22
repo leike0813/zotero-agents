@@ -142,6 +142,7 @@ async function runSemanticSearchTools(text) {
   const payloadText = text.match(/^system-e2e:semantic-search (.+)$/m)?.[1];
   if (!payloadText) throw new Error("semantic search payload is missing");
   const payload = JSON.parse(payloadText);
+  const burstSize = Number(payload.size);
   const profilePath = String(process.env.ZOTERO_BRIDGE_PROFILE || "").trim();
   const token = String(process.env.ZOTERO_BRIDGE_TOKEN || "").trim();
   if (!profilePath || !token) throw new Error("Host Bridge MCP credentials unavailable");
@@ -150,6 +151,42 @@ async function runSemanticSearchTools(text) {
     .replace(/\/bridge\/v2\/?$/, "/mcp");
   if (!endpoint || !/^https?:\/\//.test(endpoint)) {
     throw new Error("Host Bridge MCP endpoint is invalid");
+  }
+  const mcpHeaders = {
+    authorization: `Bearer ${token}`,
+    accept: "application/json, text/event-stream",
+    "content-type": "application/json",
+  };
+  const initializeResponse = await fetch(endpoint, {
+    method: "POST",
+    headers: mcpHeaders,
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: "acp-semantic-initialize",
+      method: "initialize",
+      params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "zotero-e2e-acp-fixture", version: "1" } },
+    }),
+  });
+  let initializeEnvelope;
+  try {
+    initializeEnvelope = await initializeResponse.json();
+  } catch {
+    const error = new Error("semantic MCP initialize failed");
+    error.failureKind = "invalid_envelope";
+    error.httpStatus = initializeResponse.status;
+    throw error;
+  }
+  const serverName = /^[a-z0-9._-]{1,64}$/i.test(String(initializeEnvelope?.result?.serverInfo?.name || ""))
+    ? initializeEnvelope.result.serverInfo.name
+    : "unknown";
+  if (!initializeResponse.ok || initializeEnvelope.error || serverName === "unknown") {
+    const error = new Error("semantic MCP initialize failed");
+    error.failureKind = initializeEnvelope.error ? "jsonrpc_error" : "initialize_failed";
+    error.httpStatus = initializeResponse.status;
+    error.rpcCode = Number.isInteger(initializeEnvelope.error?.code) ? initializeEnvelope.error.code : undefined;
+    error.rpcErrorData = initializeEnvelope.error?.data;
+    error.serverName = serverName;
+    throw error;
   }
   const skillPath = String(payload.skillPath || "").trim();
   if (!skillPath) throw new Error("current injected Skill path is missing");
@@ -160,7 +197,7 @@ async function runSemanticSearchTools(text) {
     path: skillPath,
     sha256: createHash("sha256").update(skillText).digest("hex"),
   };
-  const size = Number(payload.size);
+  const size = burstSize;
   if (![1, 3, 6].includes(size)) throw new Error("unsupported semantic search burst size");
   const calls = await Promise.all(Array.from({ length: size }, async (_, index) => {
     const startedAt = Date.now();
@@ -175,10 +212,7 @@ async function runSemanticSearchTools(text) {
     });
     const response = await fetch(endpoint, {
       method: "POST",
-      headers: {
-        authorization: `Bearer ${token}`,
-        "content-type": "application/json",
-      },
+      headers: mcpHeaders,
       body: JSON.stringify({
         jsonrpc: "2.0",
         id: `acp-semantic-${Date.now()}-${index}`,
@@ -190,12 +224,34 @@ async function runSemanticSearchTools(text) {
       }),
     });
     const envelope = await response.json();
-    const data = envelope.result?.structuredContent?.data;
-    if (!response.ok || envelope.error || !data) {
-      throw new Error(`semantic MCP call failed (${response.status})`);
+    const toolResult = envelope.result;
+    const structured = toolResult?.structuredContent;
+    const data = structured?.data;
+    if (!response.ok || envelope.error || toolResult?.isError || !data) {
+      const error = new Error("semantic MCP call failed");
+      error.failureKind = !response.ok
+        ? "http_error"
+        : envelope.error
+          ? "jsonrpc_error"
+          : toolResult?.isError
+            ? "tool_error"
+            : "missing_result";
+      error.httpStatus = response.status;
+      error.rpcCode = Number.isInteger(envelope.error?.code) ? envelope.error.code : undefined;
+      error.rpcErrorData = envelope.error?.data;
+      error.serverName = serverName;
+      error.toolError = toolResult?.isError
+        ? {
+            errorCode: structured?.error_code,
+            reasonCode: structured?.reasonCode,
+            reason: structured?.details?.reason,
+          }
+        : undefined;
+      throw error;
     }
     const call = {
       httpStatus: response.status,
+      serverName,
       status: data.status,
       method: data.method,
       coverage: data.coverage,
@@ -220,6 +276,67 @@ async function runSemanticSearchTools(text) {
     appendFileSync(evidencePath, `${JSON.stringify({ semanticSearch: result })}\n`, "utf8");
   }
   return JSON.stringify(result);
+}
+
+function safeSemanticSearchFailure(error) {
+  const failureKind = [
+    "http_error",
+    "jsonrpc_error",
+    "tool_error",
+    "missing_result",
+    "invalid_envelope",
+    "initialize_failed",
+  ].includes(error?.failureKind)
+    ? error.failureKind
+    : "fixture_error";
+  const httpStatus = Number.isInteger(error?.httpStatus)
+    ? error.httpStatus
+    : undefined;
+  const rpcData = error?.rpcErrorData && typeof error.rpcErrorData === "object"
+    ? error.rpcErrorData
+    : {};
+  const details = rpcData.details && typeof rpcData.details === "object"
+    ? rpcData.details
+    : {};
+  const safeName = (value) => typeof value === "string" && /^[A-Za-z][A-Za-z0-9_.-]{0,63}$/.test(value)
+    ? value
+    : undefined;
+  const safeFieldPaths = Array.isArray(details.errors)
+    ? details.errors.slice(0, 8).map((entry) => String(entry).match(/^([A-Za-z][A-Za-z0-9_.\[\]]{0,95}):/)?.[1]).filter(Boolean)
+    : [];
+  const safeViolations = Array.isArray(details.violations)
+    ? details.violations.slice(0, 8).map((entry) => ({
+        code: safeName(entry?.code),
+        field: safeName(entry?.field),
+        reasonCode: safeName(entry?.reason),
+      })).filter((entry) => entry.code || entry.field || entry.reasonCode)
+    : [];
+  return JSON.stringify({
+    error: {
+      code: failureKind,
+      ...(httpStatus ? { httpStatus } : {}),
+      ...(Number.isInteger(error?.rpcCode) ? { rpcCode: error.rpcCode } : {}),
+      ...(safeName(error?.serverName) ? { serverName: safeName(error.serverName) } : {}),
+      ...(safeName(rpcData.errorName) ? { errorName: safeName(rpcData.errorName) } : {}),
+      ...(safeName(rpcData.toolName) ? { toolName: safeName(rpcData.toolName) } : {}),
+      ...(safeName(details.schema) ? { detailsSchema: safeName(details.schema) } : {}),
+      ...(safeName(details.phase) ? { phase: safeName(details.phase) } : {}),
+      ...(safeName(error?.toolError?.errorCode)
+        ? { errorCode: safeName(error.toolError.errorCode) }
+        : {}),
+      ...(safeName(error?.toolError?.reasonCode)
+        ? { reasonCode: safeName(error.toolError.reasonCode) }
+        : {}),
+      ...(safeName(error?.toolError?.reason)
+        ? { reason: safeName(error.toolError.reason) }
+        : {}),
+      ...(Number.isInteger(error?.burstSize) && [1, 3, 6].includes(error.burstSize)
+        ? { burstSize: error.burstSize }
+        : {}),
+      ...(safeFieldPaths.length ? { fieldPaths: safeFieldPaths } : {}),
+      ...(safeViolations.length ? { violations: safeViolations } : {}),
+    },
+  });
 }
 
 async function handleRequest(request) {
@@ -272,7 +389,13 @@ async function handleRequest(request) {
       try {
         emitAssistantText(await runSemanticSearchTools(text));
       } catch (error) {
-        emitAssistantText(JSON.stringify({ error: String(error) }));
+        const payloadText = text.match(/^system-e2e:semantic-search (.+)$/m)?.[1];
+        try {
+          error.burstSize = Number(JSON.parse(payloadText || "{}").size);
+        } catch {
+          // The safe failure envelope only reports a validated burst size.
+        }
+        emitAssistantText(safeSemanticSearchFailure(error));
       }
       writeMessage({
         jsonrpc: "2.0",

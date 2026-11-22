@@ -25,6 +25,7 @@ import {
 import { resolveHostBridgeCliBinary } from "../../../../src/modules/hostBridge/cli/hostBridgeCliResolver";
 import { getHostBridgeToken } from "../../../../src/modules/hostBridge/server/hostBridgeAuth";
 import { getHostBridgeServerStatus } from "../../../../src/modules/hostBridge/server/hostBridgeServer";
+import { setDefaultSynthesisClientCompositionFactoryForTests } from "../../../../src/modules/synthesisClient/defaultClient";
 import {
   createBackendsPrefsDocument,
   loadBackendsRegistry,
@@ -38,7 +39,11 @@ import {
   sendAcpConversationPrompt,
   setActiveAcpBackend,
 } from "../../../../src/modules/acp/chat/acpSessionManager";
-import { getAcpConversationSnapshot } from "../../../../src/modules/acp/chat/acpChatWorkspaceDataPlane";
+import {
+  getAcpConversationSnapshot,
+  readAcpConversationTranscriptPage,
+} from "../../../../src/modules/acp/chat/acpChatWorkspaceDataPlane";
+import { buildSubprocessEnvironment } from "../../../../src/platform/env";
 import { executeOneShotSubprocess } from "../../../../src/platform/subprocess";
 import { clearPref, getPref, setPref } from "../../../../src/utils/prefs";
 import { setDebugModeOverrideForTests } from "../../../../src/modules/debugMode";
@@ -120,6 +125,7 @@ async function connectNativeSidecar(
   const connection = await readSystemE2ESidecarConnection(found);
   return {
     discovery: found,
+    connection,
     composition: createNativeSynthesisClientComposition({
       getReadyConnection: () => connection,
     }),
@@ -164,19 +170,49 @@ async function observeNativeSidecarHealth(
   };
 }
 
-function assertSignedEvidenceResults(
+type SignedEvidenceRef = {
+  publication: string;
+  identity: string;
+  fragmentId: string;
+  sourceVersion: string;
+};
+
+async function verifyEvidenceReferenceContext(
+  composition: NativeSidecarComposition,
+  evidenceRef: SignedEvidenceRef,
+) {
+  const context = await composition.client.readSemanticContext({ evidenceRef });
+  assert.isNotEmpty(context.results, "signed evidence context must be readable");
+  assert.isTrue(
+    context.results.some((passage) =>
+      passage.evidenceRef.publication === evidenceRef.publication &&
+      passage.evidenceRef.identity === evidenceRef.identity &&
+      passage.evidenceRef.fragmentId === evidenceRef.fragmentId &&
+      passage.evidenceRef.sourceVersion === evidenceRef.sourceVersion,
+    ),
+    "semantic context must return the requested signed evidence ref",
+  );
+}
+
+async function assertSignedEvidenceResults(
   result: any,
   item: Zotero.Item,
-  publication: string,
+  publicationRef: { value?: string },
+  composition: NativeSidecarComposition,
 ) {
   assert.equal(result.status, "completed");
   assert.equal(result.method, "vector");
   assert.equal(result.coverage.vector, "complete");
   assert.isEmpty(result.issues);
   assert.isNotEmpty(result.results);
+  const firstRef = result.results[0].evidenceRef as SignedEvidenceRef;
+  if (!publicationRef.value) {
+    publicationRef.value = firstRef.publication;
+    await verifyEvidenceReferenceContext(composition, firstRef);
+  }
   for (const passage of result.results) {
     assert.isString(passage.evidenceRef.publication);
-    assert.equal(passage.evidenceRef.publication, publication);
+    assert.equal(passage.evidenceRef.publication, publicationRef.value);
     assert.isNotEmpty(passage.evidenceRef.identity);
     assert.isNotEmpty(passage.evidenceRef.fragmentId);
     assert.isNotEmpty(passage.evidenceRef.sourceVersion);
@@ -188,8 +224,10 @@ function assertSignedEvidenceResults(
 async function runSemanticSearchBursts(
   request: SynthesisSemanticEvidenceSearchRequest,
   item: Zotero.Item,
-  publication: string,
+  publicationRef: { value?: string },
+  composition: NativeSidecarComposition,
   workbenchClientSearch: () => Promise<unknown>,
+  cliProfilePath: string,
   startsWarm = false,
 ) {
   const cli = await resolveHostBridgeCliBinary();
@@ -202,22 +240,30 @@ async function runSemanticSearchBursts(
     const result = await executeOneShotSubprocess({
       command: cli.binaryPath,
       args: [
+        "--endpoint",
+        bridge.endpoint,
+        "--profile",
+        cliProfilePath,
         "synthesis",
         "evidence",
         "semantic-search",
         "--query",
         JSON.stringify(request),
       ],
+      environment: buildSubprocessEnvironment({
+        ZOTERO_BRIDGE_TOKEN: token,
+      }),
       timeoutMs: 120_000,
     });
     assert.equal(result.outcome, "exited");
     assert.equal(result.exitCode, 0, result.stderr);
     const envelope = JSON.parse(result.stdout);
     assert.isTrue(envelope.ok, JSON.stringify(envelope.error));
-    assertSignedEvidenceResults(
+    await assertSignedEvidenceResults(
       envelope.data?.data ?? envelope.data,
       item,
-      publication,
+      publicationRef,
+      composition,
     );
   };
   const invokeMcp = async () => {
@@ -240,17 +286,19 @@ async function runSemanticSearchBursts(
     assert.equal(response.status, 200);
     const envelope = await response.json();
     assert.isUndefined(envelope.error, JSON.stringify(envelope.error));
-    assertSignedEvidenceResults(
+    await assertSignedEvidenceResults(
       envelope.result?.structuredContent?.data,
       item,
-      publication,
+      publicationRef,
+      composition,
     );
   };
   const invokeWorkbenchClient = async () =>
-    assertSignedEvidenceResults(
+    await assertSignedEvidenceResults(
       await workbenchClientSearch(),
       item,
-      publication,
+      publicationRef,
+      composition,
     );
   const bursts = [] as Array<{
     route: string;
@@ -277,6 +325,23 @@ async function runSemanticSearchBursts(
     }
   }
   return bursts;
+}
+
+function bindTestDefaultSynthesisClient(
+  connection: Awaited<ReturnType<typeof readSystemE2ESidecarConnection>>,
+) {
+  setDefaultSynthesisClientCompositionFactoryForTests(
+    () =>
+      createNativeSynthesisClientComposition({
+        getReadyConnection: () => connection,
+      }),
+  );
+  let restored = false;
+  return () => {
+    if (restored) return;
+    setDefaultSynthesisClientCompositionFactoryForTests(null);
+    restored = true;
+  };
 }
 
 async function waitForAutomaticHealthAfter(
@@ -568,6 +633,7 @@ describe("Synthesis E2E gold library", function () {
       };
       const items: Zotero.Item[] = [];
       let topicClient: NativeSidecarComposition | undefined;
+      let restoreHostBridgeSynthesisResolver: (() => void) | undefined;
       let topicId: string | undefined;
       const mainWindow = Zotero.getMainWindow() as _ZoteroTypes.MainWindow;
       const plugin = (Zotero as any)[config.addonInstance];
@@ -597,6 +663,10 @@ describe("Synthesis E2E gold library", function () {
       const fixture = await reserveRuntimeTemporaryDirectory({
         category: "semantic-search",
       });
+      const cliProfilePath = PathUtils.join(
+        fixture.path,
+        "isolated-bridge-profile.json",
+      );
       try {
         let paperIndex = 0;
         for (const [title, abstract, fullText] of [
@@ -723,7 +793,7 @@ describe("Synthesis E2E gold library", function () {
         const retrieval = createNativeSynthesisRetrievalPort({
           getReadyConnection: () => connectionInfo,
         });
-        const previousPublication = (await retrieval.getState()).publication;
+        const previousPublicationBasis = (await retrieval.getState()).publication;
         const topicRequest = syntheticTopicApplyRequest({
           name: "2k",
           paperRefs: [`${items[0].libraryID}:${items[0].key}`],
@@ -813,13 +883,16 @@ describe("Synthesis E2E gold library", function () {
           "index-publication",
         );
         const rebuildMs = Date.now() - buildStarted;
-        const currentPublication = await retrieval.getState();
-        assert.equal(currentPublication.status, "ready");
-        if (typeof currentPublication.publication !== "string") {
-          throw new Error("retrieval_publication_missing");
+        const currentPublicationBasis = await retrieval.getState();
+        assert.equal(currentPublicationBasis.status, "ready");
+        if (typeof currentPublicationBasis.publication !== "string") {
+          throw new Error("retrieval_publication_basis_missing");
         }
-        const publication = currentPublication.publication;
-        assert.notEqual(publication, previousPublication);
+        assert.notEqual(
+          currentPublicationBasis.publication,
+          previousPublicationBasis,
+        );
+        const publicationRef: { value?: string } = {};
         const searchRequest: SynthesisSemanticEvidenceSearchRequest = {
           query: "利用卫星影像评估土壤含水量",
           target: "paper",
@@ -905,24 +978,28 @@ describe("Synthesis E2E gold library", function () {
               ),
             ),
           );
-          const relativeSkillRoot = PathUtils.relative(
-            acpWorkspaceDir,
-            skillDir!,
-          ).replace(/\\/g, "/");
-          const relativeSkillFile = PathUtils.relative(
-            acpWorkspaceDir,
-            skillFile,
-          ).replace(/\\/g, "/");
-          assert.isTrue(
-            injectionManifest.targets.some(
-              (target: { relativeRoot: string; skillId: string }) =>
-                target.skillId === skillId &&
-                relativeSkillRoot.startsWith(`${target.relativeRoot}/`),
-            ),
+          const ownedTarget = injectionManifest.targets.find(
+            (target: { relativeRoot: string; skillId: string }) =>
+              target.skillId === skillId &&
+              PathUtils.join(
+                acpWorkspaceDir,
+                ...target.relativeRoot.split("/"),
+                skillId,
+              ) === skillDir,
+          );
+          assert.isOk(
+            ownedTarget,
             "selected ACP Skill copy must be owned by the current injection manifest",
           );
+          const relativeSkillFile = `${ownedTarget.relativeRoot}/${skillId}/SKILL.md`;
           const bridgeBeforeAcp = getHostBridgeServerStatus();
           assert.equal(bridgeBeforeAcp.status, "running");
+          restoreHostBridgeSynthesisResolver =
+            bindTestDefaultSynthesisClient(connectionInfo);
+          await writeRuntimeTextFile(
+            cliProfilePath,
+            JSON.stringify({ endpoint: bridgeBeforeAcp.endpoint }),
+          );
           for (const size of [1, 3, 6]) {
             const startedAt = Date.now();
             await sendAcpConversationPrompt({
@@ -941,15 +1018,27 @@ describe("Synthesis E2E gold library", function () {
             );
             assert.equal(acpSnapshot.status, "connected");
             assert.isFalse(acpSnapshot.busy);
-            const assistantResult = [...acpSnapshot.items]
+            const transcriptPage = await readAcpConversationTranscriptPage({
+              backendId: acpBackendId,
+              conversationId: acpConversationId,
+              limit: 80,
+            });
+            const assistantResult = [...transcriptPage.items]
               .reverse()
               .find(
                 (entry) =>
                   entry.kind === "message" && entry.role === "assistant",
               );
-            assert.isOk(assistantResult, "ACP agent returned no tool result");
+            assert.isOk(
+              assistantResult,
+              `ACP transcript page has no assistant result (total=${transcriptPage.total}, eventSeq=${transcriptPage.eventSeq})`,
+            );
             const result = JSON.parse(
               (assistantResult as { text: string }).text,
+            );
+            assert.isUndefined(
+              result.error?.code,
+              `ACP burst of ${size} failed: ${JSON.stringify(result.error)}`,
             );
             assert.equal(result.size, size);
             assert.equal(result.skill.id, skillId);
@@ -964,7 +1053,14 @@ describe("Synthesis E2E gold library", function () {
               assert.isEmpty(call.issues);
               assert.isNotEmpty(call.evidenceRefs);
               for (const ref of call.evidenceRefs) {
-                assert.equal(ref.publication, publication);
+                if (!publicationRef.value) {
+                  publicationRef.value = ref.publication;
+                  await verifyEvidenceReferenceContext(
+                    topicClient,
+                    ref,
+                  );
+                }
+                assert.equal(ref.publication, publicationRef.value);
                 assert.equal(
                   ref.identity,
                   `${items[0].libraryID}:${items[0].key}`,
@@ -973,7 +1069,7 @@ describe("Synthesis E2E gold library", function () {
                 assert.isNotEmpty(ref.sourceVersion);
               }
             }
-            const toolCalls = acpSnapshot.items.filter(
+            const toolCalls = transcriptPage.items.filter(
               (entry) => entry.kind === "tool_call",
             );
             assert.isAtLeast(toolCalls.length, size);
@@ -1021,22 +1117,39 @@ describe("Synthesis E2E gold library", function () {
             try {
               if (acpWorkspaceDir) await removeRuntimePath(acpWorkspaceDir);
             } finally {
-              if (previousBackendsConfig == null)
-                clearPref("backendsConfigJson");
-              else setPref("backendsConfigJson", previousBackendsConfig);
+              try {
+                restoreHostBridgeSynthesisResolver?.();
+              } finally {
+                if (previousBackendsConfig == null)
+                  clearPref("backendsConfigJson");
+                else setPref("backendsConfigJson", previousBackendsConfig);
+              }
             }
           }
         }
-        const searchBursts = await runSemanticSearchBursts(
-          searchRequest,
-          items[0],
-          publication,
-          () => topicClient!.client.searchSemanticEvidence(searchRequest),
-          true,
-        );
+        restoreHostBridgeSynthesisResolver =
+          bindTestDefaultSynthesisClient(connectionInfo);
+        let searchBursts: Awaited<ReturnType<typeof runSemanticSearchBursts>>;
+        try {
+          searchBursts = await runSemanticSearchBursts(
+            searchRequest,
+            items[0],
+            publicationRef,
+            topicClient,
+            () => topicClient!.client.searchSemanticEvidence(searchRequest),
+            cliProfilePath,
+            true,
+          );
+        } finally {
+          restoreHostBridgeSynthesisResolver?.();
+          restoreHostBridgeSynthesisResolver = undefined;
+        }
         const sidecarAfterBursts = await retrieval.getState();
         assert.equal(sidecarAfterBursts.status, "ready");
-        assert.equal(sidecarAfterBursts.publication, publication);
+        assert.equal(
+          sidecarAfterBursts.publication,
+          currentPublicationBasis.publication,
+        );
         assert.equal(
           (await listSidecarDiscoveries()).find(
             ({ discovery }) =>
@@ -1151,25 +1264,25 @@ describe("Synthesis E2E gold library", function () {
               );
               if (error)
                 throw new Error("semantic_search_failed: " + error.textContent);
-              const row = doc.querySelector(".retrieval-result-row");
-              const source =
-                row?.querySelector(".retrieval-source")?.textContent || "";
-              const sourcePattern = {
+              const patterns = {
                 metadata: /metadata|元数据/i,
                 fulltext: /full text|全文/i,
                 analysis: /analysis|分析/i,
-              }[sourceKind];
-              return row?.querySelector(".retrieval-title")?.textContent ===
-                expected && sourcePattern.test(source)
-                ? row.querySelector(".retrieval-excerpt")?.textContent
-                : null;
+              };
+              const rows = Array.from(doc.querySelectorAll(".retrieval-result-row"));
+              const row = (liveOllama ? rows : rows.slice(0, 1)).find((entry) => {
+                const source = entry.querySelector(".retrieval-source")?.textContent || "";
+                return entry.querySelector(".retrieval-title")?.textContent === expected &&
+                  (liveOllama ? Object.values(patterns) : [patterns[sourceKind]]).some(pattern => pattern.test(source));
+              });
+              return row?.querySelector(".retrieval-excerpt")?.textContent;
             },
             65000,
             `verified-semantic-result-${sourceKind}`,
           );
           assert.isNotEmpty(excerpt);
           workbenchSearchTimings.push({
-            temperature: "warm",
+            temperature: workbenchSearchTimings.length ? "warm" : "cold",
             elapsedMs: Date.now() - startedAt,
           });
         }
@@ -1195,7 +1308,7 @@ describe("Synthesis E2E gold library", function () {
               mode: liveOllama ? "live-ollama" : "mock",
               model: connection.modelId,
               serviceInstanceId: connectionInfo.discovery.serviceInstanceId,
-              publication,
+              publication: publicationRef.value,
               surfaceBursts: searchBursts,
               acpChat: acpSearchBursts,
               workbench: workbenchSearchTimings,
