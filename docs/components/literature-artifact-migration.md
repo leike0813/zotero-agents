@@ -87,20 +87,21 @@ moves search and filters to a second row below 1100 px, and uses a two-column
 filter grid below 560 px. It renders no library selector and stays within the
 personal library bound by the scan.
 
-In problem review, the step buttons sit beneath the shared choices and above
-the scrolling document list. The previous-step action returns to the preceding
-problem group or overview. Returning from final review restores the last
-problem group. The final Apply command stays in the fixed footer outside the
-document scroll area. A scan without problem groups proceeds directly from
-overview to final review. Shared choices show their consequences and selected
-state. Each choice applies across the scan.
+One fixed action bar sits directly below the numbered steps and above the
+filters and scrolling content. The primary action is on the right from
+overview through final review, with the previous-step action on the left
+when available. Returning from final review restores the last problem group.
+A scan without problem groups proceeds directly from overview to final review.
+Apply opens the existing write confirmation. Shared choices show their
+consequences and selected state and apply across the scan.
 
 Document paging uses the same controls in problem review, final review, and
 results. Enter or leaving the page input commits a page number. Paging resets
 the document scroll position without changing choices or closing the selected
 document's details. Empty filters retain problem choices and wizard navigation.
 On narrow layouts, history can be collapsed and document details replace the
-list until the user returns. Titles and supporting text use bounded summaries
+list while the action bar stays in view. Moving to another step or problem
+group closes the detail. Titles and supporting text use bounded summaries
 with expandable content; warnings about discarded or replaced data remain
 visible.
 

@@ -540,13 +540,20 @@ export const MigrationsRegion = memo(
         ...nextQuery,
       });
     };
+    const closeCandidateDetails = () => {
+      setSelectedCandidateSnapshot(null);
+      setOpenIssue(null);
+    };
     const selectProblemGroup = (index: number) => {
       const nextIndex = Math.max(0, Math.min(decisionGroups.length - 1, index));
-      if (!decisionGroups[nextIndex]) return;
-      setProblemGroupReasonCode(decisionGroups[nextIndex]!.reasonCode);
-      updateQuery({ reasonCode: decisionGroups[nextIndex]!.reasonCode });
+      const group = decisionGroups[nextIndex];
+      if (!group) return;
+      if (group.reasonCode !== problemGroupReasonCode) closeCandidateDetails();
+      setProblemGroupReasonCode(group.reasonCode);
+      updateQuery({ reasonCode: group.reasonCode });
     };
     const enterStep = (step: typeof wizardStep) => {
+      if (step !== currentStep) closeCandidateDetails();
       if (step === "problems" && decisionGroups.length) {
         selectProblemGroup(currentStep === "overview" ? 0 : problemGroupIndex);
       }
@@ -576,41 +583,16 @@ export const MigrationsRegion = memo(
         selectProblemGroup(nextIndex);
       }
     };
-    const nextProblem = () => {
-      if (!decisionGroups.length) enterStep("finalreview");
-      else moveProblemGroup(1);
-    };
-    const renderProblemNavigation = (drawer = false) => (
-      <nav
-        class={
-          drawer
-            ? "dashboard-migration-drawer-wizard"
-            : "dashboard-migration-problem-navigation"
-        }
-        aria-label={selection.pageTitle}
-      >
-        <button
-          type="button"
-          class="btn"
-          data-role={drawer ? undefined : "migration-wizard-back"}
-          disabled={workerActive}
-          onClick={() => moveProblemGroup(-1)}
-        >
-          {guidance.back || "Previous"}
-        </button>
-        <button
-          type="button"
-          class="btn primary"
-          data-role={drawer ? undefined : "migration-wizard-next"}
-          disabled={workerActive}
-          onClick={nextProblem}
-        >
-          {problemGroupIndex < decisionGroups.length - 1
-            ? `${guidance.nextProblem || "Next issue category"} (${problemGroupIndex + 2}/${decisionGroups.length})`
-            : guidance.reviewChanges || "Review migration"}
-        </button>
-      </nav>
-    );
+    const overview = currentStep === "overview";
+    const finalReview = currentStep === "finalreview";
+    let primaryLabel = guidance.reviewChanges || "Review changes";
+    if (finalReview) {
+      primaryLabel = selection.applyLabel;
+    } else if (overview && decisionGroups.length) {
+      primaryLabel = `${guidance.startProblems || "Review problems"} (1/${decisionGroups.length})`;
+    } else if (problemGroupIndex < decisionGroups.length - 1) {
+      primaryLabel = `${guidance.nextProblem || "Next issue category"} (${problemGroupIndex + 2}/${decisionGroups.length})`;
+    }
 
     return (
       <section
@@ -621,6 +603,88 @@ export const MigrationsRegion = memo(
         aria-busy={workerActive}
       >
         <h2 class="page-title">{selection.pageTitle}</h2>
+        {active ? (
+          <nav
+            class="dashboard-migration-wizard-steps"
+            aria-label={selection.pageTitle}
+          >
+            {(["overview", "problems", "finalreview", "results"] as const).map(
+              (step, index) => (
+                <button
+                  type="button"
+                  key={step}
+                  data-role={`migration-step-${step}`}
+                  aria-current={currentStep === step ? "step" : undefined}
+                  class={currentStep === step ? "is-current" : ""}
+                  disabled={
+                    workerActive || (step === "results" && !terminalView)
+                  }
+                  onClick={() => enterStep(step)}
+                >
+                  <span
+                    class="dashboard-migration-step-number"
+                    aria-hidden="true"
+                  >
+                    {index + 1}
+                  </span>
+                  {guidance[
+                    step === "finalreview"
+                      ? "stepFinalReview"
+                      : `step${step[0]!.toUpperCase()}${step.slice(1)}`
+                  ] || step}
+                </button>
+              ),
+            )}
+          </nav>
+        ) : null}
+        {active && !terminalView ? (
+          <nav
+            class="dashboard-migration-wizard-actions"
+            aria-label={selection.pageTitle}
+          >
+            {!overview ? (
+              <button
+                type="button"
+                class="btn"
+                data-role="migration-wizard-back"
+                disabled={workerActive}
+                onClick={() =>
+                  finalReview
+                    ? enterStep(decisionGroups.length ? "problems" : "overview")
+                    : moveProblemGroup(-1)
+                }
+              >
+                {finalReview && !decisionGroups.length
+                  ? guidance.backOverview || "Back to overview"
+                  : guidance.back || "Previous"}
+              </button>
+            ) : null}
+            <button
+              type="button"
+              class={`btn primary${applying ? " is-busy" : ""}`}
+              data-role={
+                finalReview ? "migration-apply" : "migration-wizard-next"
+              }
+              disabled={workerActive || (finalReview && !canApply)}
+              aria-busy={finalReview ? applying : undefined}
+              onClick={() => {
+                if (finalReview) {
+                  onAction("literature-migration-apply", {
+                    scanOperationId: active.operationId,
+                    migrationId: active.migrationId,
+                    definitionVersion: active.definitionVersion,
+                  });
+                } else if (overview) {
+                  enterStep(decisionGroups.length ? "problems" : "finalreview");
+                } else {
+                  moveProblemGroup(1);
+                }
+              }}
+            >
+              {primaryLabel}
+            </button>
+          </nav>
+        ) : null}
         <div class="dashboard-migrations-toolbar-row">
           <div class="dashboard-migrations-actions">
             <button
@@ -780,40 +844,6 @@ export const MigrationsRegion = memo(
             </>
           ) : null}
         </div>
-        {active ? (
-          <nav
-            class="dashboard-migration-wizard-steps"
-            aria-label={selection.pageTitle}
-          >
-            {(["overview", "problems", "finalreview", "results"] as const).map(
-              (step, index) => (
-                <button
-                  type="button"
-                  key={step}
-                  data-role={`migration-step-${step}`}
-                  aria-current={currentStep === step ? "step" : undefined}
-                  class={currentStep === step ? "is-current" : ""}
-                  disabled={
-                    workerActive || (step === "results" && !terminalView)
-                  }
-                  onClick={() => enterStep(step)}
-                >
-                  <span
-                    class="dashboard-migration-step-number"
-                    aria-hidden="true"
-                  >
-                    {index + 1}
-                  </span>
-                  {guidance[
-                    step === "finalreview"
-                      ? "stepFinalReview"
-                      : `step${step[0]!.toUpperCase()}${step.slice(1)}`
-                  ] || step}
-                </button>
-              ),
-            )}
-          </nav>
-        ) : null}
         {view.availability === "unavailable" ? (
           <p class="empty">
             {view.availabilityReason || selection.unavailableText}
@@ -1294,9 +1324,6 @@ export const MigrationsRegion = memo(
                       ) : null}
                     </section>
                   ) : null}
-                  {active && currentStep === "problems"
-                    ? renderProblemNavigation()
-                    : null}
                   {currentStep === "problems" || terminalView ? (
                     <div class="dashboard-migrations-candidates">
                       {candidatePage.items.map((candidate) => {
@@ -1511,8 +1538,7 @@ export const MigrationsRegion = memo(
                                 data-role="migration-review-pending-reason"
                                 data-reason-code={group.reasonCode}
                                 onClick={() => {
-                                  setSelectedCandidateSnapshot(null);
-                                  setOpenIssue(null);
+                                  closeCandidateDetails();
                                   updateQuery({
                                     search: "",
                                     classification: "",
@@ -1975,9 +2001,6 @@ export const MigrationsRegion = memo(
                         <p class="empty">{selection.readyLabel}</p>
                       )}
                     </section>
-                    {currentStep === "problems"
-                      ? renderProblemNavigation(true)
-                      : null}
                     {selectedCandidate.diagnostics.length ? (
                       <details class="dashboard-migration-drawer-diagnostics">
                         <summary>{selection.diagnosticsLabel}</summary>
@@ -2057,72 +2080,6 @@ export const MigrationsRegion = memo(
             ) : null}
           </div>
         </div>
-        {active && !terminalView ? (
-          <nav
-            class="dashboard-migration-wizard-actions"
-            aria-label={selection.pageTitle}
-          >
-            {currentStep === "finalreview" ? (
-              <button
-                type="button"
-                class="btn"
-                data-role="migration-wizard-back"
-                disabled={workerActive}
-                onClick={() =>
-                  currentStep === "finalreview"
-                    ? enterStep(decisionGroups.length ? "problems" : "overview")
-                    : moveProblemGroup(-1)
-                }
-              >
-                {currentStep === "finalreview"
-                  ? decisionGroups.length
-                    ? guidance.back || "Previous"
-                    : guidance.backOverview || "Back to overview"
-                  : guidance.back || "Previous"}
-              </button>
-            ) : null}
-            {currentStep === "finalreview" ? (
-              <button
-                type="button"
-                data-role="migration-apply"
-                disabled={!canApply || workerActive}
-                class={`btn primary${applying ? " is-busy" : ""}`}
-                aria-busy={applying}
-                onClick={() =>
-                  onAction("literature-migration-apply", {
-                    scanOperationId: active.operationId,
-                    migrationId: active.migrationId,
-                    definitionVersion: active.definitionVersion,
-                  })
-                }
-              >
-                {selection.applyLabel}
-              </button>
-            ) : currentStep === "overview" ? (
-              <button
-                type="button"
-                class="btn primary"
-                data-role="migration-wizard-next"
-                disabled={workerActive}
-                onClick={() =>
-                  currentStep === "overview"
-                    ? decisionGroups.length
-                      ? enterStep("problems")
-                      : enterStep("finalreview")
-                    : nextProblem()
-                }
-              >
-                {currentStep === "overview"
-                  ? decisionGroups.length
-                    ? `${guidance.startProblems || guidance.nextProblem || "Review next problem"} (1/${decisionGroups.length})`
-                    : guidance.reviewChanges || "Review changes"
-                  : problemGroupIndex < decisionGroups.length - 1
-                    ? `${guidance.nextProblem || "Next problem"} (${problemGroupIndex + 2}/${decisionGroups.length})`
-                    : guidance.reviewChanges || "Review changes"}
-              </button>
-            ) : null}
-          </nav>
-        ) : null}
       </section>
     );
   },

@@ -1218,16 +1218,14 @@ describe("Dashboard literature migration region", function () {
       ".dashboard-migration-drawer-back",
     );
     assert.equal(drawerBack?.textContent?.trim(), "Back to documents");
-    const drawerWizard = root.querySelector(
-      ".dashboard-migration-drawer-wizard",
+    assert.lengthOf(
+      root.querySelectorAll(".dashboard-migration-wizard-actions"),
+      1,
     );
-    assert.exists(drawerWizard);
-    assert.isTrue(
-      Boolean(
-        drawerWizard!.compareDocumentPosition(drawerBack!) &
-        root.ownerDocument.defaultView!.Node.DOCUMENT_POSITION_PRECEDING,
+    assert.exists(
+      root.querySelector(
+        '.dashboard-migration-wizard-actions [data-role="migration-wizard-next"]',
       ),
-      "narrow-drawer navigation stays between the strategy and candidate details",
     );
     assert.isTrue(
       root
@@ -1236,6 +1234,8 @@ describe("Dashboard literature migration region", function () {
     );
 
     // The host re-renders with another page that lacks the selected candidate.
+    root.querySelector<HTMLElement>(".dashboard-migrations-results")!.scrollTo =
+      () => {};
     render(
       h(MigrationsRegion, {
         selection: {
@@ -1257,6 +1257,13 @@ describe("Dashboard literature migration region", function () {
     const drawer = root.querySelector('[data-role="migration-detail-drawer"]');
     assert.exists(drawer, "pagination must not close the detail drawer");
     assert.include(drawer!.textContent || "", "Review paper");
+    root
+      .querySelector<HTMLButtonElement>(
+        '.dashboard-migration-wizard-actions [data-role="migration-wizard-next"]',
+      )!
+      .click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.isNull(root.querySelector('[data-role="migration-detail-drawer"]'));
     render(null, root);
     restoreSidebarDomGlobals();
     environment.dom.window.close();
@@ -1377,11 +1384,17 @@ describe("Dashboard literature migration region", function () {
         ?.getAttribute("data-wizard-step"),
       "overview",
     );
-    assert.isNull(
-      root
-        .querySelector(".dashboard-migration-wizard-actions")
-        ?.closest(".dashboard-migrations-body"),
-      "wizard footer stays outside the inert two-column body",
+    const wizardActions = root.querySelector(
+      ".dashboard-migration-wizard-actions",
+    )!;
+    assert.strictEqual(
+      root.querySelector(".dashboard-migration-wizard-steps")
+        ?.nextElementSibling,
+      wizardActions,
+    );
+    assert.strictEqual(
+      wizardActions.nextElementSibling,
+      root.querySelector(".dashboard-migrations-toolbar-row"),
     );
     assert.isNull(root.querySelector('[data-role="migration-apply"]'));
     assert.include(root.textContent || "", "48");
@@ -1400,20 +1413,15 @@ describe("Dashboard literature migration region", function () {
       root.querySelectorAll(".dashboard-migration-batch-group").length,
       1,
     );
-    const problemNavigation = root.querySelector(
-      ".dashboard-migration-problem-navigation",
+    assert.strictEqual(
+      root.querySelector(".dashboard-migration-wizard-actions"),
+      wizardActions,
     );
-    assert.exists(problemNavigation);
-    assert.isTrue(
-      Boolean(
-        problemNavigation!.compareDocumentPosition(
-          root.querySelector(".dashboard-migrations-candidates")!,
-        ) & root.ownerDocument.defaultView!.Node.DOCUMENT_POSITION_FOLLOWING,
-      ),
-      "problem navigation stays between policy controls and candidates",
+    assert.exists(
+      wizardActions.querySelector('[data-role="migration-wizard-next"]'),
     );
     assert.equal(
-      problemNavigation!
+      wizardActions
         .querySelector("[data-role='migration-wizard-back']")
         ?.textContent?.trim(),
       "Previous",
@@ -1608,6 +1616,7 @@ describe("Dashboard literature migration region", function () {
       '[data-role="migration-apply"]',
     );
     assert.exists(apply);
+    assert.strictEqual(apply!.parentElement, wizardActions);
     assert.isTrue(
       apply!.disabled,
       "wait for the unfiltered candidate page before applying",

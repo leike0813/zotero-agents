@@ -2757,30 +2757,9 @@ tr.clickable {
 }
 
 .dashboard-migration-wizard-actions {
-  min-height: 52px;
-  padding: var(--zs-space-4);
-  border-top: 1px solid var(--line);
-  background: var(--panel);
-}
-
-.dashboard-migration-problem-navigation,
-.dashboard-migration-drawer-wizard {
-  display: flex;
-  flex: none;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 8px 0;
-}
-
-.dashboard-migration-drawer-wizard {
-  display: none;
-}
-
-.dashboard-migration-problem-navigation {
-  position: sticky;
-  top: 0;
-  z-index: 1;
+  min-height: 44px;
+  padding-block: var(--zs-space-3);
+  border-bottom: 1px solid var(--line);
   background: var(--panel);
 }
 
@@ -2793,6 +2772,7 @@ tr.clickable {
 }
 
 .dashboard-migration-wizard-steps {
+  flex-wrap: wrap;
   justify-content: flex-start;
   padding: 4px 0;
   border-bottom: 1px solid var(--line);
@@ -2804,13 +2784,13 @@ tr.clickable {
   border-radius: 999px;
   color: var(--muted);
   background: transparent;
+  font-weight: 700;
 }
 
 .dashboard-migration-wizard-steps button.is-current {
   border-color: var(--zs-accent-border);
   color: var(--zs-accent-text);
   background: var(--zs-accent-soft);
-  font-weight: 700;
 }
 
 .dashboard-migration-overview,
@@ -3600,17 +3580,6 @@ tr.clickable {
     display: inline-flex;
     justify-self: start;
   }
-
-  .dashboard-migration-drawer-wizard {
-    display: flex;
-    position: sticky;
-    bottom: 0;
-    z-index: 1;
-    margin-top: auto;
-    padding: var(--zs-space-3);
-    border-top: 1px solid var(--line);
-    background: var(--panel);
-  }
 }
 
 @container main-view (max-width: 560px) {
@@ -3646,10 +3615,6 @@ tr.clickable {
 
   .dashboard-migrations-workspace.has-drawer {
     grid-template-columns: minmax(0, 1fr);
-  }
-
-  .dashboard-migration-wizard-actions {
-    padding-inline: var(--zs-space-4);
   }
 }
 
