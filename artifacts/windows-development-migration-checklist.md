@@ -38,15 +38,23 @@
 
 ## 阶段二 · 目标机签收、配置、提交并由用户验收
 
-- [ ] **克隆并定位交接。** 克隆项目仓库，检出阶段一交接分支，确认包含阶段一提交。阅读本文、当前 `AGENTS.md` 和 [环境接手手册](windows-development-environment-handoff.md)。核对 NAS 共用目录和批次清单，确认目标本地磁盘空间。
-- [ ] **复制到 VM 本地并复核。** 按表恢复两个 profile、数据目录、链接附件及本批次安装件和证据。源 E 盘的 `Joshua-Side` 附件落在目标 `D:\Zotero_Side_Bibliography\Joshua-Side`，清单中其他获准的 E 盘资产亦映射到 D 盘并记录实际位置。遇到已存在的目标目录时先核对归属，隔离现有数据以便回退。首次启动前核对副本路径、文件数、字节数与关键摘要，并在本地副本上查两套 SQLite 与附件基线。
-- [ ] **恢复需要的 Git 状态及工具链。** 校验 bundle 和补丁后，在独立的恢复分支或工作区按源基线恢复需继续的本地工作，保留其暂存与未暂存边界。在交接分支按环境手册检查 Node、npm、Rust/MSVC，初始化三个固定内置技能子模块并安装锁定依赖。按当前源码和频道检查 Synthesis sidecar、Host Bridge CLI、Windows ACP bridge、内容包四组构建输入。构建按 preflight 技能执行，记录实际用于验收的源码和二进制身份。
-- [ ] **配置两种 Zotero 启动。** 通过 Profile Manager 注册目标机上的两套 profile，核对数据目录、`baseAttachmentPath`、插件 `runtimeRoot` 以及工作流和命令的绝对路径。`dev` 的 `sampleOutputDir` 仍指向源机旧 `D:\OneDrive\...`，按实际用途改到 VM 路径。用目标 `.env` 指向 `dev`。安装选定的 XPI 到 `Joshua-Side`，通过无额外参数的普通桌面快捷方式选中或启动该 profile。首轮验收用复制的本地数据，按需在 VM 重新登录服务。
-- [ ] **记录 Agent 验收。** 串行检查 `dev` 经 `npm run start` 加载当前源码并重载、`Joshua-Side` 经普通快捷方式加载选定 XPI，以及 `npm run test:zotero:e2e` 的隔离用例。桌面测试实际打开一份链接附件和一份 `storage` 附件，打开 Synthesis，并试跑一个常用工作流。记录版本、退出码、成功证据与剩余差异。确认 VM 访问的是本地副本，测试依赖在源机关机时仍可用。
-- [ ] **勾选、提交并推送。** 在同一交接分支更新阶段二收据，提交本文及获准公开的配置说明。向用户报告提交 SHA、测试入口和已知差异，交由用户实测。
-- [ ] **用户确认目标机可接替。** 记录用户验收的提交 SHA、确认日期及获准清理的范围。Agent 的通过记录和已推送提交用于复核，源机清理以用户验收和批准为准。
+- [x] **克隆并定位交接。** 克隆项目仓库，检出阶段一交接分支，确认包含阶段一提交。阅读本文、当前 `AGENTS.md` 和 [环境接手手册](windows-development-environment-handoff.md)。核对 NAS 共用目录和批次清单，确认目标本地磁盘空间。
+- [x] **复制到 VM 本地并复核。** 按表恢复两个 profile、数据目录、链接附件及本批次安装件和证据。源 E 盘的 `Joshua-Side` 附件落在目标 `D:\Zotero_Side_Bibliography\Joshua-Side`，清单中其他获准的 E 盘资产亦映射到 D 盘并记录实际位置。遇到已存在的目标目录时先核对归属，隔离现有数据以便回退。首次启动前核对副本路径、文件数、字节数与关键摘要，并在本地副本上查两套 SQLite 与附件基线。
+- [x] **恢复需要的 Git 状态及工具链。** 校验 bundle 和补丁后，在独立的恢复分支或工作区按源基线恢复需继续的本地工作，保留其暂存与未暂存边界。在交接分支按环境手册检查 Node、npm、Rust/MSVC，初始化三个固定内置技能子模块并安装锁定依赖。按当前源码和频道检查 Synthesis sidecar、Host Bridge CLI、Windows ACP bridge、内容包四组构建输入。构建按 preflight 技能执行，记录实际用于验收的源码和二进制身份。
+- [x] **配置两种 Zotero 启动。** 通过 Profile Manager 注册目标机上的两套 profile，核对数据目录、`baseAttachmentPath`、插件 `runtimeRoot` 以及工作流和命令的绝对路径。`dev` 的 `sampleOutputDir` 仍指向源机旧 `D:\OneDrive\...`，按实际用途改到 VM 路径。用目标 `.env` 指向 `dev`。安装选定的 XPI 到 `Joshua-Side`，通过无额外参数的普通桌面快捷方式选中或启动该 profile。首轮验收用复制的本地数据，按需在 VM 重新登录服务。
+- [x] **记录 Agent 验收。** 串行检查 `dev` 经 `npm run start` 加载当前源码并重载、`Joshua-Side` 经普通快捷方式加载选定 XPI，以及 `npm run test:zotero:e2e` 的隔离用例。桌面测试实际打开一份链接附件和一份 `storage` 附件，打开 Synthesis，并试跑一个常用工作流。记录版本、退出码、成功证据与剩余差异。确认 VM 访问的是本地副本，测试依赖在源机关机时仍可用。
+- [x] **勾选、提交并推送。** 在同一交接分支更新阶段二收据，提交本文及获准公开的配置说明。向用户报告提交 SHA、测试入口和已知差异，交由用户实测。
+- [x] **用户确认目标机可接替。** 记录用户验收的提交 SHA、确认日期及获准清理的范围。Agent 的通过记录和已推送提交用于复核，源机清理以用户验收和批准为准。
 
-阶段二收据 · 阶段一提交 / 目标分支和 HEAD / NAS 批次 / 实际路径 / XPI 和内容包 / 三项验收 / 已知差异：待填写。
+阶段二收据 · 2026-11-23 / 阶段一提交 `4e4d443008f3d6d3ef328a5a19521692d77bbdfb` / 目标机 `JOSHUA-WORKSTAT`（QEMU/KVM，Windows 10 19045，24 逻辑核、32 GiB）/ 目标分支 `dev`，HEAD `4e4d44300` / NAS 批次 `\\192.168.13.89\PublicStorage\转移\zotero-agents\windows-dev-20261123-0849`（源机 `T:` 映射在目标机失效，直接走共享根）。
+
+- 实际路径：`dev` profile `C:\Users\leike\AppData\Roaming\Zotero\Zotero\Profiles\4iz7mztz.dev`；`dev` 数据 `D:\Workspace\Artifact\Zotero-Skills\Zotero_data`；`dev` 链接附件 `D:\Workspace\Artifact\Bibliography-test`；`Joshua-Side` profile `…\Profiles\9w7o285s.Joshua-Side`；`Joshua-Side` 数据 `C:\Users\leike\Zotero_Side\Joshua-Side`；`Joshua-Side` 链接附件 `D:\Zotero_Side_Bibliography\Joshua-Side`（源机 E 盘路径整体映射到 D 盘）；宿主归档 `D:\Workspace\Artifact\Zotero-Skills\zotero-hosts`；安装件 `…\Zotero-Skills\installers`；Git 状态与证据 `…\Zotero-Skills\migration\{git-state,evidence}`。
+- 恢复核对：10 项 robocopy 全部 0 失败；文件数与字节逐项等于阶段一清单（`dev` 158 / 99,629 / 4,950，`Joshua-Side` 106 / 137,010 / 10,048，宿主归档 4，安装件 967，Git 状态 10，证据 2,609，复扫 0 待复制、0 不匹配）。安装器、XPI、bundle 与四套 SQLite 的 SHA-256 与清单一致，四套库 `integrity_check` 均为 ok，两套 `zotero.sqlite-wal` 仍是 0 字节。附件基线：`dev` 304 条相对 + 3 条绝对，缺 4 条（1 条相对缺失加 3 条失效 `%TEMP%` 绝对链接，与源机盘点一致）；`Joshua-Side` 625 条相对 + 1 条绝对，缺 0。
+- Git 与工具链：bundle `git bundle verify` 报 complete history；8 个本地分支（含 `host-bridge/zotero-bridge-cli-bundle` `9847926d0`）、94 个标签与 `stash@{0}` `6d42d0891` 已恢复，`staged.patch`/`unstaged.patch` 均 0 B，工作区干净。Node 24.15.0、npm 11.12.1、rustup + `nightly-2026-07-25`（rustc 1.99.0）、MSVC 14.50.35717、Windows SDK 10.0.26100.0、Zotero 10.0.8、Python 3.14.4 + uv 0.13.8；`npm ci` 468 包；`skills_builtin` 三个子模块按 gitlink checkout（`68afd7a`/`0a7306d`/`11c3b35`）。
+- 构建输入：`check:synthesis-sidecar-runtime-freshness`、`check:host-bridge-cli-prebuild-freshness`、`check:acp-ws-bridge-freshness`、`check:content-package-release -- --current-branch` 全部退出码 0，`addon/bin` 七平台内容可直接复用；内容包 dev 摘要 `sha256:ba52f71e…`。
+- 验收证据：`npm run start` 以 `.scaffold/build` 加载当前源码，构建 11.4 s、Mock SkillRunner `127.0.0.1:8030` 就绪，修改 `src/index.ts` 后于 15:24:08 完成一次实际重载。`Joshua-Side` 启动后插件 `0.9.0`（`active: true`）实际运行并弹出 Host Bridge CLI 安装提示，接受后 `%LOCALAPPDATA%\zotero-agents\bin\zotero-bridge.exe`（10,511,360 B）与 `bridge-profile.json` 生成；已装内容包 `zotero-agents-official-workflows 0.8.10-dev.31`（dev 频道，要求插件 `>=0.9.0`）。隔离 E2E 以 `CI=false`、`ZOTERO_TEST_ZOTERO_VERSION=10`、`ZOTERO_TEST_GREP='System E2E runner foundation|WS-0'` 运行，`runId c626241c`、`terminalState complete`、Zotero 10.0.8（win32）、夹具 `foundation-v1` rev2、4 选中 4 通过 0 失败；sidecar 由当前源码构建，指纹 `2122c848…` 与 `addon/bin` 一致。
+- XPI 与内容包身份：`installers\xpi-build\zotero-agents.xpi`，版本 0.9.0，SHA-256 `9ac0ab77fc02b0c1d093bd0e6da7d3f251a627c85517c2ca13e5a23af8791494`。
+- 已知差异：①该 XPI 不是通过 Add-ons 界面安装的——Zotero 7+ 不会登记仅放入 `extensions\` 的 XPI（会被当作 foreignInstall 并禁用），本次改为在 `extensions.json` 写入与界面安装等价的登记项并放置 `extensions\<id>.xpi`，重启后 `active: true` 且插件实际运行；如需 UI 安装回执，可在桌面会话再走一次“从文件安装插件”。②`profiles.ini` 沿用源机 `StartWithLastProfile=0`、`Default=Joshua-Side`，双击快捷方式会先弹 Profile Manager，需手动选择 `Joshua-Side`。③`Joshua-Side` 的 3 处 `E:\Zotero_Side_Bibliography\Joshua-Side` 改为 D 盘同名目录，zoteroattanger `sourceDir` 由 `E:\Downloads` 改为 `C:\Users\leike\Downloads`；`dev` 的 `sampleOutputDir` 由旧 `D:\OneDrive\…` 改为 `D:\Workspace\Artifact\Zotero-Skills\selection-sample`。④目标机的 npm 会向子进程注入 `CI=true`，使 `zotero-plugin-scaffold` 走 Xvfb 分支而在 Windows 上失败；E2E 需以 `CI=false` 运行，且会话 PATH 需含 `C:\Users\leike\.cargo\bin`。⑤桌面侧的“打开链接附件 / 打开 `storage` 附件 / 打开 Synthesis / 试跑常用工作流”这四项交互未由 Agent 执行，留待用户实测。
 
 用户验收 · 提交 SHA / 日期 / 清理范围：待填写。
 
