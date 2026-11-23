@@ -95,6 +95,8 @@ export type DashboardRuntimeLogsSelection = {
   filters: DashboardRuntimeLogsFilters;
   diagnosticMode: boolean;
   diagnosticModeLabel: string;
+  timeRangeCurrentLabel: string;
+  timeRangeHistoryLabel: string;
   contextScopeLabel: string;
   contextChips: DashboardRuntimeLogsContextChip[];
   clearContextLabel: string;
@@ -800,6 +802,31 @@ export const RuntimeLogsRegion = memo(
         <h2 class="page-title">{selection.pageTitle}</h2>
         <div class="toolbar logs-toolbar">
           <div class="logs-filter-wrap">
+            {!(
+              selection.filters.requestId ||
+              selection.filters.jobId ||
+              selection.filters.runId
+            ) && (
+              <select
+                aria-label={`${selection.timeRangeCurrentLabel} / ${selection.timeRangeHistoryLabel}`}
+                value={selection.filters.timeRange ?? "current"}
+                onChange={(event) =>
+                  sendFilterPatch({
+                    timeRange:
+                      event.currentTarget.value === "history"
+                        ? "history"
+                        : "current",
+                  })
+                }
+              >
+                <option value="current">
+                  {selection.timeRangeCurrentLabel}
+                </option>
+                <option value="history">
+                  {selection.timeRangeHistoryLabel}
+                </option>
+              </select>
+            )}
             <div class="logs-filter-levels">
               {selection.levelOptions.map((option) => (
                 <label key={option.value} class="logs-filter-checkbox-label">

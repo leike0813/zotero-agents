@@ -104,6 +104,8 @@ const REQUIRED_ANALYSIS_ARTIFACTS: Array<
 export type LibraryArtifactReadOptions = {
   runNativeSlice?: <T>(run: () => Promise<T> | T) => Promise<T>;
   checkCanceled?: () => void;
+  /** Parent PDF/Markdown attachment reads are skipped when false. */
+  includeAttachments?: boolean;
 };
 
 const ARTIFACT_READ_PAGE_LIMIT = 100;
@@ -272,43 +274,67 @@ async function resolveArtifactChildren(
   item: LibraryArtifactItem,
   options: LibraryArtifactReadOptions = {},
 ) {
-  const notes: LibraryArtifactNoteFacts[] = [];
-  const attachments: LibraryArtifactAttachmentFacts[] = [];
-  const processPage = async <T>(
-    items: LibraryArtifactItem[],
-    process: (item: LibraryArtifactItem) => Promise<T | null>,
-    output: T[],
-  ) => {
-    let startedAt = Date.now();
-    let processed = 0;
-    for (const child of items) {
-      checkArtifactRead(options);
-      const fact = await process(child);
-      if (fact) {
-        output.push(fact);
-      }
-      processed += 1;
-      if (processed >= 100 || Date.now() - startedAt >= 50) {
-        await yieldToEventLoop();
-        checkArtifactRead(options);
-        startedAt = Date.now();
-        processed = 0;
-      }
-    }
-  };
-  await Promise.all([
-    forEachArtifactChildPage(item, "notes", options, (page) =>
-      processPage(page, (child) => detachArtifactNote(child, options), notes),
-    ),
-    forEachArtifactChildPage(item, "attachments", options, (page) =>
-      processPage(
-        page,
-        (child) => detachArtifactAttachment(child, options),
-        attachments,
-      ),
-    ),
+  const [notes, attachments] = await Promise.all([
+    resolveArtifactChildNotes(item, options),
+    resolveArtifactChildAttachments(item, options),
   ]);
   return { notes, attachments };
+}
+
+async function resolveArtifactChildNotes(
+  item: LibraryArtifactItem,
+  options: LibraryArtifactReadOptions,
+) {
+  const notes: LibraryArtifactNoteFacts[] = [];
+  await forEachArtifactChildPage(item, "notes", options, (page) =>
+    processArtifactChildPage(
+      page,
+      (child) => detachArtifactNote(child, options),
+      notes,
+      options,
+    ),
+  );
+  return notes;
+}
+
+async function resolveArtifactChildAttachments(
+  item: LibraryArtifactItem,
+  options: LibraryArtifactReadOptions,
+) {
+  const attachments: LibraryArtifactAttachmentFacts[] = [];
+  await forEachArtifactChildPage(item, "attachments", options, (page) =>
+    processArtifactChildPage(
+      page,
+      (child) => detachArtifactAttachment(child, options),
+      attachments,
+      options,
+    ),
+  );
+  return attachments;
+}
+
+async function processArtifactChildPage<T>(
+  items: LibraryArtifactItem[],
+  process: (item: LibraryArtifactItem) => Promise<T | null>,
+  output: T[],
+  options: LibraryArtifactReadOptions,
+) {
+  let startedAt = Date.now();
+  let processed = 0;
+  for (const child of items) {
+    checkArtifactRead(options);
+    const fact = await process(child);
+    if (fact) {
+      output.push(fact);
+    }
+    processed += 1;
+    if (processed >= 100 || Date.now() - startedAt >= 50) {
+      await yieldToEventLoop();
+      checkArtifactRead(options);
+      startedAt = Date.now();
+      processed = 0;
+    }
+  }
 }
 
 export async function resolveLibraryArtifactReadiness(
@@ -322,13 +348,25 @@ export async function resolveLibraryArtifactReadiness(
   ) {
     return emptyLibraryArtifactReadiness();
   }
-  const children = await resolveArtifactChildren(item, options);
+  const children: {
+    notes: LibraryArtifactNoteFacts[];
+    attachments: LibraryArtifactAttachmentFacts[];
+  } =
+    options.includeAttachments === false
+      ? {
+          notes: await resolveArtifactChildNotes(item, options),
+          attachments: [],
+        }
+      : await resolveArtifactChildren(item, options);
   const artifacts = new Set<LibraryArtifactKind>();
-  const pdfAttachment = await resolveBestPdfAttachmentFacts(
-    item,
-    children.attachments,
-    options,
-  );
+  const pdfAttachment =
+    options.includeAttachments === false
+      ? null
+      : await resolveBestPdfAttachmentFacts(
+          item,
+          children.attachments,
+          options,
+        );
   const pdfFilename = pdfAttachment?.filename || "";
   const pdfStem = pdfAttachment ? resolveStem(pdfFilename) : "";
   const markdownStems = resolveMarkdownAttachmentStems(children.attachments);

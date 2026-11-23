@@ -6357,7 +6357,7 @@ describe("Synthesis tab UI model", function () {
       } as any);
       try {
         await workbench.bridge.postMessage("selectTab", { tab: "registry" });
-        await waitUntil(() => indexMessages(workbench).length >= 1);
+        await waitUntil(() => lastIndexRows(workbench).length === 2);
         assert.deepEqual(
           lastIndexRows(workbench).map((row) => row.paper_ref),
           ["1:P1", "1:P2"],
@@ -6395,6 +6395,7 @@ describe("Synthesis tab UI model", function () {
         }
       >;
       details?: (sourceRefs: string[]) => any[];
+      beforeSummary?: (sourceRefs: string[]) => Promise<void>;
       onIndexRead?: (registry: Record<string, any>) => void;
     }): any => ({
       getSynthesisWorkbenchChromeInput: async () => ({
@@ -6428,6 +6429,8 @@ describe("Synthesis tab UI model", function () {
         }
         args.onIndexRead?.(registry);
         if (Array.isArray(registry.sourceRefs)) {
+          if (registry.projection === "summary")
+            await args.beforeSummary?.(registry.sourceRefs);
           const summaries = Object.values(args.pages).flatMap(
             (page) => page.rows,
           );
@@ -6806,6 +6809,7 @@ describe("Synthesis tab UI model", function () {
 
     it("settles a failed resumed scan without leaving the cached page counting", async function () {
       const gate = deferred<void>();
+      const summaryGate = deferred<void>();
       const reads: any[] = [];
       const workbench = await mountTestWorkbench(
         makeIndexPort({
@@ -6824,6 +6828,7 @@ describe("Synthesis tab UI model", function () {
             },
             "library|c2": { rows: [], error: new Error("request_timeout") },
           },
+          beforeSummary: () => summaryGate.promise,
           onIndexRead: (read) => reads.push(read),
         }),
       );
@@ -6837,6 +6842,8 @@ describe("Synthesis tab UI model", function () {
         gate.resolve();
         await new Promise((resolve) => setTimeout(resolve, 30));
         await workbench.bridge.postMessage("selectTab", { tab: "registry" });
+        await waitUntil(() => reads.some((read) => read.cursor === "c2"));
+        summaryGate.resolve();
         await waitUntil(() =>
           workbench.messages.some(
             (message) =>
@@ -6852,6 +6859,7 @@ describe("Synthesis tab UI model", function () {
         );
       } finally {
         gate.resolve();
+        summaryGate.resolve();
         await workbench.cleanup();
       }
     });
@@ -7322,6 +7330,66 @@ describe("Synthesis tab UI model", function () {
           [["1:SOURCE"]],
         );
       } finally {
+        await workbench.cleanup();
+      }
+    });
+
+    it("shows loading immediately and counts matches while the first Index rows are being read", async function () {
+      const firstScan = deferred<void>();
+      const firstSummary = deferred<void>();
+      const continuation = deferred<void>();
+      const laterSummaries = deferred<void>();
+      const rows = Array.from({ length: 25 }, (_, index) =>
+        indexRow(`1:P${index + 1}`),
+      );
+      const summaries: string[][] = [];
+      let continuationStarted = false;
+      const workbench = await mountTestWorkbench(
+        makeIndexPort({
+          libraryId: 1,
+          pages: {
+            "library|": {
+              rows,
+              hasMore: true,
+              nextCursor: "c1",
+              gate: firstScan.promise,
+            },
+            "library|c1": { rows: [], gate: continuation.promise },
+          },
+          beforeSummary(refs) {
+            if (refs.length > 5) throw new Error("summary request timed out");
+            summaries.push(refs);
+            return summaries.length === 1
+              ? firstSummary.promise
+              : laterSummaries.promise;
+          },
+          onIndexRead(registry) {
+            if (registry.cursor === "c1") continuationStarted = true;
+          },
+        }),
+      );
+      try {
+        await workbench.bridge.postMessage("selectTab", { tab: "registry" });
+        await waitUntil(() =>
+          indexMessages(workbench).some(
+            ({ payload }) =>
+              payload?.snapshot?.registry.window?.status === "loading",
+          ),
+        );
+        assert.lengthOf(lastIndexRows(workbench), 0);
+        firstScan.resolve();
+        await waitUntil(() => Boolean(summaries.length) && continuationStarted);
+        assert.lengthOf(summaries[0], 5);
+        firstSummary.resolve();
+        await waitUntil(() => lastIndexRows(workbench).length === 5);
+        continuation.resolve();
+        laterSummaries.resolve();
+        await waitUntil(() => lastIndexRows(workbench).length === 25);
+      } finally {
+        firstScan.resolve();
+        firstSummary.resolve();
+        continuation.resolve();
+        laterSummaries.resolve();
         await workbench.cleanup();
       }
     });

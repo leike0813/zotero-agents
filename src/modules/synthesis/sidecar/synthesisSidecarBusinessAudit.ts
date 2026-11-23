@@ -43,6 +43,7 @@ export type SynthesisSidecarBusinessAuditDetails = {
     | "internal";
   semanticStatus?: string;
   surface?: SynthesisWorkbenchSurfaceName;
+  indexProjection?: "matches" | "summary" | "references";
   reason?: string;
   errorCode?: string;
   sidecarCode?: string;
@@ -152,6 +153,7 @@ export function beginSynthesisSidecarBusinessAudit(args: {
   operation: SynthesisSidecarBusinessAuditOperation;
   trigger?: SynthesisSidecarBusinessAuditDetails["trigger"];
   surface?: SynthesisWorkbenchSurfaceName;
+  indexProjection?: SynthesisSidecarBusinessAuditDetails["indexProjection"];
   now?: () => number;
 }) {
   const now = args.now ?? Date.now;
@@ -181,6 +183,9 @@ export function beginSynthesisSidecarBusinessAudit(args: {
       operation: args.operation,
       trigger,
       ...(args.surface ? { surface: args.surface } : {}),
+      ...(args.indexProjection
+        ? { indexProjection: args.indexProjection }
+        : {}),
       stage: "terminal",
       outcome,
       durationMs: Math.max(0, now() - startedAt),

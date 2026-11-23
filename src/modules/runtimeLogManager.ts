@@ -122,6 +122,8 @@ export type RuntimeLogInput = Omit<
   diagnosticMode?: boolean;
 };
 
+export const runtimeLogSessionStartedAt = new Date().toISOString();
+
 export type RuntimeLogListFilters = {
   levels?: RuntimeLogLevel[];
   scopes?: RuntimeLogScope[];

@@ -3153,6 +3153,37 @@ describe("Synthesis native client composition", function () {
     ]);
   });
 
+  it("identifies the failed Index read phase without retaining the query", async function () {
+    const composition = createNativeSynthesisClientComposition({
+      getReadyConnection: () => null,
+    });
+    for (const indexProjection of [
+      "matches",
+      "summary",
+      "references",
+    ] as const) {
+      try {
+        const state = createDefaultSynthesisUiState();
+        state.registry.search = "private-index-query";
+        await composition.client.workbench.readSurface({
+          surface: "index",
+          state: toSynthesisWorkbenchReadState(state, { indexProjection }),
+        });
+        assert.fail("Expected the Index read to fail");
+      } catch (error) {
+        assert.instanceOf(error, SynthesisClientError);
+      }
+    }
+    const entries = listRuntimeLogs({
+      component: "synthesis-sidecar-business",
+    });
+    assert.sameMembers(
+      entries.map((entry) => (entry.details as any).indexProjection),
+      ["matches", "summary", "references"],
+    );
+    assert.notInclude(JSON.stringify(entries), "private-index-query");
+  });
+
   it("bounds validation audit diagnostics and hides private values and map keys", function () {
     const schemaRef = `${SYNTHESIS_TOPIC_WORKBENCH_SCHEMA_ID}#/$defs/ReferenceReviewSurfaceProjection`;
     const audit = beginSynthesisSidecarBusinessAudit({

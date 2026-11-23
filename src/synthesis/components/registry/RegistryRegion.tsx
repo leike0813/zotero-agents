@@ -382,6 +382,8 @@ export const RegistryRegion = memo(
       selection.activeIndexTool === "revise_canonicals";
     const indexWindow = selection.window;
     const queryLoading = indexWindow?.queryStatus === "loading";
+    const indexFailed =
+      indexWindow?.status === "failed" || indexWindow?.queryStatus === "failed";
     const totalPages =
       indexWindow?.total === null || indexWindow?.total === undefined
         ? null
@@ -564,6 +566,15 @@ export const RegistryRegion = memo(
                     : "synthesis-index-count-failed",
                 )}
               </span>
+            ) : null}
+            {indexFailed ? (
+              <button
+                type="button"
+                data-synthesis-action="refresh"
+                onClick={() => onAction("refresh", {})}
+              >
+                {t("synthesis-action-retry")}
+              </button>
             ) : null}
           </nav>
         ) : null}

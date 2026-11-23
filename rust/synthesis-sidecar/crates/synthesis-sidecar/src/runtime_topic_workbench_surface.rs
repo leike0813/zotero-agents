@@ -1909,20 +1909,17 @@ impl ProductionWorkbenchSurfaces<'_> {
             limit: 1,
             ..ReviewPageQuery::default()
         };
-        let (reference_matching_count, index_count) = {
-            let owner = self.apps.repository.owner();
-            let repository = owner
-                .lock()
-                .map_err(|_| "repository_unavailable".to_owned())?;
-            (
-                repository
-                    .list_reference_match_proposals_for_review(&query)?
-                    .total,
-                repository
-                    .list_reference_revision_reviews_for_review(&query)?
-                    .total,
-            )
-        };
+        let (reference_matching_count, index_count) =
+            self.apps.repository.with_reader(|repository| {
+                Ok((
+                    repository
+                        .list_reference_match_proposals_for_review(&query)?
+                        .total,
+                    repository
+                        .list_reference_revision_reviews_for_review(&query)?
+                        .total,
+                ))
+            })?;
         let (_, concept_count) = self.apps.concepts.load_review_page(&query)?;
         let (_, suggested_edge_count, topic_review_count) =
             self.apps.topic_graph.load_review_page(&query)?;

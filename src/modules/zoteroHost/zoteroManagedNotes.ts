@@ -883,16 +883,16 @@ export function classifyManagedNoteContent(
       { managedType: kind, noteKind: kind },
     );
   }
-  if (candidates.some(({ block }) => !semanticBlockHash(kind, block))) {
+  const hashes = new Set(
+    candidates.map(({ block }) => semanticBlockHash(kind, block)),
+  );
+  if (hashes.has(undefined) || hashes.has("")) {
     throw new ManagedNoteOwnerError(
       "invalid_artifact",
       "managed note payload is unreadable",
       { managedType: kind, noteKind: kind },
     );
   }
-  const hashes = new Set(
-    candidates.map(({ block }) => semanticBlockHash(kind, block)),
-  );
   if (hashes.size !== 1) {
     throw new ManagedNoteOwnerError(
       "conflict",

@@ -562,6 +562,11 @@ export type ZoteroHostArtifactReadinessItemDto = Pick<
   ref: ZoteroHostItemRefInput;
 };
 
+export type ZoteroHostArtifactReadinessOptions = Readonly<{
+  /** Consume generated artifacts only; skip the parent attachment scan. */
+  generatedOnly?: boolean;
+}>;
+
 export interface ZoteroHostCapabilityBroker {
   readonly acquisition: ZoteroHostAcquisition;
   readonly context: {
@@ -636,6 +641,7 @@ export interface ZoteroHostCapabilityBroker {
     getArtifactReadiness(
       refs: ZoteroHostItemRefInput[],
       control?: WorkflowCallControl,
+      options?: ZoteroHostArtifactReadinessOptions,
     ): Promise<ZoteroHostArtifactReadinessItemDto[]>;
     getItemDetail(
       ref: ZoteroHostItemRefInput,
@@ -16776,6 +16782,7 @@ async function readinessAudit(
 async function getArtifactReadiness(
   refs: ZoteroHostItemRefInput[],
   control: WorkflowCallControl = {},
+  options: ZoteroHostArtifactReadinessOptions = {},
 ): Promise<ZoteroHostArtifactReadinessItemDto[]> {
   if (!Array.isArray(refs) || refs.length === 0 || refs.length > 100) {
     throw capabilityError("invalid_request", "artifact refs are invalid", {
@@ -16795,18 +16802,31 @@ async function getArtifactReadiness(
     }),
   );
   const result: ZoteroHostArtifactReadinessItemDto[] = [];
-  for (const item of items) {
+  // The shared gate still serializes native Zotero access. A few generated
+  // reads can overlap their detached payload I/O without filling that queue.
+  const batchSize = options.generatedOnly ? 5 : 1;
+  for (let offset = 0; offset < items.length; offset += batchSize) {
     throwIfWorkflowCallCanceled(control);
-    const readiness = await resolveLibraryArtifactReadiness(item, {
-      runNativeSlice: (run) => withZoteroHostSlice(control, run),
-      checkCanceled: () => throwIfWorkflowCallCanceled(control),
-    });
-    result.push({
-      ref: canonicalItemRef(item),
-      state: readiness.state,
-      artifacts: readiness.artifacts,
-      literatureScore: readiness.literatureScore,
-    });
+    const batch = await Promise.allSettled(
+      items.slice(offset, offset + batchSize).map(async (item) => {
+        const readiness = await resolveLibraryArtifactReadiness(item, {
+          runNativeSlice: (run) => withZoteroHostSlice(control, run),
+          checkCanceled: () => throwIfWorkflowCallCanceled(control),
+          includeAttachments: !options.generatedOnly,
+        });
+        return {
+          ref: canonicalItemRef(item),
+          state: readiness.state,
+          artifacts: readiness.artifacts,
+          literatureScore: readiness.literatureScore,
+        };
+      }),
+    );
+    throwIfWorkflowCallCanceled(control);
+    for (const entry of batch) {
+      if (entry.status === "rejected") throw entry.reason;
+      result.push(entry.value);
+    }
   }
   return result;
 }

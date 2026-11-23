@@ -40,7 +40,11 @@ import {
   type LiteratureArtifactMigrationPrimaryDiagnostic,
 } from "../literatureArtifactMigration";
 import { readRuntimeTextFileStrict } from "../runtimePersistence";
-import { listRuntimeLogs } from "../runtimeLogManager";
+import {
+  listRuntimeLogs,
+  runtimeLogSessionStartedAt,
+  type RuntimeLogListFilters,
+} from "../runtimeLogManager";
 import { isSkillRunnerBackendAvailable } from "../skillRunner/connection/skillRunnerBackendHealthRegistry";
 import {
   isTerminal,
@@ -123,7 +127,22 @@ export type DashboardState = {
 export const DEFAULT_RUNTIME_LOG_LEVELS = ["info", "warn", "error"];
 
 export function createDefaultRuntimeLogFilters(): DashboardState["runtimeLogFilters"] {
-  return { levels: [...DEFAULT_RUNTIME_LOG_LEVELS] };
+  return { levels: [...DEFAULT_RUNTIME_LOG_LEVELS], timeRange: "current" };
+}
+
+export function resolveDashboardRuntimeLogQuery(
+  filters: DashboardRuntimeLogFilters,
+): RuntimeLogListFilters {
+  const { timeRange, ...query } = filters;
+  return {
+    ...(query as RuntimeLogListFilters),
+    ...(timeRange !== "history" &&
+    !query.requestId &&
+    !query.jobId &&
+    !query.runId
+      ? { fromTs: runtimeLogSessionStartedAt }
+      : {}),
+  };
 }
 
 function normalizeRuntimeLogFilters(
@@ -2347,6 +2366,10 @@ export async function buildDashboardSnapshot(args: {
       "task-dashboard-synthesis-sidecar-filter-outcome",
       "Outcome",
     ),
+    synthesisSidecarShowAll: localize(
+      "task-dashboard-synthesis-sidecar-show-all",
+      "Show all",
+    ),
     synthesisSidecarFilterOperation: localize(
       "task-dashboard-synthesis-sidecar-filter-operation",
       "Operation",
@@ -2512,6 +2535,14 @@ export async function buildDashboardSnapshot(args: {
       "Diagnostic Mode",
     ),
     runtimeLogsBudget: localize("log-viewer-budget", "Budget: { $value }"),
+    runtimeLogsTimeRangeCurrent: localize(
+      "task-dashboard-runtime-logs-current-session",
+      "Current Session",
+    ),
+    runtimeLogsTimeRangeHistory: localize(
+      "task-dashboard-runtime-logs-retained-history",
+      "Retained History",
+    ),
     runtimeLogsClearContext: localize(
       "task-dashboard-runtime-logs-clear-context",
       "Clear Context",
@@ -2942,7 +2973,7 @@ export async function buildDashboardSnapshot(args: {
     );
     args.state.runtimeLogFilters = runtimeLogFilters;
     const rawLogs = listRuntimeLogs({
-      ...(runtimeLogFilters as any),
+      ...resolveDashboardRuntimeLogQuery(runtimeLogFilters),
       order: "desc",
       limit: 300,
     });

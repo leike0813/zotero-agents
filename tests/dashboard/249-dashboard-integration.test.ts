@@ -22,6 +22,10 @@ import {
 } from "../../src/modules/literatureArtifactMigration";
 import { resetPluginStateStoreForTests } from "../../src/modules/pluginStateStore";
 import {
+  appendRuntimeLog,
+  resetRuntimeLogHydrationForTests,
+} from "../../src/modules/runtimeLogManager";
+import {
   createDashboardRuntimeHarness,
   flushDashboardRuntime,
 } from "../helpers/dashboardHostHarness";
@@ -184,6 +188,7 @@ function idleUi(): DashboardUiState {
       selectedTraceId: "",
       outcomeFilter: ["started", "failed", "succeeded"],
       operationFilter: [],
+      showAllTraces: false,
     },
     backendTaskScrollTopByTabKey: Object.create(null) as Record<string, number>,
     homeWorkflowDocScroll: { workflowId: "", scrollTop: 0 },
@@ -493,6 +498,12 @@ describe("dashboard A2c integration (src/dashboard)", function () {
       "op-trace-1",
     ]);
 
+    controller.dispatch("synthesis-sidecar-set-show-all", {
+      showAll: true,
+    });
+    assert.equal(sentActions.length, 0, "the show-all scope stays local");
+    assert.isTrue(controller.state.ui.synthesisSidecar.showAllTraces);
+
     controller.dispatch("open-running-task", { taskId: "task-1" });
     assert.deepEqual(sentActions, [
       { action: "open-running-task", payload: { taskId: "task-1" } },
@@ -701,6 +712,57 @@ describe("dashboard A2c integration (src/dashboard)", function () {
       "a late host snapshot does not render after disposal",
     );
     root.remove();
+  });
+
+  it("shows current runtime logs by default and keeps older correlated entries accessible", async function () {
+    resetRuntimeLogHydrationForTests();
+    const history = appendRuntimeLog({
+      level: "error",
+      scope: "system",
+      requestId: "runtime-log-history-fixture",
+      message: "Earlier session",
+      ts: new Date(Date.now() - 86_400_000).toISOString(),
+    });
+    const current = appendRuntimeLog({
+      level: "error",
+      scope: "system",
+      message: "This session",
+    });
+    const harness = createDashboardRuntimeHarness();
+    const runtime = createTaskDashboardRuntime({
+      root: harness.root,
+      hostWindow: harness.hostWindow,
+      initialTabKey: "runtime-logs",
+    });
+    const ids = () =>
+      harness.frameWindow.posted
+        .map(
+          (message) => (message as { payload?: DashboardPageSnapshot }).payload,
+        )
+        .filter((snapshot) => snapshot?.runtimeLogsView)
+        .at(-1)
+        ?.runtimeLogsView?.logs.map((entry) => entry.id);
+    try {
+      await flushDashboardRuntime();
+      assert.include(ids(), current?.id);
+      assert.notInclude(ids(), history?.id);
+      harness.dispatchAction("runtime-logs-set-filters", {
+        filters: { timeRange: "history" },
+      });
+      await flushDashboardRuntime();
+      assert.include(ids(), history?.id);
+      harness.dispatchAction("runtime-logs-set-filters", {
+        filters: {
+          timeRange: "current",
+          requestId: "runtime-log-history-fixture",
+        },
+      });
+      await flushDashboardRuntime();
+      assert.deepEqual(ids(), [history?.id]);
+    } finally {
+      runtime.cleanup();
+      resetRuntimeLogHydrationForTests();
+    }
   });
 
   it("opens exact initial and external migration run links without rescanning", async function () {

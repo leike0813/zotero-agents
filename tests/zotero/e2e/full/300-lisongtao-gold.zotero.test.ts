@@ -1,5 +1,6 @@
 import { assert } from "chai";
 import { config } from "../../../../package.json";
+import { SynthesisClientError } from "../../../../packages/synthesis-contracts/src/common";
 import { SYNTHESIS_EVIDENCE_SOURCE_MAX_UTF16 } from "../../../../packages/synthesis-contracts/src/search";
 import type {
   SynthesisSemanticEvidenceContextResult,
@@ -24,7 +25,11 @@ import { ensureZoteroMcpServer } from "../../../../src/modules/hostBridge/mcp/zo
 import { createDefaultSynthesisUiState } from "../../../../src/modules/synthesis/uiModel";
 import { createZoteroSynthesisHostReadPort } from "../../../../src/modules/synthesis/libraryAdapter";
 import { toSynthesisWorkbenchReadState } from "../../../../src/modules/synthesisClient/workbenchUiAdapter";
-import type { SynthesisWorkbenchSidecarStatus } from "../../../../src/shared/synthesisWorkbenchWireContract";
+import type {
+  SynthesisWorkbenchBridge,
+  SynthesisWorkbenchSidecarStatus,
+  SynthesisWorkbenchSurfacePayload,
+} from "../../../../src/shared/synthesisWorkbenchWireContract";
 import { renderPayloadBlock } from "../../../../src/modules/zoteroHost/notePayloadCodec";
 import { managedArtifactContent } from "../../../../src/modules/zoteroHost/zoteroManagedNotes";
 import {
@@ -1918,10 +1923,44 @@ describe("Synthesis E2E gold library", function () {
     });
     const frameWindow = doc.defaultView;
     assert.isOk(frameWindow);
+    const measureIndexFirstRows =
+      readDiagnosticsEnv("ZOTERO_E2E_GOLD_ID") === "index-performance";
     let sidecarStatus: SynthesisWorkbenchSidecarStatus | undefined;
+    let indexSnapshot: SynthesisWorkbenchSurfacePayload | undefined;
+    let firstRowsAt = 0;
+    let sampleAfterRequest = 0;
+    let medianIndexFirstRowsMs: number | undefined;
+    const indexEvents: Array<{
+      requestId?: number;
+      rows?: number;
+      page?: string;
+      query?: string;
+    }> = [];
     const onHostMessage = (event: MessageEvent) => {
       if (["synthesis:init", "synthesis:snapshot", "synthesis:chrome"].includes(event.data?.type)) {
         sidecarStatus = event.data.payload?.sidecarStatus;
+      }
+      if (event.data?.type === "synthesis:surface" && event.data.payload?.surface === "index") {
+        indexSnapshot = event.data.payload;
+        const registry = indexSnapshot?.snapshot?.registry;
+        if (measureIndexFirstRows) {
+          indexEvents.push({
+            requestId: indexSnapshot?.requestId,
+            rows: registry?.rows.length,
+            page: registry?.window?.status,
+            query: registry?.window?.queryStatus,
+          });
+          if (indexEvents.length > 16) indexEvents.shift();
+        }
+        if (
+          measureIndexFirstRows &&
+          !firstRowsAt &&
+          (indexSnapshot?.requestId ?? 0) > sampleAfterRequest &&
+          indexSnapshot?.snapshot?.registry.rows.length === 5 &&
+          indexSnapshot.snapshot.registry.window?.status === "loading"
+        ) {
+          firstRowsAt = performance.now();
+        }
       }
     };
     frameWindow.addEventListener("message", onHostMessage);
@@ -1940,7 +1979,65 @@ describe("Synthesis E2E gold library", function () {
         ),
       );
     };
-    await clickTab("registry");
+    if (measureIndexFirstRows) {
+      const bridge = await waitUntil(() => {
+        const target = (frameWindow as any).wrappedJSObject ?? frameWindow;
+        return target.__zoteroSkillsSynthesisWorkbenchBridge as
+          | SynthesisWorkbenchBridge
+          | undefined;
+      });
+      const samples: number[] = [];
+      const manifestPath = readDiagnosticsEnv("ZOTERO_SYSTEM_E2E_MANIFEST_PATH");
+      for (let sample = 0; sample < 5; sample++) {
+        sampleAfterRequest = indexSnapshot?.requestId ?? 0;
+        firstRowsAt = 0;
+        const startedAt = performance.now();
+        if (sample === 0) await clickTab("registry");
+        else await bridge.postMessage("refresh", {});
+        try {
+          await waitUntil(
+            () =>
+              firstRowsAt >= startedAt &&
+              doc.querySelector(".registry-parent-row")
+                ? true
+                : null,
+            20_000,
+          );
+          samples.push(Math.round(performance.now() - startedAt));
+          await waitUntil(() => {
+            const window = indexSnapshot?.snapshot?.registry.window;
+            if (window?.status === "failed" || window?.queryStatus === "failed")
+              throw new Error("Index window failed after the first rows");
+            return window?.status === "ready" && window.queryStatus === "ready"
+              ? true
+              : null;
+          });
+        } catch (error) {
+          await writeDiagnosticsText(
+            PathUtils.join(PathUtils.parent(manifestPath), "index-first-rows-failure.json"),
+            JSON.stringify({
+              sample,
+              sawFirstBatch: firstRowsAt >= startedAt,
+              samplesMs: samples,
+              mountedParents: doc.querySelectorAll(".registry-parent-row").length,
+              indexEvents,
+            }, null, 2),
+          );
+          throw error;
+        }
+      }
+      medianIndexFirstRowsMs = samples.slice().sort((a, b) => a - b)[2];
+      await writeDiagnosticsText(
+        PathUtils.join(PathUtils.parent(manifestPath), "index-first-rows.json"),
+        JSON.stringify(
+          { samplesMs: samples, medianMs: medianIndexFirstRowsMs },
+          null,
+          2,
+        ),
+      );
+    } else {
+      await clickTab("registry");
+    }
 
     const sidecar = await connectNativeSidecar(readSidecarStatus);
     const composition = sidecar.composition;
@@ -1966,6 +2063,21 @@ describe("Synthesis E2E gold library", function () {
       if (firstError) throw firstError;
     };
 
+    const initialState = createDefaultSynthesisUiState();
+    let indexReadDuringRefreshMs: number | undefined;
+    if (measureIndexFirstRows) {
+      const filtered = createDefaultSynthesisUiState();
+      filtered.registry.artifactCoverage = "complete";
+      const result = await composition.client.workbench.readSurface({
+        surface: "index",
+        state: toSynthesisWorkbenchReadState(filtered, {
+          indexCursor: "",
+          indexLimit: 25,
+          indexProjection: "matches",
+        }),
+      });
+      assert.isNotEmpty(result.registry.matchedSourceRefs);
+    }
     await createSyntheticIndexParents(ownedItems);
     await seedSyntheticTags(composition, tagFixture);
     // The sidecar re-reads Host facts asynchronously after a mutation.
@@ -1978,6 +2090,36 @@ describe("Synthesis E2E gold library", function () {
     );
     refreshButton.click();
     await waitUntil(() => refreshButton.getAttribute("aria-busy") === "true");
+    if (measureIndexFirstRows) {
+      const startedAt = performance.now();
+      const matches = await composition.client.workbench.readSurface({
+        surface: "index",
+        state: toSynthesisWorkbenchReadState(initialState, {
+          indexCursor: "",
+          indexLimit: 25,
+          indexProjection: "matches",
+        }),
+      });
+      const summaries = await composition.client.workbench
+        .readSurface({
+          surface: "index",
+          state: toSynthesisWorkbenchReadState(initialState, {
+            indexSourceRefs: (matches.registry.matchedSourceRefs || []).slice(0, 5),
+            indexExpectedBasis: matches.registry.page?.basis,
+            indexProjection: "summary",
+          }),
+        })
+        .catch((error: unknown) => {
+          if (error instanceof SynthesisClientError) {
+            throw new Error(
+              `Index summary during Reference refresh failed (${error.code}, ${error.details?.sidecarReason ?? error.details?.reason ?? "unknown"})`,
+            );
+          }
+          throw error;
+        });
+      assert.lengthOf(summaries.registry.rows, 5);
+      indexReadDuringRefreshMs = Math.round(performance.now() - startedAt);
+    }
     await waitUntil(() => {
       const error = doc.querySelector<HTMLElement>(
         '[data-synthesis-error-code="payload_stale"]',
@@ -1990,7 +2132,7 @@ describe("Synthesis E2E gold library", function () {
         status === "ready"
         ? true
         : null;
-    });
+    }, measureIndexFirstRows ? 600_000 : undefined);
 
     assert.isOk(
       doc.querySelector(
@@ -2003,16 +2145,16 @@ describe("Synthesis E2E gold library", function () {
       );
     }
 
-    const initialState = createDefaultSynthesisUiState();
+    const sourcePageLimit = measureIndexFirstRows ? 25 : INDEX_PAGE_LIMIT;
     const firstPage = await composition.client.workbench.readSurface({
       surface: "index",
       state: toSynthesisWorkbenchReadState(initialState, {
         indexCursor: "",
-        indexLimit: INDEX_PAGE_LIMIT,
+        indexLimit: sourcePageLimit,
       }),
     });
-    assert.equal(firstPage.registry.page?.limit, INDEX_PAGE_LIMIT);
-    assert.lengthOf(firstPage.registry.rows, INDEX_PAGE_LIMIT);
+    assert.equal(firstPage.registry.page?.limit, sourcePageLimit);
+    assert.lengthOf(firstPage.registry.rows, sourcePageLimit);
     const firstPageRefs = firstPage.registry.rows.map((row) => row.paper_ref);
     const nextCursor = firstPage.registry.page?.nextCursor;
     assert.isNotEmpty(nextCursor);
@@ -2021,10 +2163,10 @@ describe("Synthesis E2E gold library", function () {
       state: toSynthesisWorkbenchReadState(initialState, {
         indexCursor: nextCursor,
         indexExpectedBasis: firstPage.registry.page?.basis,
-        indexLimit: INDEX_PAGE_LIMIT,
+        indexLimit: sourcePageLimit,
       }),
     });
-    assert.isAtMost(secondPage.registry.rows.length, INDEX_PAGE_LIMIT);
+    assert.isAtMost(secondPage.registry.rows.length, sourcePageLimit);
     assert.isNotEmpty(secondPage.registry.rows);
     assert.isTrue(
       secondPage.registry.rows.every(
@@ -2044,16 +2186,16 @@ describe("Synthesis E2E gold library", function () {
     const waitForIndexPage = (expected: number) =>
       waitUntil(() => {
         const footer = pagination();
-        const rows = doc.querySelectorAll(".registry-parent-row");
-        if (
-          Number(footer?.dataset.indexWindow) !== expected ||
-          !rows.length ||
-          footer?.querySelector(".registry-page-loading")
-        ) {
-          return null;
-        }
-        return footer;
-      }, 30_000);
+        const window = indexSnapshot?.snapshot?.registry.window;
+        if (window?.status === "failed" || window?.queryStatus === "failed")
+          throw new Error("Index read failed while waiting for the page");
+        return window?.status === "ready" &&
+          window.number === expected &&
+          Number(footer?.dataset.indexWindow) === expected &&
+          doc.querySelector(".registry-parent-row")
+          ? footer
+          : null;
+      });
     const pageRefs = () =>
       Array.from(
         doc.querySelectorAll<HTMLElement>(".registry-parent-row"),
@@ -2281,6 +2423,7 @@ describe("Synthesis E2E gold library", function () {
       JSON.stringify({
         zoteroVersion: Zotero.version,
         contentVersion: readDiagnosticsEnv("ZOTERO_TEST_CONTENT_VERSION"),
+        indexReadDuringRefreshMs,
         health: [initialHealth, firstAutomaticHealth, secondAutomaticHealth].map(
           (sample) => ({
             pid: sample.discovery.discovery.pid,
@@ -2290,6 +2433,9 @@ describe("Synthesis E2E gold library", function () {
         ),
       }, null, 2),
     );
+    if (medianIndexFirstRowsMs !== undefined) {
+      assert.isAtMost(medianIndexFirstRowsMs, 2000, "median Index first rows");
+    }
   });
 
   systemE2ECase(

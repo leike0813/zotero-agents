@@ -1359,6 +1359,13 @@ impl Repository {
                 )
                 .map_err(map_sqlite_error)?;
             connection
+                .execute(
+                    "INSERT OR IGNORE INTO synt_schema_meta(key,value)
+                     VALUES('workbench_index_revision','0')",
+                    [],
+                )
+                .map_err(map_sqlite_error)?;
+            connection
                 .execute_batch("COMMIT;")
                 .map_err(map_sqlite_error)?;
             Ok(())

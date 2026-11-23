@@ -39,7 +39,10 @@ import {
   createSynthesisHostExportDeliveryPort,
   createSynthesisHostRunWorkspaceMaterializationPort,
 } from "../exportDeliveryAdapter";
-import { createZoteroSynthesisHostReadPort } from "../libraryAdapter";
+import {
+  createZoteroSynthesisHostReadPort,
+  type SynthesisHostReadPortWithControl,
+} from "../libraryAdapter";
 import { createZoteroSynthesisRepresentativeImageReadPort } from "../representativeImageReadAdapter";
 import { createZoteroSynthesisRelatedItemsEffectPort } from "../relatedItemsEffectAdapter";
 import {
@@ -65,7 +68,7 @@ import { createSynthesisSidecarRpcClient } from "../sidecar/synthesisSidecarRpcC
 import { SYNTHESIS_PRODUCTION_RPC_TRANSPORT_ERRORS } from "../production/synthesisProductionRpcPolicy";
 
 type Ports = {
-  hostReadPort: SynthesisHostReadPort;
+  hostReadPort: SynthesisHostReadPortWithControl;
   exportDeliveryPort: SynthesisHostExportDeliveryPort;
   runWorkspaceMaterializationPort: SynthesisHostRunWorkspaceMaterializationPort;
   representativeImagePort: SynthesisHostRepresentativeImageReadPort;
@@ -229,13 +232,17 @@ export function createSynthesisReverseHostHandlers(
           ["cursor", "limit", "paperRefs", "artifactTypes"],
         ) as SynthesisHostArtifactScanPageRequest,
       ),
-    "library.artifacts.readiness": async (payload) =>
+    "library.artifacts.readiness": async (payload, context) =>
       ports.hostReadPort.artifacts.readiness(
         exactPayload(
           payload,
           ["libraryId", "paperRefs"],
           ["artifactTypes"],
         ) as SynthesisHostArtifactReadinessRequest,
+        {
+          deadlineAtMs: context?.deadlineAtMs,
+          ...(context?.signal ? { signal: context.signal } : {}),
+        },
       ),
     "library.artifacts.read": async (payload) =>
       ports.hostReadPort.artifacts.read(

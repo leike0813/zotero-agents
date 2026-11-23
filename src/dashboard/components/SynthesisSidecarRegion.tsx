@@ -5,6 +5,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 
 import { equalBySignature } from "../../shared/regionEquality";
 import { CustomMultiSelect } from "../../shared/customSelect";
+import { classifySynthesisSidecarTrace } from "../../shared/synthesisSidecarTracePolicy";
 import type { DashboardActionPayloadMap } from "../../shared/dashboardWireContract";
 
 // Synthesis Sidecar trace surface of the dashboard page: summary cards, the
@@ -82,6 +83,9 @@ export type DashboardSynthesisSidecarUiState = {
   outcomeFilter: string[];
   // Operation multi-select; an empty set means "all operations".
   operationFilter: string[];
+  // Show every trace. The default view keeps status polls, paging reads and
+  // internal library reads behind this toggle.
+  showAllTraces: boolean;
 };
 
 // ---------------------------------------------------------------------------
@@ -142,6 +146,8 @@ export type DashboardSynthesisSidecarSelection = {
   filterOutcomeLabel: string;
   outcomeOptions: DashboardSynthesisSidecarFilterOption[];
   activeOutcomes: string[];
+  showAllTraces: boolean;
+  showAllLabel: string;
   filterOperationLabel: string;
   operationOptions: DashboardSynthesisSidecarFilterOption[];
   selectedOperations: string[];
@@ -177,6 +183,10 @@ export type DashboardSynthesisSidecarPageActionPayloadMap = {
     unknown
   >;
   "synthesis-sidecar-set-operation-filter": { operations: string[] } & Record<
+    string,
+    unknown
+  >;
+  "synthesis-sidecar-set-show-all": { showAll: boolean } & Record<
     string,
     unknown
   >;
@@ -336,10 +346,7 @@ export function findSynthesisSidecarRawTrace(
 export function synthesisSidecarTraceOutcome(
   trace: DashboardSynthesisSidecarTraceView,
 ): "started" | "failed" | "succeeded" {
-  if (trace.active === true) return "started";
-  return trace.events.some((event) => event.outcome === "failed")
-    ? "failed"
-    : "succeeded";
+  return classifySynthesisSidecarTrace(trace.events, trace.active).outcome;
 }
 
 // Defensive narrowing of the optional synthesisSidecarView.status wire slot;
@@ -408,6 +415,20 @@ export const SYNTHESIS_SIDECAR_OUTCOME_VALUES = [
   "failed",
   "succeeded",
 ] as const;
+
+// Simplified default view: routine status polls, paging reads and internal
+// library reads stay behind the show-all toggle, while failures and key calls
+// remain visible.
+export function filterSynthesisSidecarTracesByScope(
+  traces: readonly DashboardSynthesisSidecarTraceView[],
+  args: { showAll: boolean },
+): DashboardSynthesisSidecarTraceView[] {
+  if (args.showAll) return [...traces];
+  return traces.filter(
+    (trace) =>
+      classifySynthesisSidecarTrace(trace.events, trace.active).defaultVisible,
+  );
+}
 
 // Outcome/operation filtering applied on top of the text-filtered ranking;
 // the ranking itself is untouched. An empty operations set means "all".
@@ -911,6 +932,20 @@ export const SynthesisSidecarRegion = memo(
                   <span class="logs-filter-text">{option.label}</span>
                 </label>
               ))}
+            </div>
+            <div class="logs-filter-levels synthesis-sidecar-view-filter">
+              <label class="logs-filter-checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={selection.showAllTraces}
+                  onChange={(event) =>
+                    onAction("synthesis-sidecar-set-show-all", {
+                      showAll: event.currentTarget.checked,
+                    })
+                  }
+                />
+                <span class="logs-filter-text">{selection.showAllLabel}</span>
+              </label>
             </div>
             {selection.operationOptions.length > 0 ? (
               <div class="logs-filter-dropdown-wrap">

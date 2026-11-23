@@ -906,6 +906,18 @@ Index SHALL filter and search all parents in the selected library and scope befo
 - **AND** successful navigation SHALL clear preceding expanded state and begin at the top
 - **AND** unrelated regions SHALL preserve their DOM identity.
 
+#### Scenario: Index opens while a read is slow
+
+- **WHEN** the user opens Index and the first native scan has yet to return
+- **THEN** Index SHALL show a loading state
+- **AND** once matching source references are available, Index SHALL display the first batch of summaries while global matching continues.
+
+#### Scenario: The query changes during an in-flight read
+
+- **WHEN** the user changes the effective Index query while a read is in flight
+- **THEN** the replacement query SHALL be able to start before the older read finishes
+- **AND** older results SHALL NOT replace the replacement query's results.
+
 #### Scenario: Query is progressively counted
 
 - **WHEN** initial matches are ready but global counting is unfinished
@@ -925,12 +937,23 @@ Index SHALL filter and search all parents in the selected library and scope befo
 - **THEN** every reference SHALL remain available through lazy loading
 - **AND** the parent SHALL consume exactly one page slot.
 
+#### Scenario: Background progress is written during an Index read
+
+- **WHEN** an Index continuation overlaps a commit that only updates operation progress or retrieval state
+- **THEN** the Index basis SHALL remain valid.
+
+#### Scenario: A Reference change invalidates an Index continuation
+
+- **WHEN** a commit changes Reference facts covered by the basis of an in-flight read
+- **THEN** the continuation SHALL fail with a basis mismatch
+- **AND** any accepted rows SHALL remain available for review until retry.
+
 #### Scenario: A query or page fails
 
 - **WHEN** a background query or page read fails
 - **THEN** accepted content and any valid known total SHALL remain visible and loading indicators SHALL stop
 - **AND** counting failures SHALL be identifiable separately from an unknown total
-- **AND** a changed basis SHALL require a refresh from the first page.
+- **AND** Index SHALL offer a retry from the first page, including after a changed basis.
 
 #### Scenario: A pagination action crosses the page boundary
 

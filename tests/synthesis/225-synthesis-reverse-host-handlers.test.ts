@@ -13,6 +13,7 @@ import {
   createSynthesisReverseHostHandlers,
 } from "../../src/modules/synthesis/reverseHost/synthesisReverseHostHandlers";
 import { createSynthesisSidecarRpcClient } from "../../src/modules/synthesis/sidecar/synthesisSidecarRpcClient";
+import { createCancellationController } from "../../src/utils/wait";
 
 describe("Synthesis reverse Host handlers", function () {
   it("maps every declared operation to one typed Host port method", async function () {
@@ -202,6 +203,45 @@ describe("Synthesis reverse Host handlers", function () {
     assert.instanceOf(expired, SynthesisClientError);
     assert.equal((expired as SynthesisClientError).code, "timeout");
     assert.deepEqual(calls, completedCalls);
+  });
+
+  it("forwards the reverse Host deadline and cancellation into the artifact readiness port", async function () {
+    const controls: Array<{
+      deadlineAtMs?: number;
+      signal?: { readonly aborted: boolean };
+    }> = [];
+    const handlers = createSynthesisReverseHostHandlers({
+      hostReadPort: {
+        artifacts: {
+          scanPage: async () => ({}) as never,
+          read: async () => ({}) as never,
+          readiness: async (
+            _request: unknown,
+            control?: { deadlineAtMs?: number; signal?: { aborted: boolean } },
+          ) => {
+            controls.push(control as never);
+            return { artifacts: [] } as never;
+          },
+        },
+      } as never,
+      exportDeliveryPort: {} as never,
+      runWorkspaceMaterializationPort: {} as never,
+      representativeImagePort: {} as never,
+      relatedItemsEffectPort: {} as never,
+      stagedTagBindingPort: {} as never,
+      tagEffectPort: {} as never,
+      webDavPort: {} as never,
+    });
+    const cancellation = createCancellationController();
+
+    await handlers["library.artifacts.readiness"](
+      { libraryId: 1, paperRefs: ["1:AAAA1111"] },
+      { deadlineAtMs: 1234, signal: cancellation.signal } as never,
+    );
+
+    assert.equal(controls.length, 1);
+    assert.equal(controls[0]?.deadlineAtMs, 1234);
+    assert.strictEqual(controls[0]?.signal, cancellation.signal);
   });
 
   it("rejects an invalid export transfer before any delivery write", async function () {

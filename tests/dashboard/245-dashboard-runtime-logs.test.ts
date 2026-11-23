@@ -67,6 +67,8 @@ function makeSelection(
     filters: { levels: ["info", "warn", "error"], requestId: "req-9" },
     diagnosticMode: false,
     diagnosticModeLabel: "Diagnostic Mode",
+    timeRangeCurrentLabel: "Current Session",
+    timeRangeHistoryLabel: "Retained History",
     contextScopeLabel: "Active Context Filters: ",
     contextChips: [{ key: "requestId", value: "req-9" }],
     clearContextLabel: "Clear Context",

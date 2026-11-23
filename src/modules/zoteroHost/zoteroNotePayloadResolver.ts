@@ -490,6 +490,7 @@ export async function listNotePayloadBlocksForItemPage(
   const attachments = await runNativeSlice(() =>
     detachAttachmentSources(childPage.items, options.ignoredAttachmentKeys),
   );
+  const hasMore = childPage.hasMore;
   scanned += childPage.items.length;
   const anchors = collectPayloadAnchors(html);
   const contentDigests = new Map<number, string>();
@@ -535,12 +536,14 @@ export async function listNotePayloadBlocksForItemPage(
       await yieldAfterPayloadItem(yieldBudget, options.checkCanceled);
       continue;
     }
-    const contentDigest = await sha256Hex(bytes);
-    options.checkCanceled?.();
-    if (!contentDigest) {
-      throw new Error("payload attachment content basis is unavailable");
+    if (hasMore) {
+      const contentDigest = await sha256Hex(bytes);
+      options.checkCanceled?.();
+      if (!contentDigest) {
+        throw new Error("payload attachment content basis is unavailable");
+      }
+      contentDigests.set(attachment.id, contentDigest);
     }
-    contentDigests.set(attachment.id, contentDigest);
     const parsed = parseEmbeddedNotePayloadBlock(
       bytes,
       {
@@ -565,14 +568,6 @@ export async function listNotePayloadBlocksForItemPage(
     }
     await yieldAfterPayloadItem(yieldBudget, options.checkCanceled);
   }
-  const attachmentBasis = await attachmentSourceBasis(
-    attachments,
-    contentDigests,
-    options.checkCanceled,
-    options.maxPayloadBytes,
-    readFailures,
-  );
-  const hasMore = childPage.hasMore;
   return {
     blocks,
     scanned,
@@ -584,7 +579,13 @@ export async function listNotePayloadBlocksForItemPage(
           stage: "attachments",
           htmlIndex,
           attachmentCursor: childPage.nextCursor,
-          attachmentBasis,
+          attachmentBasis: await attachmentSourceBasis(
+            attachments,
+            contentDigests,
+            options.checkCanceled,
+            options.maxPayloadBytes,
+            readFailures,
+          ),
           attachmentPageCursor: attachmentCursor,
           attachmentPageLimit: remaining,
         })

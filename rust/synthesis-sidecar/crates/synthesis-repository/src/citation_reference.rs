@@ -4063,6 +4063,252 @@ mod tests {
         synthesis_test_support::TestRoot::new("synthesis-citation-reference-repository")
     }
 
+    fn revision(repository: &Repository) -> i64 {
+        repository
+            .query(
+                "SELECT value FROM synt_schema_meta WHERE key='workbench_index_revision'",
+                &[],
+            )
+            .expect("revision query")
+            .first()
+            .and_then(|row| row.get("value"))
+            .and_then(Value::as_str)
+            .and_then(|value| value.parse::<i64>().ok())
+            .expect("workbench index revision")
+    }
+
+    fn revision_triggers(repository: &Repository) -> Vec<String> {
+        repository
+            .query(
+                "SELECT name FROM sqlite_schema WHERE type='trigger'
+                 AND name LIKE 'synt_reference%revision%' ORDER BY name",
+                &[],
+            )
+            .expect("trigger inventory")
+            .into_iter()
+            .filter_map(|row| row.get("name").and_then(Value::as_str).map(str::to_owned))
+            .collect()
+    }
+
+    const REFERENCE_TABLE_MUTATIONS: &[(&str, &str, &str, &str)] = &[
+        (
+            "synt_reference_artifact",
+            "INSERT INTO synt_reference_artifact(
+               paper_ref,artifact_type,payload_type,status,locator,payload_hash,
+               diagnostics_json,updated_at
+             ) VALUES('1:AAAA1111','reference_list','json','ready','artifact:1','hash:1','[]',
+               '2026-11-23T00:00:00.000Z')",
+            "UPDATE synt_reference_artifact SET status='stale' WHERE paper_ref='1:AAAA1111'",
+            "DELETE FROM synt_reference_artifact WHERE paper_ref='1:AAAA1111'",
+        ),
+        (
+            "synt_reference_raw",
+            "INSERT INTO synt_reference_raw(
+               raw_reference_id,source_ref,references_artifact_hash,reference_index,raw_hash,
+               parsed_title,normalized_title,year,authors_json,raw_reference,
+               canonical_reference_id,status,roles_json,diagnostics_json,created_at,updated_at
+             ) VALUES('raw:1','1:AAAA1111','hash:1',0,'hash:raw','Title','title','2020','[]','raw',
+               'canonical:1','active','[]','[]','2026-11-23T00:00:00.000Z',
+               '2026-11-23T00:00:00.000Z')",
+            "UPDATE synt_reference_raw SET status='superseded' WHERE raw_reference_id='raw:1'",
+            "DELETE FROM synt_reference_raw WHERE raw_reference_id='raw:1'",
+        ),
+        (
+            "synt_reference_binding",
+            "INSERT INTO synt_reference_binding(
+               binding_id,canonical_reference_id,library_id,item_key,status,confidence,reviewer,
+               basis_hash,diagnostics_json,created_at,updated_at
+             ) VALUES('binding:1','canonical:1',1,'AAAA1111','accepted','1','reviewer','hash:basis',
+               '[]','2026-11-23T00:00:00.000Z','2026-11-23T00:00:00.000Z')",
+            "UPDATE synt_reference_binding SET status='rejected' WHERE binding_id='binding:1'",
+            "DELETE FROM synt_reference_binding WHERE binding_id='binding:1'",
+        ),
+        (
+            "synt_reference_redirect",
+            "INSERT INTO synt_reference_redirect(
+               from_canonical_reference_id,to_canonical_reference_id,reason,diagnostics_json,
+               created_at,updated_at
+             ) VALUES('canonical:old','canonical:1','test','[]','2026-11-23T00:00:00.000Z',
+               '2026-11-23T00:00:00.000Z')",
+            "UPDATE synt_reference_redirect SET reason='updated'
+               WHERE from_canonical_reference_id='canonical:old'",
+            "DELETE FROM synt_reference_redirect WHERE from_canonical_reference_id='canonical:old'",
+        ),
+    ];
+
+    fn reference_repository(label: &str) -> (synthesis_test_support::TestRoot, Repository) {
+        let root = synthesis_test_support::TestRoot::new(
+            &format!("synthesis-reference-revision-{label}"),
+        );
+        let repository = Repository::open(
+            &root,
+            RepositoryIdentity {
+                profile_id: format!("profile-{label}"),
+                data_root_id: format!("data-{label}"),
+            },
+        )
+        .expect("open repository");
+        (root, repository)
+    }
+
+    #[test]
+    fn workbench_index_revision_advances_for_reference_table_mutations() {
+        let (_root, repository) = reference_repository("mutations");
+        assert_eq!(revision(&repository), 0);
+        for (table, insert, update, delete) in REFERENCE_TABLE_MUTATIONS {
+            let before = revision(&repository);
+            repository
+                .execute(insert, &[])
+                .unwrap_or_else(|error| panic!("{table} insert: {error}"));
+            assert_eq!(revision(&repository), before + 1, "{table} insert");
+            repository
+                .execute(update, &[])
+                .unwrap_or_else(|error| panic!("{table} update: {error}"));
+            assert_eq!(revision(&repository), before + 2, "{table} update");
+            repository
+                .execute(delete, &[])
+                .unwrap_or_else(|error| panic!("{table} delete: {error}"));
+            assert_eq!(revision(&repository), before + 3, "{table} delete");
+        }
+    }
+
+    #[test]
+    fn workbench_index_revision_advances_for_replace_and_table_wide_delete() {
+        let (_root, repository) = reference_repository("replace");
+        let (table, insert, _update, _delete) = REFERENCE_TABLE_MUTATIONS[0];
+        let before = revision(&repository);
+        repository.execute(insert, &[]).expect("insert");
+        assert_eq!(revision(&repository), before + 1, "{table} insert");
+        repository
+            .execute(
+                &insert.replacen("INSERT INTO", "INSERT OR REPLACE INTO", 1),
+                &[],
+            )
+            .expect("replace");
+        assert_eq!(revision(&repository), before + 2, "{table} replace");
+
+        let before = revision(&repository);
+        repository
+            .execute(
+                "INSERT INTO synt_reference_raw(
+                   raw_reference_id,source_ref,references_artifact_hash,reference_index,raw_hash,
+                   parsed_title,normalized_title,year,authors_json,raw_reference,
+                   canonical_reference_id,status,roles_json,diagnostics_json,created_at,updated_at
+                 ) VALUES('raw:1','1:AAAA1111','hash:1',0,'hash:raw','Title','title','2020','[]','raw',
+                   'canonical:1','active','[]','[]','2026-11-23T00:00:00.000Z',
+                   '2026-11-23T00:00:00.000Z'),
+                   ('raw:2','1:AAAA1111','hash:1',1,'hash:raw','Other','other','2021','[]','raw',
+                   'canonical:1','active','[]','[]','2026-11-23T00:00:00.000Z',
+                   '2026-11-23T00:00:00.000Z')",
+                &[],
+            )
+            .expect("raw rows");
+        assert_eq!(revision(&repository), before + 2, "raw inserts");
+        repository
+            .execute("DELETE FROM synt_reference_raw", &[])
+            .expect("table wide delete");
+        assert_eq!(revision(&repository), before + 4, "table wide delete");
+    }
+
+    #[test]
+    fn workbench_index_revision_ignores_progress_cache_and_retrieval_writes() {
+        let (_root, repository) = reference_repository("progress");
+        let before = revision(&repository);
+        repository
+            .upsert_operation(&OperationRecord {
+                operation_id: "operation:index".into(),
+                operation_type: "workbench_index".into(),
+                processed_count: 0,
+                total_count: 10,
+                ..OperationRecord::default()
+            })
+            .expect("operation");
+        repository
+            .upsert_operation(&OperationRecord {
+                operation_id: "operation:index".into(),
+                operation_type: "workbench_index".into(),
+                status: "running".into(),
+                processed_count: 10,
+                total_count: 10,
+                ..OperationRecord::default()
+            })
+            .expect("operation progress");
+        repository
+            .upsert_cache_basis(&CacheBasisRecord {
+                cache_key: "reference-sidecar:library".into(),
+                cache_kind: "reference-sidecar".into(),
+                status: "stale".into(),
+                ..CacheBasisRecord::default()
+            })
+            .expect("cache basis");
+        repository
+            .execute(
+                "INSERT INTO synt_retrieval_state(singleton_id,enabled,status,updated_at)
+                 VALUES(1,0,'missing','')",
+                &[],
+            )
+            .expect("retrieval state");
+        repository
+            .execute(
+                "UPDATE synt_retrieval_state SET status='paused' WHERE singleton_id=1",
+                &[],
+            )
+            .expect("retrieval progress");
+        assert_eq!(revision(&repository), before);
+    }
+
+    #[test]
+    fn workbench_index_revision_rolls_back_with_the_reference_write() {
+        let (_root, mut repository) = reference_repository("rollback");
+        let before = revision(&repository);
+        let (_table, insert, _update, _delete) = REFERENCE_TABLE_MUTATIONS[0];
+        let aborted = repository.transaction(|repository| {
+            repository.execute(insert, &[])?;
+            Err::<(), String>("reference_write_aborted".into())
+        });
+        assert_eq!(aborted.unwrap_err(), "reference_write_aborted");
+        assert_eq!(revision(&repository), before);
+        repository
+            .transaction(|repository| {
+                repository.execute(insert, &[])?;
+                Ok(())
+            })
+            .expect("committed write");
+        assert_eq!(revision(&repository), before + 1);
+    }
+
+    #[test]
+    fn existing_repository_gains_workbench_index_revision_on_reopen() {
+        let (root, repository) = reference_repository("existing");
+        assert_eq!(revision_triggers(&repository).len(), 12);
+        for name in revision_triggers(&repository) {
+            repository
+                .execute(&format!("DROP TRIGGER {name}"), &[])
+                .expect("drop trigger");
+        }
+        repository
+            .execute(
+                "DELETE FROM synt_schema_meta WHERE key='workbench_index_revision'",
+                &[],
+            )
+            .expect("drop revision");
+        repository.close().expect("close repository");
+
+        let repository = Repository::open(
+            &root,
+            RepositoryIdentity {
+                profile_id: "profile-existing".into(),
+                data_root_id: "data-existing".into(),
+            },
+        )
+        .expect("reopen repository");
+        assert_eq!(revision(&repository), 0);
+        assert_eq!(revision_triggers(&repository).len(), 12);
+        let (_table, insert, _update, _delete) = REFERENCE_TABLE_MUTATIONS[0];
+        repository.execute(insert, &[]).expect("insert");
+        assert_eq!(revision(&repository), 1);
+    }
+
     #[test]
     fn reference_projection_round_trips_each_source_id_for_one_canonical_reference() {
         let root = root();

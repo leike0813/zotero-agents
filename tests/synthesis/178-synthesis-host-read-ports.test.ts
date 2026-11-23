@@ -25,6 +25,7 @@ import {
 import { createMockZoteroLibraryPageQueryAdapter } from "../helpers/zoteroLibraryPageQueryAdapter";
 import { mkTempDir, writeUtf8 } from "../zotero/workflow-test-utils";
 import { joinPath } from "../../src/utils/path";
+import { createCancellationController } from "../../src/utils/wait";
 
 function referencesArtifact(title: string) {
   return {
@@ -81,11 +82,19 @@ function literatureScoreV2() {
 }
 
 function createMockZoteroSourcePageQueryAdapter(
-  calls: Array<{ domain: string; kind: string }> = [],
+  calls: Array<{ domain: string; kind: string; parentItemId: number }> = [],
+  delayMs = 0,
 ): ZoteroLibrarySourcePageQueryAdapter {
   return {
     async queryAsync(_sql, _params, context) {
-      calls.push({ domain: context.domain, kind: context.kind });
+      calls.push({
+        domain: context.domain,
+        kind: context.kind,
+        parentItemId: Number(context.criteria.parentItemId),
+      });
+      if (delayMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
       const items = (await (Zotero.Items as any).getAll(
         context.criteria.libraryId,
       )) as Zotero.Item[];
@@ -961,6 +970,162 @@ describe("Synthesis Host read capability ports", function () {
     });
   });
 
+  it("reads Synthesis readiness without the parent attachment list", async function () {
+    const libraryId = Zotero.Libraries.userLibraryID;
+    const paper = await createPaper("HOSTFST1", "Host Fast Readiness");
+    await addPayloadNote(
+      paper,
+      "references-json",
+      referencesArtifact("Fast Reference"),
+    );
+    const sourceCalls: Array<{
+      domain: string;
+      kind: string;
+      parentItemId: number;
+    }> = [];
+    setZoteroLibrarySourcePageQueryAdapterForTests(
+      createMockZoteroSourcePageQueryAdapter(sourceCalls),
+    );
+    const port = createZoteroSynthesisHostReadPort({ libraryId });
+
+    const readiness = await port.artifacts.readiness({
+      libraryId,
+      paperRefs: [`${libraryId}:${paper.key}`],
+      artifactTypes: ["references"],
+    });
+
+    assert.equal(readiness.artifacts[0]?.status, "available");
+    assert.isTrue(
+      sourceCalls.some(
+        (call) => call.domain === "notes" && call.parentItemId === paper.id,
+      ),
+    );
+    assert.isFalse(
+      sourceCalls.some(
+        (call) =>
+          call.domain === "attachments" && call.parentItemId === paper.id,
+      ),
+    );
+  });
+
+  it("fails the Synthesis readiness with a timeout after the deadline expires", async function () {
+    const libraryId = Zotero.Libraries.userLibraryID;
+    const paper = await createPaper("HOSTDLM1", "Host Deadline Readiness");
+    await addPayloadNote(
+      paper,
+      "references-json",
+      referencesArtifact("Deadline Reference"),
+    );
+    const port = createZoteroSynthesisHostReadPort({ libraryId });
+
+    let failure: unknown;
+    try {
+      await port.artifacts.readiness(
+        {
+          libraryId,
+          paperRefs: [`${libraryId}:${paper.key}`],
+          artifactTypes: ["references"],
+        },
+        { deadlineAtMs: Date.now() - 1 },
+      );
+    } catch (error) {
+      failure = error;
+    }
+    assert.instanceOf(failure, SynthesisClientError);
+    assert.equal((failure as SynthesisClientError).code, "timeout");
+    assert.equal(
+      (failure as SynthesisClientError).details?.reason,
+      "request_timeout",
+    );
+  });
+
+  it("stops the Synthesis readiness when the caller signal is aborted", async function () {
+    const libraryId = Zotero.Libraries.userLibraryID;
+    const paper = await createPaper("HOSTABT1", "Host Canceled Readiness");
+    await addPayloadNote(
+      paper,
+      "references-json",
+      referencesArtifact("Canceled Reference"),
+    );
+    const port = createZoteroSynthesisHostReadPort({ libraryId });
+    const cancellation = createCancellationController();
+    cancellation.abort();
+
+    let failure: unknown;
+    try {
+      await port.artifacts.readiness(
+        {
+          libraryId,
+          paperRefs: [`${libraryId}:${paper.key}`],
+          artifactTypes: ["references"],
+        },
+        { signal: cancellation.signal },
+      );
+    } catch (error) {
+      failure = error;
+    }
+    assert.instanceOf(failure, SynthesisClientError);
+    assert.equal((failure as SynthesisClientError).code, "timeout");
+    assert.equal(
+      (failure as SynthesisClientError).details?.reason,
+      "request_canceled",
+    );
+  });
+
+  it("stops the Host read at the deadline instead of scanning the next paper", async function () {
+    const libraryId = Zotero.Libraries.userLibraryID;
+    const first = await createPaper("HOSTDLM2", "Host Deadline First");
+    const second = await createPaper("HOSTDLM3", "Host Deadline Second");
+    await addPayloadNote(
+      first,
+      "references-json",
+      referencesArtifact("Deadline First"),
+    );
+    await addPayloadNote(
+      second,
+      "references-json",
+      referencesArtifact("Deadline Second"),
+    );
+    const sourceCalls: Array<{
+      domain: string;
+      kind: string;
+      parentItemId: number;
+    }> = [];
+    setZoteroLibrarySourcePageQueryAdapterForTests(
+      createMockZoteroSourcePageQueryAdapter(sourceCalls, 40),
+    );
+    const port = createZoteroSynthesisHostReadPort({ libraryId });
+
+    let failure: unknown;
+    try {
+      await port.artifacts.readiness(
+        {
+          libraryId,
+          paperRefs: [
+            `${libraryId}:${first.key}`,
+            `${libraryId}:${second.key}`,
+          ],
+          artifactTypes: ["references"],
+        },
+        { deadlineAtMs: Date.now() + 20 },
+      );
+    } catch (error) {
+      failure = error;
+    }
+    assert.instanceOf(failure, SynthesisClientError);
+    assert.equal((failure as SynthesisClientError).code, "timeout");
+    assert.equal(
+      (failure as SynthesisClientError).details?.reason,
+      "request_timeout",
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    assert.isFalse(
+      sourceCalls.some((call) => call.parentItemId === second.id),
+      "the deadline must abort the Host read before the next paper",
+    );
+  });
+
   it("omits absent optional literature score hashes at the host contract", async function () {
     const libraryId = Zotero.Libraries.userLibraryID;
     const paper = await createPaper("HOSTSCR1", "Host Score Without Hash");
@@ -1021,7 +1186,11 @@ describe("Synthesis Host read capability ports", function () {
     const libraryId = Zotero.Libraries.userLibraryID;
     const paper = await createPaper("HOSTPAGE", "Host Page Reads");
     const laterReferences = referencesArtifact("Later page reference");
-    const sourceCalls: Array<{ domain: string; kind: string }> = [];
+    const sourceCalls: Array<{
+      domain: string;
+      kind: string;
+      parentItemId: number;
+    }> = [];
     setZoteroLibrarySourcePageQueryAdapterForTests(
       createMockZoteroSourcePageQueryAdapter(sourceCalls),
     );

@@ -337,9 +337,12 @@ Index fields, including references that have not been expanded. Coverage and
 binding filters apply before pagination. Each displayed page contains at most
 100 matching parents; children consume no parent slots.
 
-The host shows initial summaries promptly and continues scanning in the
-background to establish the exact matching total. Page readiness and query
-completion are separate states. The fixed footer offers icon-only first,
+The host shows a loading state before the first native response. On a cold
+open, it publishes up to five targeted summaries first. A separate scan
+continues establishing the exact matching total while summaries are loaded.
+Changing the query or explicitly refreshing replaces the old scan owner
+immediately. Page readiness and query completion are separate states. The
+fixed footer offers icon-only first,
 previous, next and last controls and an editable one-based page number.
 While counting is unfinished, the footer shows a separate animated count status;
 the total-page field keeps a known total or a static unknown marker. Last-page
@@ -358,13 +361,25 @@ source-bound. Empty matching batches with a continuation remain nonterminal.
 Legacy reads without page options remain bounded to 100 source rows.
 
 The opaque basis binds library, normalized query, Host snapshot and repository
-revision. Continuations require the same basis. New source enumeration can
+revision. The repository revision advances with committed changes to Reference
+artifacts, raw rows, bindings, and redirects. Operation progress and retrieval
+writes do not invalidate a continuation. Index reads the revision and the
+Reference review counts through the read pool. Continuations require the
+same basis. New source enumeration can
 rebind the Host snapshot after validating the remaining basis; notifier-driven
-generation checks isolate Host changes. Failed reads retain accepted content,
-stop loading indicators and require explicit refresh after a basis mismatch.
+generation checks isolate Host changes. Failed reads retain accepted content
+and stop loading indicators. Retry starts a fresh Index read at page one.
 
-Navigation uses the ordered matching source directory and targeted summary reads,
-rather than replaying one-use Host cursors. A page change retains search and
+The Reverse Host readiness check reads generated notes and their payloads,
+including citation basis and literature-score validation. Parent PDF and
+Markdown attachment readiness belongs to the full Library artifact projection.
+The generated readiness read consumes the caller's cancellation and deadline.
+Generated readiness and Reference artifact scans bound concurrent parent reads
+so that Reference refresh leaves capacity for foreground Index reads.
+
+Navigation uses the ordered matching source directory and targeted summary reads
+of up to five parents per request to bound Host readiness work within the RPC
+deadline. A page change retains search and
 filters, clears expansions on success and starts at the top. Details merge only
 references and counts into their summaries. Parents and reference children share
 one measured virtual sequence, preserving visible anchors during append,

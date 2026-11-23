@@ -54,6 +54,7 @@ import {
 } from "./components/RuntimeLogsRegion";
 import {
   filterSynthesisSidecarTraces,
+  filterSynthesisSidecarTracesByScope,
   findSynthesisSidecarRawTrace,
   narrowSynthesisSidecarStatus,
   narrowSynthesisSidecarTraceSnapshot,
@@ -598,6 +599,16 @@ function projectRuntimeLogs(
     filters,
     diagnosticMode: view.diagnosticMode === true,
     diagnosticModeLabel: labelText(labels, "runtimeLogsDiagnosticMode"),
+    timeRangeCurrentLabel: labelText(
+      labels,
+      "runtimeLogsTimeRangeCurrent",
+      "Current Session",
+    ),
+    timeRangeHistoryLabel: labelText(
+      labels,
+      "runtimeLogsTimeRangeHistory",
+      "Retained History",
+    ),
     contextScopeLabel: labelText(labels, "runtimeLogsContextScope"),
     contextChips: RUNTIME_LOG_CONTEXT_KEYS.filter(
       (key) => typeof filters[key] === "string" && filters[key],
@@ -742,6 +753,8 @@ if (
     ),
     outcomeOptions,
     activeOutcomes: [...ui.synthesisSidecar.outcomeFilter],
+    showAllTraces: ui.synthesisSidecar.showAllTraces === true,
+    showAllLabel: labelText(labels, "synthesisSidecarShowAll", "Show all"),
     filterOperationLabel: labelText(
       labels,
       "synthesisSidecarFilterOperation",
@@ -801,10 +814,15 @@ if (
     traces,
     ui.synthesisSidecar.traceFilter,
   );
-  const filtered = filterSynthesisSidecarTraces(ranked, {
-    outcomes: empty.activeOutcomes,
-    operations: ui.synthesisSidecar.operationFilter,
-  });
+  const filtered = filterSynthesisSidecarTraces(
+    filterSynthesisSidecarTracesByScope(ranked, {
+      showAll: ui.synthesisSidecar.showAllTraces === true,
+    }),
+    {
+      outcomes: empty.activeOutcomes,
+      operations: ui.synthesisSidecar.operationFilter,
+    },
+  );
   const { visible, selected } = resolveSynthesisSidecarVisibleTraces({
     traces,
     ranked: filtered,

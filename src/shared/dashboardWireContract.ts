@@ -598,6 +598,7 @@ export type DashboardLogRow = {
 
 export type DashboardRuntimeLogFilters = {
   levels?: string[];
+  timeRange?: "current" | "history";
   diagnosticMode?: boolean;
   workflowId?: string | string[];
   requestId?: string;

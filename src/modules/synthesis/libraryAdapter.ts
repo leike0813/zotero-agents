@@ -9,7 +9,10 @@ import {
   SYNTHESIS_HOST_READ_REF_LIMIT_MAX,
   SynthesisClientError,
   toSynthesisJsonValue,
+  type SynthesisHostArtifactReadPort,
   type SynthesisHostArtifactDescriptor,
+  type SynthesisHostArtifactReadinessRequest,
+  type SynthesisHostArtifactReadinessResult,
   type SynthesisHostArtifactStatus,
   type SynthesisHostArtifactType,
   type SynthesisHostLibraryItemSummary,
@@ -18,6 +21,7 @@ import {
 import {
   createZoteroHostCapabilityBroker,
   getZoteroHostEvidenceSourceControl,
+  ZoteroHostCapabilityError,
   type ZoteroHostCapabilityBroker,
 } from "../zoteroHostCapabilityBroker";
 import type { ManagedNoteKind, PortableItemRef } from "../../workflows/types";
@@ -47,6 +51,47 @@ import {
   parseLiteratureScore,
 } from "../../shared/literatureScore";
 import { yieldToEventLoop } from "../../utils/runtimeCompatibility";
+import {
+  BoundedWaitError,
+  createCancellationController,
+  waitForBoundedPromise,
+  type CancellationSignal,
+} from "../../utils/wait";
+
+/** Runtime control for a Host read; never part of the wire payload. */
+export type SynthesisHostReadControl = {
+  deadlineAtMs?: number;
+  signal?: CancellationSignal;
+};
+
+export type SynthesisHostArtifactReadPortWithControl = Omit<
+  SynthesisHostArtifactReadPort,
+  "readiness"
+> & {
+  readiness(
+    request: SynthesisHostArtifactReadinessRequest,
+    control?: SynthesisHostReadControl,
+  ): Promise<SynthesisHostArtifactReadinessResult>;
+};
+
+export type SynthesisHostReadPortWithControl = Omit<
+  SynthesisHostReadPort,
+  "artifacts"
+> & {
+  artifacts: SynthesisHostArtifactReadPortWithControl;
+};
+
+function hostReadinessInterruption(reason: "canceled" | "timed-out"): never {
+  throw reason === "timed-out"
+    ? new SynthesisClientError("timeout", "Host artifact readiness timed out", {
+        reason: "request_timeout",
+      })
+    : new SynthesisClientError(
+        "timeout",
+        "Host artifact readiness was canceled",
+        { reason: "request_canceled" },
+      );
+}
 
 export type SynthesisLibraryIndexPaper = {
   paper_ref: string;
@@ -1128,11 +1173,11 @@ async function hostItemSummary(
   };
 }
 
-async function hostItemSummaries(
-  items: any[],
-  libraryId: number,
-): Promise<SynthesisHostLibraryItemSummary[]> {
-  const summaries = new Array<SynthesisHostLibraryItemSummary>(items.length);
+async function mapHostLibraryReadItems<T, R>(
+  items: T[],
+  read: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
   let nextIndex = 0;
   const workers = Array.from(
     { length: Math.min(4, items.length) },
@@ -1141,12 +1186,12 @@ async function hostItemSummaries(
         const index = nextIndex;
         nextIndex += 1;
         if (index >= items.length) return;
-        summaries[index] = await hostItemSummary(items[index], libraryId);
+        results[index] = await read(items[index]);
       }
     },
   );
   await Promise.all(workers);
-  return summaries;
+  return results;
 }
 
 function encodeArtifactLocator(args: {
@@ -1272,7 +1317,7 @@ function hostArtifactContent(
 
 export function createZoteroSynthesisHostReadPort(
   args: { libraryId?: number } = {},
-): SynthesisHostReadPort {
+): SynthesisHostReadPortWithControl {
   const configuredLibraryId =
     normalizeLibraryId(args.libraryId, 0) ||
     normalizeLibraryId(zoteroRuntime().Libraries?.userLibraryID, 1);
@@ -1282,6 +1327,70 @@ export function createZoteroSynthesisHostReadPort(
   const snapshotOwner = {
     ownerId: `synthesis-host-read:${configuredLibraryId}`,
   };
+
+  async function readArtifactReadiness(
+    refs: { libraryId: number; key: string }[],
+    control?: SynthesisHostReadControl,
+  ) {
+    const remaining =
+      control?.deadlineAtMs === undefined
+        ? undefined
+        : control.deadlineAtMs - Date.now();
+    if (remaining !== undefined && remaining <= 0) {
+      hostReadinessInterruption("timed-out");
+    }
+    // The deadline aborts the same signal the Host gate observes, so an
+    // expired read stops its native slices instead of running in background.
+    const cancellation = createCancellationController();
+    let interruption: "canceled" | "timed-out" | null = null;
+    const abort = () => {
+      interruption = interruption ?? "canceled";
+      cancellation.abort();
+    };
+    if (control?.signal?.aborted) {
+      abort();
+    } else {
+      control?.signal?.addEventListener("abort", abort, { once: true });
+    }
+    const timer =
+      remaining === undefined
+        ? undefined
+        : setTimeout(() => {
+            interruption = interruption ?? "timed-out";
+            cancellation.abort();
+          }, remaining);
+    try {
+      const readiness = await waitForBoundedPromise(
+        snapshotBroker.library.getArtifactReadiness(
+          refs,
+          { signal: cancellation.signal },
+          { generatedOnly: true },
+        ),
+        {
+          phase: "host_artifact_readiness",
+          ...(remaining === undefined ? {} : { timeoutMs: remaining }),
+          signal: cancellation.signal,
+        },
+      );
+      if (interruption) hostReadinessInterruption(interruption);
+      return readiness;
+    } catch (error) {
+      if (interruption) hostReadinessInterruption(interruption);
+      if (error instanceof BoundedWaitError) {
+        hostReadinessInterruption("timed-out");
+      }
+      if (
+        error instanceof ZoteroHostCapabilityError &&
+        error.code === "canceled"
+      ) {
+        hostReadinessInterruption("canceled");
+      }
+      throw error;
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+      control?.signal?.removeEventListener("abort", abort);
+    }
+  }
 
   async function syncSnapshot(request: {
     libraryId: number;
@@ -1332,7 +1441,9 @@ export function createZoteroSynthesisHostReadPort(
       throw error;
     }
     return {
-      items: await hostItemSummaries(page.items, libraryId),
+      items: await mapHostLibraryReadItems(page.items, (item) =>
+        hostItemSummary(item, libraryId),
+      ),
       cursor,
       nextCursor: page.nextCursor,
       hasMore: page.hasMore,
@@ -1393,7 +1504,7 @@ export function createZoteroSynthesisHostReadPort(
       readSource: (request) => evidenceSourceControl.readSource(request),
     },
     artifacts: {
-      async readiness(request) {
+      async readiness(request, control) {
         const libraryId = validateHostLibraryId(request.libraryId);
         if (libraryId !== configuredLibraryId) {
           invalidHostRead("Host libraryId is outside the configured scope", {
@@ -1418,8 +1529,7 @@ export function createZoteroSynthesisHostReadPort(
           }
           return { libraryId: parsed.libraryId, key: parsed.itemKey };
         });
-        const readiness =
-          await snapshotBroker.library.getArtifactReadiness(refs);
+        const readiness = await readArtifactReadiness(refs, control);
         return {
           artifacts: readiness.flatMap((item, index) => {
             const paperRef = request.paperRefs[index];
@@ -1526,8 +1636,9 @@ export function createZoteroSynthesisHostReadPort(
           nextCursor = page.nextCursor;
           hasMore = page.hasMore;
         }
-        const inputs = await Promise.all(
-          summaries.map(async (summary) => {
+        const inputs = await mapHostLibraryReadItems(
+          summaries,
+          async (summary) => {
             const item = itemByLibraryAndKey(
               summary.libraryId,
               summary.itemKey,
@@ -1535,7 +1646,7 @@ export function createZoteroSynthesisHostReadPort(
             return item
               ? paperInputFromItem(item, summary.libraryId, snapshotBroker)
               : null;
-          }),
+          },
         );
         const scan = readArtifactsFromRegistryInputs(
           inputs.filter((input): input is ReferenceSidecarInput =>

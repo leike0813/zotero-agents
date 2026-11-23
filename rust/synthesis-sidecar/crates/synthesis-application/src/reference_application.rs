@@ -4817,8 +4817,8 @@ mod tests {
     use std::time::Duration;
     use synthesis_repository::{
         CacheBasisRecord, CanonicalReferenceRecord, RawReferenceRecord, ReferenceBindingFactRecord,
-        ReferenceProjectionReplacement, ReferenceProjectionScope, ReferenceRevisionReviewRecord,
-        RepositoryIdentity,
+        ReferenceProjectionReplacement, ReferenceProjectionScope, ReferenceRedirectFactRecord,
+        ReferenceRevisionReviewRecord, RepositoryIdentity,
     };
 
     #[derive(Clone)]
@@ -5345,6 +5345,17 @@ mod tests {
         }
     }
 
+    fn redirect(from: &str, to: &str) -> ReferenceRedirectFactRecord {
+        ReferenceRedirectFactRecord {
+            from_canonical_reference_id: from.into(),
+            to_canonical_reference_id: to.into(),
+            reason: "canonical_revision_manual_merge".into(),
+            diagnostics_json: "[]".into(),
+            created_at: "1".into(),
+            updated_at: "2".into(),
+        }
+    }
+
     fn seed_canonical_review_fixture(root: &Path) {
         let mut repository = Repository::open(
             root,
@@ -5430,10 +5441,9 @@ mod tests {
             "a continuation without expectedBasis must be rejected before the Host call",
         );
         assert_eq!(host.item_calls.load(Ordering::Relaxed), continuation_calls);
+        let change = redirect("changed", "changed-target");
         app.repository
-            .with_writer(|repository| {
-                repository.upsert_canonical_reference_record(&canonical("changed"))
-            })
+            .with_writer(|repository| repository.upsert_canonical_reference_redirect(&change))
             .unwrap();
         assert_eq!(
             app.workbench_index(
@@ -5493,10 +5503,9 @@ mod tests {
                 library_id,
             ).unwrap_err(), "basis_mismatch");
         }
+        let change = redirect("rescan-change", "rescan-target");
         app.repository
-            .with_writer(|repository| {
-                repository.upsert_canonical_reference_record(&canonical("rescan-change"))
-            })
+            .with_writer(|repository| repository.upsert_canonical_reference_redirect(&change))
             .unwrap();
         assert_eq!(app.workbench_index(
             &json!({"registry":{"scope":"library","search":"paper","projection":"matches","cursor":"","limit":25,"expectedBasis":fresh_basis}}),

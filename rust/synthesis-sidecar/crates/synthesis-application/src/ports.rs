@@ -499,22 +499,24 @@ impl RepositoryPort {
         self.with_reader(|repository| repository.get_cache_basis("reference-sidecar:library"))
     }
 
-    /// Monotonic writer-connection revision used to bind Workbench Index pages
-    /// and detail reads to a stable basis.
+    /// Committed Reference revision used to bind Workbench Index pages and
+    /// detail reads to a stable basis.
     ///
-    /// ponytail: repository-wide conservative invalidation. `total_changes()`
-    /// counts every write on the single writer connection, so an unrelated
-    /// commit also stales an in-flight Index continuation. Ceiling is a rare
-    /// spurious `basis_mismatch`; upgrade to a Reference-specific revision only
-    /// if churn proves it matters. Must run on the writer connection: reader
-    /// connections never advance their own `total_changes()`.
+    /// The value is advanced by triggers on the four Reference tables inside
+    /// the writing transaction, so unrelated writes keep the basis and a
+    /// rolled back Reference write keeps the revision. Reading it from a
+    /// pooled reader keeps Index requests off the writer mutex.
     pub(crate) fn workbench_index_revision(&self) -> Result<i64, String> {
-        self.with_writer(|repository| {
+        self.with_reader(|repository| {
             repository
-                .query("SELECT total_changes() AS revision", &[])?
+                .query(
+                    "SELECT value FROM synt_schema_meta WHERE key='workbench_index_revision'",
+                    &[],
+                )?
                 .first()
-                .and_then(|row| row.get("revision"))
-                .and_then(Value::as_i64)
+                .and_then(|row| row.get("value"))
+                .and_then(Value::as_str)
+                .and_then(|value| value.parse::<i64>().ok())
                 .ok_or_else(|| "repository_unavailable".to_owned())
         })
     }
@@ -1961,6 +1963,38 @@ mod repository_port_tests {
             .expect("read result")
             .expect("cache row");
         assert_eq!(row.status, "ready");
+        drop(writer_guard);
+        reader.join().expect("reader thread");
+
+        drop(port);
+        Arc::try_unwrap(writer)
+            .expect("writer owner")
+            .into_inner()
+            .expect("writer")
+            .close()
+            .expect("close writer");
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn workbench_index_revision_read_does_not_wait_for_the_writer_owner() {
+        let (root, writer) = repository();
+        let port = Arc::new(
+            RepositoryPort::new_with_readers(Arc::clone(&writer), 4).expect("reader pool"),
+        );
+        let writer_guard = writer.lock().expect("hold writer");
+        let (result_tx, result_rx) = mpsc::channel();
+        let read_port = Arc::clone(&port);
+        let reader = thread::spawn(move || {
+            result_tx
+                .send(read_port.workbench_index_revision())
+                .expect("send revision");
+        });
+        let revision = result_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("revision read must bypass writer")
+            .expect("revision result");
+        assert_eq!(revision, 0);
         drop(writer_guard);
         reader.join().expect("reader thread");
 

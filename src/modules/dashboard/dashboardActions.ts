@@ -69,10 +69,7 @@ import {
   updateTaskDashboardHistoryStateByRequest,
 } from "../taskDashboardHistory";
 import { mergeDashboardTaskRows } from "../taskDashboardSnapshot";
-import {
-  listRuntimeLogs,
-  type RuntimeLogListFilters,
-} from "../runtimeLogManager";
+import { listRuntimeLogs } from "../runtimeLogManager";
 import {
   DEFAULT_RUNTIME_LOG_LEVELS,
   createDefaultRuntimeLogFilters,
@@ -85,6 +82,7 @@ import {
   localize,
   mapTaskRow,
   maybeBuildSkillRunnerManagementUiUrl,
+  resolveDashboardRuntimeLogQuery,
   resolveDashboardLiteratureMigrationService,
   resolveHomeWorkflowQuickRun,
   toBackendTabKey,
@@ -1671,7 +1669,10 @@ export function createDashboardActionDispatcher(
       const levels = Array.isArray(state.runtimeLogFilters.levels)
         ? [...state.runtimeLogFilters.levels]
         : [...DEFAULT_RUNTIME_LOG_LEVELS];
-      state.runtimeLogFilters = { levels };
+      state.runtimeLogFilters = {
+        levels,
+        timeRange: state.runtimeLogFilters.timeRange,
+      };
       refresh("user-action");
       return;
     }
@@ -1783,7 +1784,7 @@ export function createDashboardActionDispatcher(
         const { buildRuntimeIssueDiagnosticBundle } =
           await import("../runtimeLogManager");
         const bundle = buildRuntimeIssueDiagnosticBundle({
-          filters: state.runtimeLogFilters as RuntimeLogListFilters,
+          filters: resolveDashboardRuntimeLogQuery(state.runtimeLogFilters),
         });
         const textToCopy = JSON.stringify(bundle, null, 2);
         const helper = (Components as any).classes?.[
@@ -1813,7 +1814,7 @@ export function createDashboardActionDispatcher(
           await import("../runtimeLogManager");
         const textToCopy = buildRuntimeIssueSummary({
           filters: {
-            ...state.runtimeLogFilters,
+            ...resolveDashboardRuntimeLogQuery(state.runtimeLogFilters),
             levels: ["debug", "info", "warn", "error"],
           },
         });

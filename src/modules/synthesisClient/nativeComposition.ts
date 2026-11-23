@@ -866,9 +866,22 @@ function createNativePort(args: {
           )
             ? (surfaceCandidate as SynthesisWorkbenchSurfaceName)
             : undefined;
+        const indexProjection =
+          surface === "index"
+            ? (
+                methodArgs[1] as
+                  | { registry?: { projection?: unknown } }
+                  | undefined
+              )?.registry?.projection
+            : undefined;
         const audit = beginSynthesisSidecarBusinessAudit({
           operation,
           ...(surface ? { surface } : {}),
+          ...(indexProjection === "matches" ||
+          indexProjection === "summary" ||
+          indexProjection === "references"
+            ? { indexProjection }
+            : {}),
         });
         const trace = createSynthesisSidecarTraceContext();
         recordSynthesisSidecarTraceEvent({

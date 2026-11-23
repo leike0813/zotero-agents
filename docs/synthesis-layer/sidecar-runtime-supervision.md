@@ -234,6 +234,8 @@ mean that the invocation successfully returned an accepted receipt; the
 operation query and terminal receipt own the later business outcome. Stored
 details retain operation, trigger, stage, outcome, duration, Host classification,
 declared public semantic status, stable `errorCode`, and safe reason/sidecar codes.
+For an Index read, the audit also retains the bounded `indexProjection`
+(`matches`, `summary`, or `references`).
 Request and response protocol validation failures also retain an optional
 `schemaRef` naming a registered definition and up to sixteen `violations` with
 only `keyword` and `pointer`. Protocol-owned pointer sanitization replaces user
@@ -271,9 +273,13 @@ warning counts. Payloads, titles, bodies, locators, identifier values, paths,
 credentials, and free error text are rejected.
 
 The trace store is process memory only. It holds at most 1,000 events and 128
-events per trace, pins active traces, evicts the oldest completed trace as a
-unit, and preserves a trace start, first failure, terminal, and dropped count
-when a trace overflows. The Task Dashboard reads one snapshot when its Sidecar tab
+events per trace, pins active traces, and evicts completed traces as units.
+Completed routine successes are evicted before key successes or failures.
+The store preserves a trace start, first failure, terminal, and dropped count
+when a trace overflows. The Task Dashboard defaults to key traces and exposes
+the retained routine calls through its expanded view. A transient child
+failure remains visible inside a successfully recovered trace. The Task
+Dashboard reads one snapshot when its Sidecar tab
 opens and then consumes 200 ms `added`/`updated`/`evicted` batches. Existing
 trace rows, selection, detail, and scroll remain mounted when their data does
 not change. An accepted public maintenance operation keeps its originating

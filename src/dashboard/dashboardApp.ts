@@ -62,6 +62,7 @@ function createInitialUiState(): DashboardUiState {
       selectedTraceId: "",
       outcomeFilter: ["started", "failed", "succeeded"],
       operationFilter: [],
+      showAllTraces: false,
     },
     backendTaskScrollTopByTabKey: Object.create(null) as Record<string, number>,
     homeWorkflowDocScroll: { workflowId: "", scrollTop: 0 },
@@ -84,6 +85,7 @@ export function createDashboardController(deps: DashboardControllerDeps) {
     selectedTraceId: string;
     outcomeFilter: string;
     operationFilter: string;
+    showAllTraces: boolean;
   } | null = null;
   let lastPanel: ReturnType<typeof projectDashboardPanel> | null = null;
 
@@ -104,7 +106,8 @@ export function createDashboardController(deps: DashboardControllerDeps) {
       lastProjectionKey.selectedTraceId === sidecarUi.selectedTraceId &&
       lastProjectionKey.outcomeFilter === sidecarUi.outcomeFilter.join("\n") &&
       lastProjectionKey.operationFilter ===
-        sidecarUi.operationFilter.join("\n");
+        sidecarUi.operationFilter.join("\n") &&
+      lastProjectionKey.showAllTraces === sidecarUi.showAllTraces;
     const panel =
       keyMatches && lastPanel
         ? lastPanel
@@ -127,6 +130,7 @@ export function createDashboardController(deps: DashboardControllerDeps) {
       selectedTraceId: state.ui.synthesisSidecar.selectedTraceId,
       outcomeFilter: sidecarUi.outcomeFilter.join("\n"),
       operationFilter: sidecarUi.operationFilter.join("\n"),
+      showAllTraces: sidecarUi.showAllTraces,
     };
     lastPanel = panel;
     deps.renderPanel(panel);
@@ -191,6 +195,11 @@ export function createDashboardController(deps: DashboardControllerDeps) {
         )
           ? (payload!.operations as unknown[]).map((value) => String(value))
           : [];
+        renderCurrentPanel();
+        return;
+      }
+      if (action === "synthesis-sidecar-set-show-all") {
+        state.ui.synthesisSidecar.showAllTraces = payload?.showAll === true;
         renderCurrentPanel();
         return;
       }

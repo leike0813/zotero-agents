@@ -14,6 +14,12 @@ import type {
   DashboardSynthesisSidecarTrace,
   DashboardSynthesisSidecarTraceSnapshot,
 } from "../../../shared/dashboardWireContract";
+import {
+  classifySynthesisSidecarTrace,
+  isSynthesisSidecarFailureOutcome,
+  type SynthesisSidecarTraceEventFact,
+  type SynthesisSidecarTraceTier,
+} from "../../../shared/synthesisSidecarTracePolicy";
 import { isSynthesisSidecarDiagnosticsAvailable } from "../../debugMode";
 
 export const SYNTHESIS_SIDECAR_TRACE_EVENT_LIMIT = 1_000;
@@ -34,9 +40,20 @@ export type SynthesisSidecarTracePatch = {
 
 type Subscriber = (patch: SynthesisSidecarTracePatch) => void;
 type MutableTrace = SynthesisSidecarTrace & {
-  firstFailureRetained: boolean;
   rootActive: boolean;
   activeMaintenanceOperationIds: Set<string>;
+  // The first failure and the outer terminal are never overwritten by later
+  // events: they are the two facts a reader must not lose.
+  firstFailureEvent?: SynthesisSidecarObservationEvent;
+  terminalEvent?: SynthesisSidecarObservationEvent;
+  // Bumped whenever the event list changes; the eviction tier is cached
+  // against it (and the effective active flag).
+  revision: number;
+  tierCache?: {
+    revision: number;
+    active: boolean;
+    tier: SynthesisSidecarTraceTier;
+  };
 };
 
 const traces = new Map<string, MutableTrace>();
@@ -126,51 +143,142 @@ function totalEvents() {
   return total;
 }
 
+function traceEventFact(
+  event: SynthesisSidecarObservationEvent,
+): SynthesisSidecarTraceEventFact {
+  return {
+    parentSpanId: event.parentSpanId ?? "",
+    phase: event.phase,
+    boundary: event.boundary,
+    outcome: event.outcome,
+    operation: event.identities?.operation ?? "",
+    capability: event.identities?.capability ?? "",
+  };
+}
+
+function traceTier(
+  trace: MutableTrace,
+  nowMs: number,
+): SynthesisSidecarTraceTier {
+  const active = isTraceEffectivelyActive(trace, nowMs);
+  const cached = trace.tierCache;
+  if (
+    cached &&
+    cached.revision === trace.revision &&
+    cached.active === active
+  ) {
+    return cached.tier;
+  }
+  const tier = classifySynthesisSidecarTrace(
+    trace.events.map(traceEventFact),
+    active,
+  ).tier;
+  trace.tierCache = { revision: trace.revision, active, tier };
+  return tier;
+}
+
+const EVICTION_TIER_ORDER: Record<SynthesisSidecarTraceTier, number> = {
+  routine: 0,
+  key: 1,
+  failure: 2,
+};
+
 function evictCompletedTraces(nowMs: number) {
-  while (totalEvents() > SYNTHESIS_SIDECAR_TRACE_EVENT_LIMIT) {
-    const candidate = [...traces.values()]
-      .filter((trace) => !isTraceEffectivelyActive(trace, nowMs))
-      .sort((left, right) => left.updatedAtMs - right.updatedAtMs)[0];
-    if (!candidate) return;
-    traces.delete(candidate.traceId);
-    pendingAdded.delete(candidate.traceId);
-    pendingUpdated.delete(candidate.traceId);
-    pendingEvicted.add(candidate.traceId);
+  let excess = totalEvents() - SYNTHESIS_SIDECAR_TRACE_EVENT_LIMIT;
+  if (excess <= 0) return;
+  // Evict routine successes first, then key successes, then failures: a
+  // routine read must never push a retained failure out of the budget.
+  // Classify each trace once per pass, weakest and oldest first.
+  const candidates = [...traces.values()]
+    .filter((trace) => !isTraceEffectivelyActive(trace, nowMs))
+    .map((trace) => ({ trace, tier: traceTier(trace, nowMs) }))
+    .sort(
+      (left, right) =>
+        EVICTION_TIER_ORDER[left.tier] - EVICTION_TIER_ORDER[right.tier] ||
+        left.trace.updatedAtMs - right.trace.updatedAtMs,
+    );
+  for (const { trace } of candidates) {
+    if (excess <= 0) return;
+    traces.delete(trace.traceId);
+    pendingAdded.delete(trace.traceId);
+    pendingUpdated.delete(trace.traceId);
+    pendingEvicted.add(trace.traceId);
+    excess -= trace.events.length;
   }
 }
 
 function isPriorityEvent(event: SynthesisSidecarObservationEvent) {
   return (
-    ["failed", "canceled", "timed-out"].includes(event.outcome) ||
+    isSynthesisSidecarFailureOutcome(event.outcome) ||
     (event.parentSpanId === undefined && event.outcome !== "started") ||
     (event.phase === "maintenance-terminal" && event.outcome !== "started")
   );
 }
 
+function isProtectedEvent(trace: MutableTrace, index: number): boolean {
+  const event = trace.events[index];
+  if (!event) return false;
+  return (
+    index === 0 ||
+    event === trace.firstFailureEvent ||
+    event === trace.terminalEvent
+  );
+}
+
+// Slot that may be overwritten: never the outer start, never a protected
+// event. Routine occupants go first, then older failures.
+function replaceableIndex(
+  trace: MutableTrace,
+  options: { exclude?: number; preferLatest?: boolean } = {},
+): number | undefined {
+  const events = trace.events;
+  const candidates = events
+    .map((_candidate, index) => index)
+    .filter(
+      (index) =>
+        index > 0 &&
+        index !== options.exclude &&
+        !isProtectedEvent(trace, index),
+    );
+  const routine = candidates.filter(
+    (index) => !isPriorityEvent(events[index]!),
+  );
+  if (options.preferLatest) routine.reverse();
+  if (routine.length > 0) return routine[0]!;
+  if (options.preferLatest) candidates.reverse();
+  return candidates[0];
+}
+
 function retainPriorityEvent(
-  events: SynthesisSidecarObservationEvent[],
+  trace: MutableTrace,
   event: SynthesisSidecarObservationEvent,
   rootTerminal: boolean,
   maintenanceTerminal: boolean,
-) {
+): boolean {
+  const events = trace.events;
+  const lastIndex = events.length - 1;
   if (rootTerminal) {
-    const lastIndex = events.length - 1;
-    if (isPriorityEvent(events[lastIndex])) {
-      const freeIndex = events.findIndex(
-        (candidate, index) =>
-          index > 0 && index < lastIndex && !isPriorityEvent(candidate),
-      );
-      if (freeIndex >= 0) events[freeIndex] = events[lastIndex];
+    // The outer terminal owns the last slot; a displaced event moves to
+    // another slot so neither the terminal nor an earlier failure is lost.
+    const displaced = events[lastIndex];
+    if (displaced && isPriorityEvent(displaced)) {
+      const slot = replaceableIndex(trace, { exclude: lastIndex });
+      if (slot !== undefined) events[slot] = displaced;
     }
     events[lastIndex] = event;
-    return;
+    trace.terminalEvent = event;
+    return true;
   }
-  const indexes = events.map((_candidate, index) => index);
-  if (maintenanceTerminal) indexes.reverse();
-  const freeIndex = indexes.find(
-    (index) => index > 0 && !isPriorityEvent(events[index]),
-  );
-  events[freeIndex ?? events.length - 1] = event;
+  const slot = replaceableIndex(trace, { preferLatest: maintenanceTerminal });
+  if (slot === undefined) return false;
+  events[slot] = event;
+  if (
+    isSynthesisSidecarFailureOutcome(event.outcome) &&
+    !trace.firstFailureEvent
+  ) {
+    trace.firstFailureEvent = event;
+  }
+  return true;
 }
 
 function retainEvent(event: SynthesisSidecarObservationEvent) {
@@ -181,9 +289,9 @@ function retainEvent(event: SynthesisSidecarObservationEvent) {
       events: [],
       droppedCount: 0,
       active: true,
-      firstFailureRetained: false,
       rootActive: true,
       activeMaintenanceOperationIds: new Set(),
+      revision: 0,
       startedAtMs: event.occurredAtMs,
       updatedAtMs: event.occurredAtMs,
     };
@@ -192,7 +300,7 @@ function retainEvent(event: SynthesisSidecarObservationEvent) {
   } else {
     pendingUpdated.add(event.traceId);
   }
-  const isFailure = ["failed", "canceled", "timed-out"].includes(event.outcome);
+  const isFailure = isSynthesisSidecarFailureOutcome(event.outcome);
   const maintenanceOperationId = event.identities?.operation;
   const isMaintenanceStarted =
     event.phase === "maintenance-started" &&
@@ -206,17 +314,18 @@ function retainEvent(event: SynthesisSidecarObservationEvent) {
     event.parentSpanId === undefined && event.outcome !== "started";
   if (trace.events.length < SYNTHESIS_SIDECAR_TRACE_PER_TRACE_LIMIT) {
     trace.events.push(event);
-    if (isFailure) trace.firstFailureRetained = true;
+    if (isFailure && !trace.firstFailureEvent) {
+      trace.firstFailureEvent = event;
+    }
+    if (isRootTerminal) trace.terminalEvent = event;
+    trace.revision += 1;
   } else {
     trace.droppedCount += 1;
-    if (isPriorityEvent(event)) {
-      retainPriorityEvent(
-        trace.events,
-        event,
-        isRootTerminal,
-        isMaintenanceTerminal,
-      );
-      if (isFailure) trace.firstFailureRetained = true;
+    if (
+      isPriorityEvent(event) &&
+      retainPriorityEvent(trace, event, isRootTerminal, isMaintenanceTerminal)
+    ) {
+      trace.revision += 1;
     }
   }
   trace.updatedAtMs = event.occurredAtMs;

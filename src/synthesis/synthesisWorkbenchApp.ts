@@ -940,9 +940,17 @@ export function createSynthesisWorkbenchController(
       return;
     }
     acceptSurfacePayload(surface, requestId);
-    markSurfaceRuntime(surface, "ready", undefined, nextSnapshot, {
-      requestId,
-    });
+    const awaitingIndexRows =
+      surface === "index" &&
+      nextSnapshot.registry.window?.status === "loading" &&
+      !nextSnapshot.registry.rows.length;
+    markSurfaceRuntime(
+      surface,
+      awaitingIndexRows ? "loading" : "ready",
+      undefined,
+      awaitingIndexRows ? undefined : nextSnapshot,
+      { requestId },
+    );
     if (visibleSurface() !== surface) {
       // A payload for a non-visible surface only updates the surface runtime
       // registry; the visible chrome/snapshot stay untouched (surface merge

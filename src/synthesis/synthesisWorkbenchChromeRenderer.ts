@@ -199,6 +199,7 @@ function ensureSynthesisSkeleton(
 function SurfacePlaceholder(props: {
   selection: SynthesisWorkbenchPanel["surface"];
   errorCode?: string;
+  retry?: { label: string; onClick: () => void };
 }) {
   const selection = props.selection;
   if (!selection) return null;
@@ -214,6 +215,17 @@ function SurfacePlaceholder(props: {
     !selection.isError ? h("div", { class: "loading-spinner" }) : null,
     h("div", { class: "loading-title" }, selection.title),
     h("div", { class: "loading-subtitle" }, selection.subtitle),
+    props.retry
+      ? h(
+          "button",
+          {
+            type: "button",
+            "data-synthesis-action": "refresh",
+            onClick: props.retry.onClick,
+          },
+          props.retry.label,
+        )
+      : null,
   );
 }
 
@@ -510,6 +522,13 @@ export function createSynthesisWorkbenchChromeRenderer(
           business?.surface !== "index"
             ? h(SurfacePlaceholder, {
                 selection: synthesisWorkbenchSurfaceEqualityInput(panel),
+                retry:
+                  panel.surface.surface === "index" && panel.surface.isError
+                    ? {
+                        label: translate("synthesis-action-retry"),
+                        onClick: () => deps.dispatchAction("refresh", {}),
+                      }
+                    : undefined,
               })
             : null),
         surfaceMount,

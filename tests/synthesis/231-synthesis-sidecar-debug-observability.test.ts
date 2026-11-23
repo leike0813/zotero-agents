@@ -420,6 +420,142 @@ describe("Synthesis sidecar debug observability", function () {
     assert.lengthOf(patches, 1);
   });
 
+  it("evicts routine successes before key successes and failures", function () {
+    const baseMs = 1_000;
+    setSynthesisSidecarTraceClockForTests(() => baseMs);
+    const failure = createSynthesisSidecarTraceContext()!;
+    recordSynthesisSidecarTraceEvent({
+      context: failure,
+      source: "host",
+      boundary: "operation",
+      phase: "start",
+      outcome: "started",
+      identities: { capability: "client.rebuildTopicGraphIndex" },
+      occurredAtMs: baseMs,
+    });
+    recordSynthesisSidecarTraceEvent({
+      context: failure,
+      source: "host",
+      boundary: "operation",
+      phase: "terminal",
+      outcome: "failed",
+      code: "rebuild_failed",
+      identities: { capability: "client.rebuildTopicGraphIndex" },
+      occurredAtMs: baseMs + 1,
+    });
+    const keySuccess = createSynthesisSidecarTraceContext()!;
+    recordSynthesisSidecarTraceEvent({
+      context: keySuccess,
+      source: "host",
+      boundary: "operation",
+      phase: "start",
+      outcome: "started",
+      identities: { capability: "client.rebuildTopicGraphIndex" },
+      occurredAtMs: baseMs + 2,
+    });
+    recordSynthesisSidecarTraceEvent({
+      context: keySuccess,
+      source: "host",
+      boundary: "operation",
+      phase: "terminal",
+      outcome: "succeeded",
+      identities: { capability: "client.rebuildTopicGraphIndex" },
+      occurredAtMs: baseMs + 3,
+    });
+
+    let firstRoutine = "";
+    for (let index = 0; index < 520; index += 1) {
+      const routine = createSynthesisSidecarTraceContext()!;
+      if (index === 0) firstRoutine = routine.traceId;
+      recordSynthesisSidecarTraceEvent({
+        context: routine,
+        source: "host",
+        boundary: "host-rpc",
+        phase: "request",
+        outcome: "started",
+        identities: { capability: "client.listTopics" },
+        occurredAtMs: baseMs + 10 + index * 2,
+      });
+      recordSynthesisSidecarTraceEvent({
+        context: routine,
+        source: "host",
+        boundary: "host-rpc",
+        phase: "terminal",
+        outcome: "succeeded",
+        identities: { capability: "client.listTopics" },
+        occurredAtMs: baseMs + 11 + index * 2,
+      });
+    }
+
+    const snapshot = readSynthesisSidecarTraceSnapshot();
+    assert.isDefined(
+      snapshot.traces.find((trace) => trace.traceId === failure.traceId),
+      "a retained failure survives routine traffic",
+    );
+    assert.isDefined(
+      snapshot.traces.find((trace) => trace.traceId === keySuccess.traceId),
+      "a key success survives routine traffic",
+    );
+    assert.isUndefined(
+      snapshot.traces.find((trace) => trace.traceId === firstRoutine),
+      "routine successes are evicted before key traces",
+    );
+  });
+
+  it("keeps the first failure and the outer terminal when a full trace keeps failing", function () {
+    const root = createSynthesisSidecarTraceContext()!;
+    recordSynthesisSidecarTraceEvent({
+      context: root,
+      source: "host",
+      boundary: "operation",
+      phase: "start",
+      outcome: "started",
+      occurredAtMs: 1,
+    });
+    for (let index = 0; index < 126; index += 1) {
+      const child = createSynthesisSidecarTraceContext({ parent: root })!;
+      recordSynthesisSidecarTraceEvent({
+        context: child,
+        source: "child-worker",
+        boundary: "child-worker",
+        phase: "attempt",
+        outcome: "failed",
+        code: index === 0 ? "first_failure" : "worker_failed",
+        occurredAtMs: index + 2,
+      });
+    }
+    recordSynthesisSidecarTraceEvent({
+      context: root,
+      source: "host",
+      boundary: "operation",
+      phase: "terminal",
+      outcome: "failed",
+      code: "service_unavailable",
+      occurredAtMs: 200,
+    });
+    const late = createSynthesisSidecarTraceContext({ parent: root })!;
+    recordSynthesisSidecarTraceEvent({
+      context: late,
+      source: "child-worker",
+      boundary: "child-worker",
+      phase: "attempt",
+      outcome: "failed",
+      code: "late_failure",
+      occurredAtMs: 300,
+    });
+
+    const trace = readSynthesisSidecarTraceSnapshot().traces[0]!;
+    assert.lengthOf(trace.events, 128);
+    assert.isTrue(
+      trace.events.some((event) => event.code === "first_failure"),
+      "the first failure survives later failures",
+    );
+    assert.isTrue(
+      trace.events.some((event) => event.phase === "terminal"),
+      "the outer terminal survives later failures",
+    );
+  });
+
   it("unpins an accepted maintenance trace when its durable terminal arrives on a later trace", function () {
     setSynthesisSidecarTraceClockForTests(() => 10_000);
     const root = createSynthesisSidecarTraceContext()!;

@@ -342,6 +342,8 @@ npm run test:zotero:e2e:stress
 
 `ZOTERO_SYNTHESIS_CLOSE_CYCLES` 可覆盖压测轮数。设置金例 data/profile 目录会选择 Private Gold Source；也可用 `ZOTERO_E2E_FIXTURE=gold` 显式选择，缺少 data source 时 invocation 直接失败。未选择 gold 时使用 Committed Seed。
 
+排查 Index 首屏性能时，可用拥有至少 100 个匹配父条目的冻结库作为 `ZOTERO_E2E_GOLD_DATA_DIR`。运行 `index-projection-01` 对应的 Index 导航用例，并设置 `ZOTERO_E2E_GOLD_ID=index-performance`。用例测一次冷打开和四次清除会话缓存的显式刷新，确认首批五条已挂载，并将耗时写入该次诊断目录的 `index-first-rows.json`。
+
 ### Windows Citation Graph close (`CG-02`)
 
 `CG-02` 复用同一个 runner 和 `276-dashboard-synthesis-close.zotero.test.ts`，但使用独立 catalog 命令。它在临时库创建最小合成 Reference，经过公开 Graph 重建，从 Workspace 打开 Citation Graph，默认执行 30 次关闭/重开，并在最后一次关闭后等待 20 秒检查宿主与数据库。普通 `test:zotero:e2e:stress` 仍是独立的 100 轮 adjunct stress，不计入 catalog completion。

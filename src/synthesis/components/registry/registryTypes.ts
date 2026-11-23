@@ -14,6 +14,7 @@ import {
   type SynthesisWorkbenchMessageKey,
 } from "../../../shared/synthesisWorkbenchI18nContract";
 import type {
+  SynthesisWorkbenchEmptyActionPayload,
   SynthesisWorkbenchHostCommandPayload,
   SynthesisWorkbenchIndexWindow,
   SynthesisWorkbenchNavigateIndexWindowPayload,
@@ -29,11 +30,12 @@ export type SynthesisRegistryText = (
 ) => string;
 
 export type SynthesisRegistryActionSender = (
-  action: "setFilters" | "hostCommand" | "navigateIndexWindow",
+  action: "setFilters" | "hostCommand" | "navigateIndexWindow" | "refresh",
   payload:
     | SynthesisWorkbenchSetFiltersPayload
     | SynthesisWorkbenchHostCommandPayload
-    | SynthesisWorkbenchNavigateIndexWindowPayload,
+    | SynthesisWorkbenchNavigateIndexWindowPayload
+    | SynthesisWorkbenchEmptyActionPayload,
 ) => void;
 
 // ---------------------------------------------------------------------------

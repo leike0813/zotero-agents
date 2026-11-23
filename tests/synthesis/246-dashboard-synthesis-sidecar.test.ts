@@ -9,6 +9,7 @@ import {
   restoreSidebarDomGlobals,
 } from "../helpers/sidebarDomEnv";
 import {
+  filterSynthesisSidecarTracesByScope,
   filterSynthesisSidecarTraces,
   narrowSynthesisSidecarStatus,
   narrowSynthesisSidecarTraceSnapshot,
@@ -98,6 +99,8 @@ function makeSelection(
       { value: "succeeded", label: "Succeeded" },
     ],
     activeOutcomes: ["started", "failed", "succeeded"],
+    showAllTraces: false,
+    showAllLabel: "Show all",
     filterOperationLabel: "Operation",
     operationOptions: [
       {
@@ -583,7 +586,7 @@ describe("dashboard synthesis sidecar region", function () {
     );
   });
 
-  it("computes outcome, operation, signatures and span depth like the legacy renderer", function () {
+  it("computes outcome, operation, signatures and span depth from the outer terminal", function () {
     const trace = makeTrace("t1", {
       updatedAtMs: 42,
       droppedCount: 3,
@@ -638,12 +641,16 @@ describe("dashboard synthesis sidecar region", function () {
         },
       ],
     });
-    assert.equal(synthesisSidecarTraceOutcome(trace), "failed");
+    assert.equal(
+      synthesisSidecarTraceOutcome(trace),
+      "succeeded",
+      "the outer terminal decides the outcome, not a child failure",
+    );
     assert.equal(synthesisSidecarTraceRootOperation(trace), "cap-root");
     assert.equal(
-      synthesisSidecarTraceRowSignature(trace, "failed", "cap-root"),
+      synthesisSidecarTraceRowSignature(trace, "succeeded", "cap-root"),
       JSON.stringify({
-        outcome: "failed",
+        outcome: "succeeded",
         operation: "cap-root",
         updatedAtMs: 42,
         count: 4,
@@ -652,6 +659,214 @@ describe("dashboard synthesis sidecar region", function () {
     );
     assert.equal(synthesisSidecarTraceDetailSignature(trace), "42:4:3");
     assert.deepEqual(synthesisSidecarEventDepths(trace.events), [0, 1, 2, 2]);
+  });
+
+  it("counts timeouts as failures and keeps recovered child events", function () {
+    const base = makeTrace("t1").events[0];
+    const timedOut = makeTrace("t-timeout", {
+      events: [{ ...base, outcome: "timed-out", code: "worker_timeout" }],
+    });
+    assert.equal(synthesisSidecarTraceOutcome(timedOut), "failed");
+
+    const recovered = makeTrace("t-recovered", {
+      events: [
+        { ...base, spanId: "root", outcome: "succeeded" },
+        {
+          ...base,
+          spanId: "child-failed",
+          parentSpanId: "root",
+          outcome: "failed",
+          code: "worker_failed",
+        },
+        {
+          ...base,
+          spanId: "child-retried",
+          parentSpanId: "root",
+          outcome: "succeeded",
+        },
+      ],
+    });
+    assert.equal(
+      synthesisSidecarTraceOutcome(recovered),
+      "succeeded",
+      "a recovered child failure does not fail the trace",
+    );
+    assert.equal(
+      recovered.events.length,
+      3,
+      "the recovered child events stay in the trace",
+    );
+  });
+
+  it("hides routine successes from the simplified view until show-all is on", function () {
+    const root = (traceId: string) => makeTrace(traceId).events[0];
+    const poll = makeTrace("t-poll", {
+      events: [
+        {
+          ...root("t-poll"),
+          boundary: "operation",
+          phase: "terminal",
+          operation: "client.getPublicMaintenanceOperation",
+          capability: "client.getPublicMaintenanceOperation",
+        },
+      ],
+    });
+    const orphanRead = makeTrace("t-orphan", {
+      events: [
+        {
+          ...root("t-orphan"),
+          boundary: "reverse-host",
+          phase: "call-completed",
+          operation: "native:library.items.list_page:1:1",
+          capability: "library.items.list_page",
+        },
+      ],
+    });
+    const inFlightPoll = makeTrace("t-poll-live", {
+      active: true,
+      updatedAtMs: 10,
+      events: [
+        {
+          ...root("t-poll-live"),
+          boundary: "operation",
+          phase: "start",
+          outcome: "started",
+          operation: "client.getRetrievalState",
+          capability: "client.getRetrievalState",
+        },
+      ],
+    });
+    const foregroundSearch = makeTrace("t-search", {
+      updatedAtMs: 20,
+      events: [
+        {
+          ...root("t-search"),
+          boundary: "operation",
+          phase: "terminal",
+          operation: "client.searchTopics",
+          capability: "client.searchTopics",
+        },
+      ],
+    });
+    const failure = makeTrace("t-bad", {
+      events: [{ ...root("t-bad"), outcome: "failed" }],
+    });
+    const traces = [poll, orphanRead, inFlightPoll, foregroundSearch, failure];
+
+    assert.deepEqual(
+      filterSynthesisSidecarTracesByScope(traces, { showAll: false }).map(
+        (trace) => trace.traceId,
+      ),
+      ["t-search", "t-bad"],
+      "foreground search and failures stay; polls and internal reads are routine",
+    );
+    assert.deepEqual(
+      filterSynthesisSidecarTracesByScope(traces, { showAll: true }).map(
+        (trace) => trace.traceId,
+      ),
+      ["t-poll", "t-orphan", "t-poll-live", "t-search", "t-bad"],
+      "show-all reveals the routine successes and the in-flight poll",
+    );
+  });
+
+  it("lets a durable maintenance failure override an accepted successful root", function () {
+    const root = makeTrace("t-maintenance").events[0];
+    const trace = makeTrace("t-maintenance", {
+      events: [
+        {
+          ...root,
+          boundary: "operation",
+          phase: "terminal",
+          outcome: "succeeded",
+          operation: "client.getPublicMaintenanceOperation",
+          capability: "client.getPublicMaintenanceOperation",
+        },
+        {
+          ...root,
+          spanId: "maintenance-child",
+          parentSpanId: root.spanId,
+          boundary: "operation",
+          phase: "maintenance-terminal",
+          outcome: "timed-out",
+          operation: "maintenance:layout:1",
+          capability: "client.recomputeCitationGraphLayout",
+        },
+      ],
+    });
+
+    assert.equal(
+      synthesisSidecarTraceOutcome(trace),
+      "failed",
+      "the durable maintenance terminal decides the failure",
+    );
+    assert.deepEqual(
+      filterSynthesisSidecarTracesByScope([trace], { showAll: false }).map(
+        (item) => item.traceId,
+      ),
+      ["t-maintenance"],
+      "a durable maintenance failure stays visible under a routine root",
+    );
+  });
+
+  it("keeps the pinned routine trace visible in the simplified view", function () {
+    const root = (traceId: string) => makeTrace(traceId).events[0];
+    const routine = makeTrace("t-routine", {
+      events: [
+        {
+          ...root("t-routine"),
+          boundary: "operation",
+          phase: "terminal",
+          operation: "client.getPublicMaintenanceOperation",
+          capability: "client.getPublicMaintenanceOperation",
+        },
+      ],
+    });
+    const failure = makeTrace("t-bad", {
+      events: [{ ...root("t-bad"), outcome: "failed" }],
+    });
+    const traces = [routine, failure];
+    const scoped = filterSynthesisSidecarTracesByScope(
+      rankSynthesisSidecarTraces(traces, ""),
+      { showAll: false },
+    );
+    const resolved = resolveSynthesisSidecarVisibleTraces({
+      traces,
+      ranked: scoped,
+      selectedTraceId: routine.traceId,
+    });
+    assert.equal(resolved.selected?.traceId, routine.traceId);
+    assert.deepEqual(
+      resolved.visible.map((trace) => trace.traceId),
+      ["t-bad", "t-routine"],
+      "the pinned routine trace stays in the visible window",
+    );
+  });
+
+  it("keeps chrome polls and notifier bookkeeping routine", function () {
+    const routineNames = [
+      "client.getSynthesisWorkbenchChromeInput",
+      "client.consumeRelatedItemsSyncEcho",
+      "client.invalidateRetrievalSources",
+    ];
+    const traces = routineNames.map((name, index) => {
+      const traceId = `t-${index}`;
+      return makeTrace(traceId, {
+        events: [
+          {
+            ...makeTrace(traceId).events[0],
+            boundary: "operation",
+            phase: "terminal",
+            operation: name,
+            capability: name,
+          },
+        ],
+      });
+    });
+    assert.deepEqual(
+      filterSynthesisSidecarTracesByScope(traces, { showAll: false }),
+      [],
+      "chrome polls and notifier bookkeeping stay behind show-all",
+    );
   });
 
   it("reconcileSynthesisSidecarTraceRows removes rows missing from the next render", function () {
@@ -755,6 +970,26 @@ describe("dashboard synthesis sidecar region", function () {
       action: "synthesis-sidecar-set-operation-filter",
       payload: { operations: ["op-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"] },
     });
+  });
+
+  it("renders the show-all toggle and emits the scope intent", function () {
+    const setChecked = (element: Element, checked: boolean) => {
+      (element as HTMLInputElement).checked = checked;
+      element.dispatchEvent(new window.Event("change", { bubbles: true }));
+    };
+    const { container, actions } = renderRegion(makeSelection());
+    const toggle = container.querySelector<HTMLInputElement>(
+      ".synthesis-sidecar-view-filter input[type='checkbox']",
+    );
+    assert.ok(toggle, "the show-all toggle renders in the toolbar");
+    assert.isFalse(toggle!.checked, "the simplified view is the default");
+    setChecked(toggle!, true);
+    assert.deepEqual(actions, [
+      {
+        action: "synthesis-sidecar-set-show-all",
+        payload: { showAll: true },
+      },
+    ]);
   });
 
   it("reverts the copy button label after the feedback window", async function () {

@@ -945,6 +945,54 @@ describe("synthesis workbench scaffold (src/synthesis)", function () {
     assert.isEmpty(completed.selection.pendingOperationKeys);
   });
 
+  it("retries the Index read with or without retained rows", function () {
+    for (const keepRows of [false, true]) {
+      const root = document.createElement("div");
+      const actions: string[] = [];
+      const renderer = createSynthesisWorkbenchChromeRenderer({
+        root,
+        sendAction: () => undefined,
+        dispatchAction: (action, payload) =>
+          controller.dispatch(action, payload),
+      });
+      const controller = createSynthesisWorkbenchController({
+        sendAction: (action) => actions.push(action),
+        renderPanel: renderer.renderPanel,
+      });
+      controller.handleHostMessage({
+        type: "synthesis:snapshot",
+        payload: makeSnapshot(),
+      });
+      controller.dispatch("selectTab", { tab: "registry" });
+      if (keepRows) {
+        const index = makeIndexSnapshot(1, [
+          { paper_ref: "1:KEPT", title: "Accepted paper" } as never,
+        ]);
+        index.registry.window = {
+          number: 1,
+          offset: 0,
+          total: 1,
+          hasPrevious: false,
+          hasNext: false,
+          status: "failed",
+          queryStatus: "failed",
+        };
+        controller.handleHostMessage(surfaceMessage("index", 2, index));
+      }
+      controller.handleHostMessage({
+        type: "synthesis:surface-error",
+        payload: { surface: "index", requestId: 2, code: "basis_mismatch" },
+      });
+      const retry = root.querySelector<HTMLButtonElement>(
+        'button[data-synthesis-action="refresh"]',
+      );
+      assert.isNotNull(retry);
+      retry!.click();
+      assert.equal(actions.at(-1), "refresh");
+      renderer.renderPanel(null);
+    }
+  });
+
   it("controller drops stale surface payloads per surface", function () {
     const { deps, panels } = makeControllerDeps();
     const controller = createSynthesisWorkbenchController(deps);
