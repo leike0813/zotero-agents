@@ -734,12 +734,46 @@ describe("acp session manager", function () {
     assert.equal(snapshot.lastError, "");
   });
 
+  it("cancels locally when the busy prompt has not reached the backend", async function () {
+    await connectAcpConversation();
+    const adapter = harness.lastAdapter!;
+    let cancellation: Promise<void> | undefined;
+    const unsubscribe = subscribeAcpConversationSnapshots((snapshot) => {
+      if (snapshot.busy && adapter.prompts.length === 0 && !cancellation) {
+        cancellation = Promise.resolve().then(() =>
+          cancelAcpConversationPrompt(),
+        );
+      }
+    });
+    try {
+      await sendAcpConversationPrompt({ message: "Cancel before dispatch" });
+      await cancellation;
+      assert.isDefined(cancellation);
+      assert.isEmpty(adapter.prompts);
+      assert.isEmpty(adapter.cancelSessionIds);
+      assert.include(getAcpConversationSnapshot(), {
+        status: "connected",
+        busy: false,
+        lastStopReason: "cancelled",
+        promptInterruptState: "confirmed",
+      });
+      assert.include(
+        (await readActiveTranscriptItems()).map((item) => item.text),
+        "Cancel before dispatch",
+      );
+    } finally {
+      unsubscribe();
+    }
+  });
+
   it("keeps an in-flight prompt busy until cancellation is confirmed", async function () {
     await connectAcpConversation();
     const releasePrompt = harness.lastAdapter!.holdPrompt();
     harness.lastAdapter!.promptStopReason = "cancelled";
     const prompt = sendAcpConversationPrompt({ message: "Cancelable turn" });
-    await waitForAcpConversationSnapshot((snapshot) => snapshot.busy);
+    await waitForAcpConversationSnapshot(
+      () => harness.lastAdapter!.prompts.length === 1,
+    );
     await cancelAcpConversationPrompt();
     let snapshot = getAcpConversationSnapshot();
     assert.equal(snapshot.busy, true);
@@ -761,7 +795,9 @@ describe("acp session manager", function () {
     await connectAcpConversation();
     const releasePrompt = harness.lastAdapter!.holdPrompt();
     const prompt = sendAcpConversationPrompt({ message: "Cancel lost race" });
-    await waitForAcpConversationSnapshot((snapshot) => snapshot.busy);
+    await waitForAcpConversationSnapshot(
+      () => harness.lastAdapter!.prompts.length === 1,
+    );
     await cancelAcpConversationPrompt();
     releasePrompt();
     await prompt;
@@ -787,7 +823,9 @@ describe("acp session manager", function () {
       await sendAcpConversationPrompt({ message: "Completed before force" });
       harness.lastAdapter!.holdPrompt();
       void sendAcpConversationPrompt({ message: "Ignore cancellation" });
-      await waitForAcpConversationSnapshot((snapshot) => snapshot.busy);
+      await waitForAcpConversationSnapshot(
+        () => harness.lastAdapter!.prompts.length === 2,
+      );
       assert.equal(
         (await finishAcpRuntimeSemanticTraceRoot()).state,
         "stopping",

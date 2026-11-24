@@ -102,7 +102,7 @@ type HostBridgeCliEnvelope = {
     capability?: string;
     data?: Record<string, unknown>;
   };
-  error?: { code?: string; message?: string };
+  error?: { code?: string; message?: string; details?: { status?: number } };
 };
 
 async function readyDiscovery(
@@ -638,13 +638,13 @@ async function productionLockAvailable() {
   return result.outcome === "exited" && result.exitCode === 0;
 }
 
-async function runHostBridgeCli(args: string[]) {
+async function runHostBridgeCli(args: string[], timeoutMs = 120_000) {
   const cli = await resolveHostBridgeCliBinary();
   if (!cli.available) throw new Error(cli.code);
   const result = await executeOneShotSubprocess({
     command: cli.binaryPath,
     args,
-    timeoutMs: 120_000,
+    timeoutMs,
   });
   let output: HostBridgeCliEnvelope;
   try {
@@ -840,9 +840,19 @@ describe("System E2E sidecar recovery", function () {
               ? true
               : null,
           );
+          const query = { paper_refs: [paperRef(paper)], artifact_types: ["digest"] };
+          await waitUntil(async () => {
+            const probe = await runHostBridgeCli([
+              "synthesis", "artifact", "manifest", "--query", JSON.stringify(query),
+            ], 10_000);
+            if (probe.output.error?.details?.status === 503) return null;
+            assert.equal(probe.exitCode, 0, JSON.stringify(probe.output.error));
+            assert.isTrue(probe.output.ok);
+            return probe;
+          }, 30_000, "sl-01-default-bridge-ready");
           const exported = await runHostBridgeCli([
             "synthesis", "artifact", "export-filtered", "--query",
-            JSON.stringify({ paper_refs: [paperRef(paper)], artifact_types: ["digest"], run_root: runRoot }),
+            JSON.stringify({ ...query, run_root: runRoot }),
           ]);
           assert.equal(exported.exitCode, 0, JSON.stringify(exported.output.error));
           assert.isTrue(exported.output.ok);

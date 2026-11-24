@@ -359,6 +359,20 @@ async function createFakeNpxAcpCommand(root: string) {
       `@echo off\r\n"${process.execPath}" "${agentPath}" %*\r\n`,
       "utf8",
     );
+    // The Windows launch prefers "node npx-cli.js" resolved next to the npx
+    // shim, so the fixture ships its own to keep the real npm out of the run.
+    const npxCliDir = path.join(root, "node_modules", "npm", "bin");
+    await fs.mkdir(npxCliDir, { recursive: true });
+    await fs.writeFile(
+      path.join(npxCliDir, "package.json"),
+      JSON.stringify({ type: "module" }),
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(npxCliDir, "npx-cli.js"),
+      'import "../../../fake-npx-acp-agent.mjs";\n',
+      "utf8",
+    );
   } else {
     await fs.writeFile(
       commandPath,

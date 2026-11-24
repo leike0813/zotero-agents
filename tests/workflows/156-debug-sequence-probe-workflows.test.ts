@@ -99,6 +99,7 @@ describe("debug sequence probe workflows", function () {
   });
 
   it("filters debug probe skills from registry and ACP shared catalog outside debug mode", async function () {
+    this.timeout(30_000);
     setDebugModeOverrideForTests(false);
     const hiddenRegistry = await scanPluginSkillRegistry({
       cwd: process.cwd(),

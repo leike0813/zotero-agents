@@ -415,6 +415,26 @@ describe("Synthesis evidence production route", function () {
         query: unicodeQuery,
       });
       assert.deepEqual(unicodeTopics.results, []);
+      // The schema bound counts code points, so the real sidecar must accept
+      // the 4096-code-point astral query and reject 4097 with the same code.
+      const oversizedUnicodeQuery = "\u{20000}".repeat(4097);
+      for (const capability of [
+        "client.searchEvidence",
+        "client.searchTopics",
+      ] as const) {
+        let oversizedError: unknown;
+        try {
+          await runtime.call(capability, {
+            args: [{ query: oversizedUnicodeQuery }],
+          });
+        } catch (error) {
+          oversizedError = error;
+        }
+        assert.equal(
+          (oversizedError as { code?: string } | undefined)?.code,
+          "invalid_request",
+        );
+      }
       // The sidecar read the search corpus over the real owner, so both
       // reverse Host capabilities are recorded from typed-consumed exchanges.
       for (const capability of [

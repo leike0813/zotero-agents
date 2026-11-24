@@ -23,6 +23,7 @@ import {
   readRuntimeTextRanges,
   removeRuntimePath,
   assertRuntimePathBudget,
+  reserveRuntimeTemporaryDirectory,
 } from "../../../../src/modules/runtimePersistence";
 import {
   digestRuntimeFileSource,
@@ -230,41 +231,57 @@ describe("runtime platform services in Zotero", function () {
       this.skip();
     }
 
-    for (const control of ["timeout", "cancel"] as const) {
-      const cancellation = createCancellationController();
-      const stdoutMarker = `zotero-${control}-stdout`;
-      const stderrMarker = `zotero-${control}-stderr`;
-      const resultPromise = executeOneShotSubprocess({
-        command: resolved.resolvedPath,
-        args: windows
-          ? [
-              "-NoLogo",
-              "-NoProfile",
-              "-Command",
-              `[Console]::Out.Write('${stdoutMarker}'); [Console]::Error.Write('${stderrMarker}'); Start-Sleep -Seconds 20`,
-            ]
-          : [
-              "-c",
-              `printf '${stdoutMarker}'; printf '${stderrMarker}' >&2; sleep 20`,
-            ],
-        cwd: getZoteroTempDirectoryPath(),
-        timeoutMs: 1500,
-        terminationGraceMs: 500,
-        outputLimitChars: 4096,
-        signal: control === "cancel" ? cancellation.signal : undefined,
-        hidden: windows,
-      });
-      if (control === "cancel") {
-        setTimeout(cancellation.abort, 500);
-      }
-      const result = await resultPromise;
+    const fixture = await reserveRuntimeTemporaryDirectory({
+      category: "subprocess-test",
+      relativePaths: [{ path: "ready" }],
+    });
+    try {
+      for (const control of ["timeout", "cancel"] as const) {
+        const cancellation = createCancellationController();
+        const stdoutMarker = `zotero-${control}-stdout`;
+        const stderrMarker = `zotero-${control}-stderr`;
+        const resultPromise = executeOneShotSubprocess({
+          command: resolved.resolvedPath,
+          args: windows
+            ? [
+                "-NoLogo",
+                "-NoProfile",
+                "-Command",
+                `[Console]::Out.Write('${stdoutMarker}'); [Console]::Error.Write('${stderrMarker}'); if ('${control}' -eq 'cancel') { New-Item -ItemType File ready | Out-Null }; Start-Sleep -Seconds 20`,
+              ]
+            : [
+                "-c",
+                `printf '${stdoutMarker}'; printf '${stderrMarker}' >&2; if [ '${control}' = cancel ]; then : > ready; fi; sleep 20`,
+              ],
+          cwd: fixture.path,
+          timeoutMs: control === "cancel" ? 10000 : 1500,
+          terminationGraceMs: 500,
+          outputLimitChars: 4096,
+          signal: control === "cancel" ? cancellation.signal : undefined,
+          hidden: windows,
+        });
+        if (control === "cancel") {
+          const ready = joinNativePath(fixture.path, "ready");
+          const deadline = Date.now() + 8000;
+          while (Date.now() < deadline) {
+            if (await runtimePathExists(ready)) {
+              cancellation.abort();
+              break;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 20));
+          }
+        }
+        const result = await resultPromise;
 
-      assert.equal(
-        result.outcome,
-        control === "cancel" ? "canceled" : "timed_out",
-      );
-      assert.include(result.stdout, stdoutMarker);
-      assert.include(result.stderr, stderrMarker);
+        assert.equal(
+          result.outcome,
+          control === "cancel" ? "canceled" : "timed_out",
+        );
+        assert.include(result.stdout, stdoutMarker);
+        assert.include(result.stderr, stderrMarker);
+      }
+    } finally {
+      await fixture.cleanup();
     }
   });
 

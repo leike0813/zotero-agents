@@ -9,9 +9,12 @@
         "diagnostics": {
           "bounded": true,
           "storage": "sqlite",
-          "truncated": false
+          "truncated": false,
+          "unknown_paper_refs": ["fixture"],
+          "warnings": ["fixture"]
         },
         "edges": [],
+        "externalRefs": ["fixture"],
         "graph_hash": "",
         "hover_only_edges": [],
         "hover_only_nodes": [],
@@ -27,6 +30,10 @@
           "returnedHoverNodes": 0,
           "returnedNodes": 0,
           "roleOptions": [],
+          "nodeLimit": 1,
+          "edgeLimit": 1,
+          "nodeCursor": "fixture",
+          "edgeCursor": "fixture",
           "totalEdges": 0,
           "totalHoverEdges": 0,
           "totalHoverNodes": 0,
@@ -60,12 +67,14 @@
       "schemaRef": "schemas/client-citation-graph.schema.json#/$defs/QueryCitationGraphClusterRequest",
       "valid": true,
       "value": {
-        "args": [{
-          "source_paper_refs": ["1:SOURCE"],
-          "paperRef": { "paper_ref": "1:SECOND" },
-          "cluster_policy": "bounded_external",
-          "max_external_nodes": "25"
-        }]
+        "args": [
+          {
+            "source_paper_refs": ["1:SOURCE"],
+            "paperRef": { "paper_ref": "1:SECOND" },
+            "cluster_policy": "bounded_external",
+            "max_external_nodes": "25"
+          }
+        ]
       }
     },
     {
@@ -925,6 +934,56 @@
         "hoverEdgeLimit": 0,
         "topicScopeCursor": "fixture",
         "topicScopeLimit": 1
+      }
+    },
+    {
+      "id": "shared-client-citation-graph-GraphQuery-camel-numeric-positive",
+      "schemaRef": "schemas/client-citation-graph.schema.json#/$defs/GraphQuery",
+      "valid": true,
+      "value": {
+        "maxNodes": 1,
+        "maxEdges": 0,
+        "maxExternalNodes": 0,
+        "sourcePaperRefs": "fixture",
+        "paperRefs": "fixture",
+        "paperRef": { "paperRef": "fixture" },
+        "clusterPolicy": "source_only",
+        "includeExternal": true
+      }
+    },
+    {
+      "id": "shared-client-citation-graph-GraphQuery-snake-numeric-positive",
+      "schemaRef": "schemas/client-citation-graph.schema.json#/$defs/GraphQuery",
+      "valid": true,
+      "value": {
+        "max_nodes": 1,
+        "max_edges": 0,
+        "max_external_nodes": 0,
+        "source_paper_refs": "fixture",
+        "paper_refs": "fixture",
+        "paper_ref": { "paper_ref": "fixture" },
+        "cluster_policy": "source_only",
+        "include_external": true
+      }
+    },
+    {
+      "id": "shared-client-citation-graph-GraphQuery-camel-string-positive",
+      "schemaRef": "schemas/client-citation-graph.schema.json#/$defs/GraphQuery",
+      "valid": true,
+      "value": {
+        "maxNodes": "1",
+        "maxEdges": "0",
+        "maxExternalNodes": "20"
+      }
+    },
+    {
+      "id": "shared-client-citation-graph-GraphQuery-snake-string-positive",
+      "schemaRef": "schemas/client-citation-graph.schema.json#/$defs/GraphQuery",
+      "valid": true,
+      "value": {
+        "max_nodes": "1",
+        "max_edges": "0",
+        "max_external_nodes": "20"
       }
     },
     {

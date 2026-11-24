@@ -2441,7 +2441,7 @@ describe("Synthesis E2E gold library", function () {
   systemE2ECase(
     "mineru-path-budget-01",
     undefined,
-    "MinerU Windows path budgets preserve old outputs before unsafe backup",
+    "MinerU replaces Windows outputs through native long-path backups",
     async function () {
       if (!Zotero.isWin) this.skip();
       const root = PathUtils.join(
@@ -2484,8 +2484,10 @@ describe("Synthesis E2E gold library", function () {
           PathUtils.join(bundle, "full.md"),
           "new markdown\n",
         );
-        const status = await getContentPackageStatus();
-        const loaded = await loadWorkflowManifests(status.officialWorkflowDir);
+        const workflowRoot = readDiagnosticsEnv("ZOTERO_TEST_CONTENT_CHANNEL")
+          ? (await getContentPackageStatus()).officialWorkflowDir
+          : readDiagnosticsEnv("ZOTERO_TEST_WORKFLOW_DIR");
+        const loaded = await loadWorkflowManifests(workflowRoot);
         const workflow = loaded.workflows.find(
           (entry) => entry.manifest.id === "mineru",
         );
@@ -2525,22 +2527,15 @@ describe("Synthesis E2E gold library", function () {
           `${"i".repeat(259 - images.length - 1 - 4)}.png`,
         );
         assert.lengthOf(oldImage, 259);
-        await writeRuntimeTextFile(oldImage, "protected old image");
+        await writeRuntimeTextFile(oldImage, "previous image");
         const attachmentIds = parent.getAttachments();
         await writeRuntimeTextFile(
           PathUtils.join(bundle, "full.md"),
-          "must not replace accepted output\n",
+          "replacement markdown\n",
         );
-        let failure: unknown;
-        try {
-          await apply();
-        } catch (error) {
-          failure = error;
-        }
-        assert.isOk(failure);
-        assert.match(String(failure), /path budget/i);
-        assert.equal(await IOUtils.readUTF8(mdPath), acceptedMarkdown);
-        assert.equal(await IOUtils.readUTF8(oldImage), "protected old image");
+        await apply();
+        assert.include(await IOUtils.readUTF8(mdPath), "replacement markdown");
+        assert.isFalse(await IOUtils.exists(images));
         assert.equal(
           await IOUtils.readUTF8(pdfPath),
           "%PDF-1.4\nsynthetic path fixture\n",

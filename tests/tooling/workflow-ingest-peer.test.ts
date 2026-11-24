@@ -12,10 +12,13 @@ import {
 } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 
 const INGEST_FIXTURE = path.resolve(
   "tests/fixtures/workflow-happy-path/ingest-agent.mjs",
 );
+// Dynamic import() needs a URL on Windows, where bare "D:\..." reads as a scheme.
+const INGEST_FIXTURE_URL = pathToFileURL(INGEST_FIXTURE).href;
 const OUTPUT_SCHEMA = path.resolve(
   "skills_builtin/literature-search-ingest/assets/output.schema.json",
 );
@@ -79,7 +82,17 @@ process.stdout.write(JSON.stringify({
     "utf8",
   );
   chmodSync(stubPath, 0o755);
-  return { stubPath, controlPath, invocationPath };
+  const launcherPath =
+    process.platform === "win32" ? `${stubPath}.cmd` : stubPath;
+  if (process.platform === "win32") {
+    // Windows needs a launcher for the shebang stub.
+    writeFileSync(
+      launcherPath,
+      `@echo off\r\n"${process.execPath}" "%~dp0zotero-bridge" %*\r\n`,
+      "utf8",
+    );
+  }
+  return { launcherPath, controlPath, invocationPath };
 }
 
 function ingest(args: {
@@ -114,10 +127,11 @@ function ingest(args: {
       encoding: "utf8",
       env: {
         ...process.env,
-        INGEST_FIXTURE,
+        INGEST_FIXTURE: INGEST_FIXTURE_URL,
         INGEST_QUERY: args.query || "Synthetic offline ingestion",
         INGEST_COLLECTION: args.targetCollection || "1:SYNCOL01",
         INGEST_WORKSPACE: args.root,
+        ZOTERO_BRIDGE_CLI: stub.launcherPath,
         STUB_BEHAVIOR: stub.controlPath,
         STUB_INVOCATION: stub.invocationPath,
       },
@@ -236,6 +250,7 @@ describe("production workflow literature-search-ingest peer", function () {
     });
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /workflow_fixture_bridge_failed/);
+    assert.include(result.stderr, "capability_failed");
     assert.isFalse(
       existsSync(path.join(root, "result", "search-ledger.json")),
       "a failed mutation must not publish a success ledger",

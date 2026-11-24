@@ -1,4 +1,5 @@
 import { strict as assert } from "node:assert";
+import path from "node:path";
 
 import {
   claimPluginMutationAuthorityEntry,
@@ -120,28 +121,36 @@ describe("Zotero host mutation authority", function () {
       Services: runtime.Services,
     };
     const writes: Array<[string, string]> = [];
+    const dataDir = path.resolve("/test-data");
+    const checkpointDir = path.join(dataDir, "system-e2e");
+    const checkpoint = (suffix: string) =>
+      path.join(checkpointDir, `canonical-mutation-admission.${suffix}`);
     const files = new Map<string, string>([
       [
-        "/test-data/system-e2e/canonical-mutation-admission.armed.json",
+        checkpoint("armed.json"),
         JSON.stringify({ operationId: "system-e2e:hb:03" }),
       ],
-      ["/test-data/system-e2e/canonical-mutation-admission.release", "release"],
+      [checkpoint("release"), "release"],
     ]);
     try {
       runtime.Services = { prefs: { getStringPref: () => "" } };
-      runtime.Zotero.DataDirectory = { dir: "/test-data" };
+      runtime.Zotero.DataDirectory = { dir: dataDir };
       runtime.Zotero.Prefs.get = (key: string) =>
         key === "extensions.zotero-agents.test.systemE2EEventUrl"
           ? "http://127.0.0.1:3210/events"
           : undefined;
-      runtime.PathUtils = { join: (...parts: string[]) => parts.join("/") };
+      runtime.PathUtils = {
+        join: path.join,
+        toExtendedWindowsPath: (p: string) => p,
+      };
       // The governed writer ensures its parent directory and then writes text,
       // so the stub models both the directory it needs and the stat that
       // confirms it. The checkpoint no longer reaches IOUtils directly.
       runtime.IOUtils = {
         makeDirectory: async () => undefined,
         stat: async (path: string) => ({
-          type: path.endsWith("/system-e2e") ? "directory" : "file",
+          type:
+            path === dataDir || path === checkpointDir ? "directory" : "file",
           size: 0,
         }),
         exists: async (path: string) => files.has(path),
@@ -167,12 +176,7 @@ describe("Zotero host mutation authority", function () {
         }),
       });
 
-      assert.deepEqual(writes, [
-        [
-          "/test-data/system-e2e/canonical-mutation-admission.held",
-          "system-e2e:hb:03",
-        ],
-      ]);
+      assert.deepEqual(writes, [[checkpoint("held"), "system-e2e:hb:03"]]);
     } finally {
       runtime.Zotero.DataDirectory = previous.dataDirectory;
       runtime.Zotero.Prefs.get = previous.getPref;

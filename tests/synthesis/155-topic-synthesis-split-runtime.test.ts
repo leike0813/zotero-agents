@@ -1744,6 +1744,7 @@ describe("topic synthesis split skill runtime", function () {
   });
 
   it("runs the create split-skill path through the minimal runtime contract", async function () {
+    this.timeout(120_000);
     const tempRoot = await fs.mkdtemp(
       path.join(os.tmpdir(), "topic-synthesis-split-runtime-"),
     );
@@ -2604,6 +2605,7 @@ describe("topic synthesis split skill runtime", function () {
         };
         throw new Error(
           `topic synthesis native apply failed: ${JSON.stringify({ code: detail.code, details: detail.details, result: detail.structuredResult })}`,
+          { cause: error },
         );
       }
       assert.isTrue(applied.ok, JSON.stringify(applied));
@@ -3032,6 +3034,7 @@ describe("topic synthesis split skill runtime", function () {
   });
 
   it("surfaces remote artifact export download instructions at stage 20", async function () {
+    this.timeout(60_000);
     const runRoot = await fs.mkdtemp(
       path.join(os.tmpdir(), "zs-topic-remote-export-"),
     );

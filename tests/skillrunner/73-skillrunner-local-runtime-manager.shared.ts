@@ -1861,6 +1861,7 @@ function registerSkillRunnerDeployLifecycleSegmentThree() {
   });
 
   it("uninstall respects clear flags and keeps runtime info cleared when deletion fails", async function () {
+    const root = "/fixture/SkillRunner";
     Zotero.Prefs.set(
       backendsConfigPrefKey,
       JSON.stringify({
@@ -1879,41 +1880,37 @@ function registerSkillRunnerDeployLifecycleSegmentThree() {
       localRuntimeStatePrefKey,
       JSON.stringify({
         managedBackendId: "local-skillrunner-backend",
-        installDir: `C:\\SkillRunner\\releases\\${DEFAULT_LOCAL_RUNTIME_VERSION}`,
-        ctlPath: `C:\\SkillRunner\\releases\\${DEFAULT_LOCAL_RUNTIME_VERSION}\\scripts\\skill-runnerctl.ps1`,
+        installDir: `${root}/releases/${DEFAULT_LOCAL_RUNTIME_VERSION}`,
+        ctlPath: `${root}/releases/${DEFAULT_LOCAL_RUNTIME_VERSION}/scripts/skill-runnerctl.sh`,
       }),
       true,
     );
     const removedPaths: string[] = [];
     const existingPaths = new Set([
-      `C:\\SkillRunner\\releases\\${DEFAULT_LOCAL_RUNTIME_VERSION}\\scripts\\skill-runnerctl.ps1`,
-      "C:\\SkillRunner\\releases",
-      "C:\\SkillRunner\\agent-cache\\npm",
-      "C:\\SkillRunner\\agent-cache\\uv_cache",
-      "C:\\SkillRunner\\agent-cache\\uv_venv",
-      "C:\\SkillRunner\\data",
-      "C:\\SkillRunner\\agent-cache\\agent-home",
-      "C:\\SkillRunner",
+      `${root}/releases/${DEFAULT_LOCAL_RUNTIME_VERSION}/scripts/skill-runnerctl.sh`,
+      `${root}/releases`,
+      `${root}/agent-cache/npm`,
+      `${root}/agent-cache/uv_cache`,
+      `${root}/agent-cache/uv_venv`,
+      `${root}/data`,
+      `${root}/agent-cache/agent-home`,
+      root,
     ]);
     (globalThis as { IOUtils?: unknown }).IOUtils = {
       exists: async (path: string) => existingPaths.has(path),
       remove: async (path: string) => {
-        if (/uv_cache$/i.test(path)) {
+        if (path === `${root}/agent-cache/uv_cache`) {
           throw new Error("permission denied");
         }
         removedPaths.push(path);
         if (
-          /^C:\\SkillRunner$/i.test(path) &&
-          existingPaths.has("C:\\SkillRunner\\agent-cache\\uv_cache")
+          path === root &&
+          existingPaths.has(`${root}/agent-cache/uv_cache`)
         ) {
           throw new Error("directory not empty");
         }
         for (const existingPath of Array.from(existingPaths.values())) {
-          if (
-            existingPath === path ||
-            existingPath.startsWith(`${path}\\`) ||
-            existingPath.startsWith(`${path}/`)
-          ) {
+          if (existingPath === path || existingPath.startsWith(`${path}/`)) {
             existingPaths.delete(existingPath);
           }
         }
@@ -1927,24 +1924,35 @@ function registerSkillRunnerDeployLifecycleSegmentThree() {
         }) as any,
     );
 
-    const result = await uninstallLocalRuntime({
-      clearData: true,
-      clearAgentHome: true,
-    });
+    const runtime = Zotero as { isWin: boolean; isLinux: boolean };
+    const { isWin, isLinux } = runtime;
+    // Keep the in-memory deletion fixture away from the Windows shell fallback.
+    runtime.isWin = false;
+    runtime.isLinux = true;
+    let result: Awaited<ReturnType<typeof uninstallLocalRuntime>>;
+    try {
+      result = await uninstallLocalRuntime({
+        clearData: true,
+        clearAgentHome: true,
+      });
+    } finally {
+      runtime.isWin = isWin;
+      runtime.isLinux = isLinux;
+    }
 
     assert.isFalse(result.ok);
     assert.equal(result.stage, "uninstall-delete");
     assert.includeDeepMembers(removedPaths, [
-      "C:\\SkillRunner\\releases",
-      "C:\\SkillRunner\\agent-cache\\npm",
-      "C:\\SkillRunner\\agent-cache\\uv_venv",
-      "C:\\SkillRunner\\data",
-      "C:\\SkillRunner\\agent-cache\\agent-home",
-      "C:\\SkillRunner",
+      `${root}/releases`,
+      `${root}/agent-cache/npm`,
+      `${root}/agent-cache/uv_venv`,
+      `${root}/data`,
+      `${root}/agent-cache/agent-home`,
+      root,
     ]);
     assert.deepEqual(result.details?.preserved_paths, []);
     assert.includeDeepMembers(result.details?.failed_paths as string[], [
-      "C:\\SkillRunner\\agent-cache\\uv_cache",
+      `${root}/agent-cache/uv_cache`,
     ]);
     const loaded = await loadBackendsRegistry();
     assert.isOk(

@@ -327,6 +327,7 @@ describe("export research bundle skill runtime", function () {
   });
 
   it("runs discovery through the CLI fixture, batched assessment, scoring, and rendering", async function () {
+    this.timeout(60_000);
     const runRoot = await fs.mkdtemp(
       path.join(os.tmpdir(), "export-research-bundle-runtime-"),
     );

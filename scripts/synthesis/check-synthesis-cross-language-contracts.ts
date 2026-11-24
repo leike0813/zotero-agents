@@ -756,7 +756,13 @@ function inspectRecursiveShape(
             currentFile,
             `${location}.${keyword}[${index}]`,
             opaque,
-            keyword === "allOf" && node.unevaluatedProperties === false,
+            // allOf/anyOf/oneOf re-evaluate the same instance, so they inherit
+            // the closure context of the enclosing schema; prefixItems
+            // addresses distinct array items and starts a fresh instance.
+            keyword === "prefixItems"
+              ? false
+              : closedByComposition ||
+                  (keyword === "allOf" && node.unevaluatedProperties === false),
           ),
         );
       }

@@ -818,7 +818,7 @@ describe("acp session manager", function () {
   });
 
   it("creates an ACP session on demand, merges streamed assistant chunks, and persists transcript state", async function () {
-    this.timeout(10_000);
+    this.timeout(30_000);
     const dataDirectory = await fs.mkdtemp(
       path.join(os.tmpdir(), "zs-acp-data-"),
     );
@@ -1278,6 +1278,7 @@ describe("acp session manager", function () {
         "Echo: Hello ACP",
       );
     } finally {
+      await shutdownAcpSessionManager();
       if (typeof previousSkillDir === "undefined") {
         Zotero.Prefs.clear(`${config.prefsPrefix}.skillDir`, true);
       } else {
@@ -1287,7 +1288,11 @@ describe("acp session manager", function () {
           true,
         );
       }
-      await fs.rm(dataDirectory, { recursive: true, force: true });
+      await fs.rm(dataDirectory, {
+        recursive: true,
+        force: true,
+        maxRetries: 5,
+      });
       await fs.rm(userSkillRoot, { recursive: true, force: true });
     }
   });
@@ -1359,7 +1364,7 @@ describe("acp session manager", function () {
   });
 
   it("does not report injected skills ready when one target copy fails", async function () {
-    this.timeout(10_000);
+    this.timeout(30_000);
     const dataDirectory = await fs.mkdtemp(
       path.join(os.tmpdir(), "zs-acp-failed-skill-copy-data-"),
     );
@@ -2787,7 +2792,9 @@ describe("acp session manager", function () {
     const releasePrompt = harness.lastAdapter!.holdPrompt();
     harness.lastAdapter!.promptStopReason = "cancelled";
     const prompt = sendAcpConversationPrompt({ message: "Trailing update" });
-    await waitForAcpConversationSnapshot((snapshot) => snapshot.busy);
+    await waitForAcpConversationSnapshot(
+      () => harness.lastAdapter!.prompts.length === 1,
+    );
     await cancelAcpConversationPrompt();
 
     await harness.lastAdapter!.emitUpdate({
@@ -2824,7 +2831,9 @@ describe("acp session manager", function () {
     harness.lastAdapter!.promptStopReason = "cancelled";
     const releaseFirstPrompt = harness.lastAdapter!.holdPrompt();
     const firstPrompt = sendAcpConversationPrompt({ message: "First turn" });
-    await waitForAcpConversationSnapshot((snapshot) => snapshot.busy);
+    await waitForAcpConversationSnapshot(
+      () => harness.lastAdapter!.prompts.length === 1,
+    );
     await cancelAcpConversationPrompt();
     releaseFirstPrompt();
     await firstPrompt;

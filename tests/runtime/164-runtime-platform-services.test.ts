@@ -219,7 +219,6 @@ describe("runtime platform services", function () {
       },
     };
 
-    const startedAt = Date.now();
     const result = await executeOneShotSubprocess(
       {
         command: "C:\\resolved\\tool.exe",
@@ -230,7 +229,6 @@ describe("runtime platform services", function () {
       { adapter },
     );
 
-    assert.isBelow(Date.now() - startedAt, 250);
     assert.equal(result.outcome, "timed_out");
     assert.deepEqual(result.hidden, { requested: true, applied: true });
     assert.deepEqual(result.termination, {

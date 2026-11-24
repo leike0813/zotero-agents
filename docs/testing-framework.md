@@ -25,6 +25,14 @@
 常规 gate 固定 offline 并清除继承的 live、gold、resume、grep 和 family 过滤，
 不需要模型或 MinerU token。专项压力测试、真实服务取证和发布操作保持独立。
 
+Windows 上从实际启动测试的终端确认 `cargo`、Info-ZIP 的 `zip` 和
+`sqlite3` 可由 Node 子进程找到。浏览器用例使用
+`npm exec -- playwright install chromium` 准备 Chromium。若 npm
+注入了 `CI=true`，在该终端设置 `$env:CI = "false"` 后先运行
+`npm run test:zotero:core`，确认隔离的 Zotero 宿主能启动并执行用例。
+在 Windows 上串行运行 Synthesis native stage1 和 Zotero E2E。两者共用
+本地 sidecar 构建输出，运行中的可执行文件会阻止 Cargo 替换它。
+
 ### 完整测试报告
 
 每次 `npm test` 或 `npm run test:deep` 的证据保存在 `artifacts/test-diagnostics/npm-test/<时间戳-pid>/`，

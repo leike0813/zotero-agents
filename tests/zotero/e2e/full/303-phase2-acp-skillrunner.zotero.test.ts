@@ -18,6 +18,8 @@ import {
 import { executeAcpSkillRunnerJob } from "../../../../src/modules/acp/skillRun/acpSkillRunnerOrchestrator";
 import { ACP_SKILL_RUN_REQUEST_KIND } from "../../../../src/config/defaults";
 import { readAcpSkillRunTranscriptItems } from "../../../../src/modules/acp/skillRun/acpSkillRunTranscriptStore";
+import { resolveAcpSkillRunAuditTrailFiles } from "../../../../src/modules/acp/skillRun/acpSkillRunAuditTrail";
+import type { AcpTransportLifecycle } from "../../../../src/modules/acp/transport/acpTransport";
 import {
   listSkillRunnerRunRecords,
   listSkillRunnerRunEvents,
@@ -33,7 +35,10 @@ import { createWorkflowHostApi } from "../../../../src/workflows/hostApi";
 import { getPref, setPref } from "../../../../src/utils/prefs";
 import { setDebugModeOverrideForTests } from "../../../../src/modules/debugMode";
 import { listRuntimeLogs } from "../../../../src/modules/runtimeLogManager";
-import { removeRuntimePath } from "../../../../src/modules/runtimePersistence";
+import {
+  readRuntimeTextFile,
+  removeRuntimePath,
+} from "../../../../src/modules/runtimePersistence";
 import {
   connectAcpConversation,
   deleteActiveAcpConversation,
@@ -75,7 +80,11 @@ import {
   focusSkillRunnerWorkspace,
 } from "../../../../src/modules/skillRunner/surface/skillRunnerRunDialog";
 import { runFamilyLifecycle } from "../../../../scripts/system-e2e/familyLifecycle";
-import { observeSystemE2EHealth } from "../../../../scripts/system-e2e/healthGate";
+import {
+  observeSystemE2EHealth,
+  processIsAlive,
+  waitUntil,
+} from "../../../../scripts/system-e2e/healthGate";
 import { emitZoteroTestDebug, isSystemE2ERun } from "../../diagnosticBridge";
 import { readDiagnosticsEnv } from "../../testDiagnosticsOutput";
 import { systemE2ECase } from "../../systemE2ECases";
@@ -895,34 +904,25 @@ describe("System E2E Phase 2 ACP and SkillRunner", function () {
             run!.events.map((event) => event.stage),
             "acp-connection-closed",
           );
-          const exited = listRuntimeLogs({ requestId, limit: 100 }).find(
-            (entry) => entry.stage === "exited",
-          );
-          assert.isOk(exited);
-          const snapshot = JSON.parse(
-            String(exited!.details?.detail || "{}"),
-          ) as {
-            exitCode?: number;
-            transportLifecycle?: {
-              exitSource?: string;
-              closeTimedOut?: boolean;
-              closedAt?: string;
-              childPid?: number;
-              stdoutChars?: number;
-              stderrChars?: number;
+          assert.isNotEmpty(run!.runtimeDir);
+          const { finalState } = resolveAcpSkillRunAuditTrailFiles(run!.runtimeDir!);
+          const lifecycle = await waitUntil(async () => {
+            const text = await readRuntimeTextFile(finalState);
+            if (!text) return;
+            const snapshot = JSON.parse(text) as {
+              transportLifecycle?: AcpTransportLifecycle;
             };
-          };
-          assert.equal(snapshot.exitCode, 17);
-          assert.equal(snapshot.transportLifecycle?.exitSource, "natural-exit");
-          assert.notEqual(snapshot.transportLifecycle?.closeTimedOut, true);
-          assert.isNotEmpty(snapshot.transportLifecycle?.closedAt);
-          assert.isAtLeast(snapshot.transportLifecycle?.stdoutChars || 0, 0);
-          assert.isAtLeast(snapshot.transportLifecycle?.stderrChars || 0, 0);
-          if (!Zotero.isWin && snapshot.transportLifecycle?.childPid) {
+            return snapshot.transportLifecycle;
+          }, 10_000, "AC-03 transport lifecycle");
+          assert.equal(lifecycle.exitCode, 17);
+          assert.equal(lifecycle.exitSource, "natural-exit");
+          assert.notEqual(lifecycle.closeTimedOut, true);
+          assert.isNotEmpty(lifecycle.closedAt);
+          assert.isAtLeast(lifecycle.stdoutChars, 0);
+          assert.isAtLeast(lifecycle.stderrChars, 0);
+          if (!Zotero.isWin && lifecycle.childPid) {
             assert.isFalse(
-              await IOUtils.exists(
-                `/proc/${snapshot.transportLifecycle.childPid}`,
-              ),
+              await IOUtils.exists(`/proc/${lifecycle.childPid}`),
             );
           }
           const peer = (await IOUtils.readUTF8(evidencePath))
@@ -1374,7 +1374,6 @@ describe("System E2E Phase 2 ACP and SkillRunner", function () {
             backendId,
             conversationId: entry.id,
           });
-          if (entry.workspaceDir) await removeRuntimePath(entry.workspaceDir);
         }
         for (const parent of parents) await parent.eraseTx();
         setPref("backendsConfigJson", previousBackendConfig);
@@ -1437,7 +1436,6 @@ describe("System E2E Phase 2 ACP and SkillRunner", function () {
       "acp-composer-reply-agent.mjs",
     );
     let conversationId = "";
-    let chatWorkspaceDir = "";
     let requestId = "";
     let skillWorkspaceDir = "";
     let caseError = "";
@@ -1479,7 +1477,6 @@ describe("System E2E Phase 2 ACP and SkillRunner", function () {
           await connectAcpConversation({ backendId });
           const connected = getAcpConversationSnapshot();
           conversationId = connected.conversationId;
-          chatWorkspaceDir = connected.agentWorkspaceDir || "";
           assert.isNotEmpty(conversationId);
           await setActiveAcpConversation({ backendId, conversationId });
           assert.equal(
@@ -1613,7 +1610,6 @@ describe("System E2E Phase 2 ACP and SkillRunner", function () {
           await disconnectAcpConversation({ backendId, conversationId });
           await deleteActiveAcpConversation({ backendId, conversationId });
         }
-        if (chatWorkspaceDir) await removeRuntimePath(chatWorkspaceDir);
         setPref("backendsConfigJson", previousBackendConfig);
         return conversationId && requestId ? "passed" : "indeterminate";
       },
@@ -2009,7 +2005,11 @@ describe("System E2E Phase 2 ACP and SkillRunner", function () {
           const terminalEvents = listSkillRunnerRunEvents(first!.runKey).filter(
             (event) => event.type === "run.terminal_client_error",
           );
-          assert.lengthOf(terminalEvents, 1);
+          assert.lengthOf(
+            terminalEvents,
+            1,
+            JSON.stringify(terminalEvents.map((event) => event.payload)),
+          );
           assert.include(
             String(terminalEvents[0].payload?.reason || ""),
             "404",
@@ -3006,6 +3006,7 @@ describe("System E2E Phase 2 ACP owner restart", function () {
         operationId,
         processId,
       });
+      await Zotero.Promise.delay(30_000);
       throw new Error("system_e2e_owner_restart_not_performed");
     }
 
@@ -3037,7 +3038,7 @@ describe("System E2E Phase 2 ACP owner restart", function () {
       },
       execute: async () => {
         try {
-          assert.isFalse(await IOUtils.exists(`/proc/${state.processId}`));
+          assert.isFalse(await processIsAlive(state.processId));
           const run = listAcpSkillRuns().find(
             (entry) => entry.requestId === state.requestId,
           );
@@ -3170,9 +3171,24 @@ describe("System E2E Phase 2 SkillRunner apply restart", function () {
           createBackendsPrefsDocument([...configured.backends, backend]),
         ),
       );
+      let applyEntered = false;
+      let releaseApply!: () => void;
+      const applyHold = new Promise<void>((resolve) => {
+        releaseApply = resolve;
+      });
       const pending = executeWorkflowFromCurrentSelection({
         win: Zotero.getMainWindow() as _ZoteroTypes.MainWindow,
-        workflow: workflow!,
+        workflow: {
+          ...workflow!,
+          hooks: {
+            ...workflow!.hooks,
+            async applyResult(args) {
+              applyEntered = true;
+              await applyHold;
+              return workflow!.hooks.applyResult(args);
+            },
+          },
+        },
         executionOptionsOverride: { backendId: backend.id },
       });
       const findRun = () =>
@@ -3180,68 +3196,64 @@ describe("System E2E Phase 2 SkillRunner apply restart", function () {
           (run) =>
             run.backendId === backend.id && !previousRunKeys.has(run.runKey),
         );
-      let run = findRun();
-      for (let attempt = 0; attempt < 20_000; attempt += 1) {
-        run = findRun();
-        if (
-          run?.requestId &&
-          listSkillRunnerRunEvents(run.runKey).some(
-            (event) => event.type === "apply.started",
-          )
-        )
-          break;
-        await new Promise((resolve) => setTimeout(resolve, 1));
-      }
-      assert.isOk(run);
-      assert.isNotEmpty(run!.requestId);
-      const events = listSkillRunnerRunEvents(run!.runKey);
-      const started = events.some((event) => event.type === "apply.started");
-      const settled = events.some(
-        (event) =>
-          event.type === "apply.succeeded" || event.type === "apply.failed",
-      );
-      const parentRef = (
-        run!.requestPayload as {
+      const findParentRef = (run: ReturnType<typeof findRun>) =>
+        (run?.requestPayload as {
           targetParentRef?: { libraryId: number; key: string };
-        }
-      )?.targetParentRef;
-      assert.isOk(parentRef);
-      const processId = Number(
-        (Zotero.Utilities.Internal as any).getProcessID?.() || 0,
-      );
-      assert.isAbove(processId, 0);
-      if (!started || settled) {
-        await pending;
-        deletePluginRunStoreEntry("skillrunner", run!.runKey);
-        const parent = Zotero.Items.getByLibraryAndKey(
-          parentRef!.libraryId,
-          parentRef!.key,
+        })?.targetParentRef;
+      try {
+        await Promise.race([
+          waitUntil(() => applyEntered, 60_000, "SR-02 apply hook"),
+          pending.then(() => {
+            throw new Error("system_e2e_apply_finished_before_restart");
+          }),
+        ]);
+        const run = findRun();
+        assert.isOk(run);
+        assert.isNotEmpty(run!.requestId);
+        assert.equal(run!.apply.state, "running");
+        const parentRef = findParentRef(run);
+        assert.isOk(parentRef);
+        const processId = Number(
+          (Zotero.Utilities.Internal as any).getProcessID?.() || 0,
         );
-        if (parent) await parent.eraseTx();
-        setPref("backendsConfigJson", previousBackendConfig);
-        setDebugModeOverrideForTests();
-        throw new Error("system_e2e_apply_started_external_boundary_not_hit");
-      }
-      await IOUtils.writeUTF8(
-        statePath,
-        JSON.stringify({
+        assert.isAbove(processId, 0);
+        await IOUtils.writeUTF8(
+          statePath,
+          JSON.stringify({
+            operationId,
+            processId,
+            backendId: backend.id,
+            runKey: run!.runKey,
+            requestId: run!.requestId,
+            parentRef,
+            previousBackendConfig,
+          }),
+        );
+        await emitZoteroTestDebug({
+          kind: "system-e2e-owner-restart-request",
+          caseId: "SR-02",
           operationId,
           processId,
-          backendId: backend.id,
-          runKey: run!.runKey,
-          requestId: run!.requestId,
-          parentRef,
-          previousBackendConfig,
-          checkpointUsed: false,
-        }),
-      );
-      await emitZoteroTestDebug({
-        kind: "system-e2e-owner-restart-request",
-        caseId: "SR-02",
-        operationId,
-        processId,
-      });
-      throw new Error("system_e2e_owner_restart_not_performed");
+        });
+        await Zotero.Promise.delay(30_000);
+        throw new Error("system_e2e_owner_restart_not_performed");
+      } finally {
+        releaseApply();
+        await pending.catch(() => undefined);
+        const run = findRun();
+        if (run) deletePluginRunStoreEntry("skillrunner", run.runKey);
+        const parentRef = findParentRef(run);
+        if (parentRef) {
+          const parent = Zotero.Items.getByLibraryAndKey(
+            parentRef.libraryId,
+            parentRef.key,
+          );
+          if (parent) await parent.eraseTx();
+        }
+        setPref("backendsConfigJson", previousBackendConfig);
+        setDebugModeOverrideForTests();
+        await IOUtils.remove(statePath, { ignoreAbsent: true });
+      }
     }
 
     const state = JSON.parse(await IOUtils.readUTF8(statePath)) as {
@@ -3251,7 +3263,6 @@ describe("System E2E Phase 2 SkillRunner apply restart", function () {
       parentRef: { libraryId: number; key: string };
       previousBackendConfig: string;
       processId: number;
-      checkpointUsed: boolean;
     };
     let caseError = "";
     const result = await runFamilyLifecycle({
@@ -3264,7 +3275,7 @@ describe("System E2E Phase 2 SkillRunner apply restart", function () {
       },
       execute: async () => {
         try {
-          assert.isFalse(await IOUtils.exists(`/proc/${state.processId}`));
+          assert.isFalse(await processIsAlive(state.processId));
           const run = listSkillRunnerRunRecords().find(
             (entry) => entry.runKey === state.runKey,
           );

@@ -217,7 +217,7 @@ export type AcpChatSessionRuntime = {
   activePrompt: {
     receivedUpdate?: boolean;
     token: string;
-    promise: Promise<AcpPromptResult>;
+    promise: Promise<AcpPromptResult> | null;
     watchdog: PromiseSettlementWatchdog | null;
     semanticTrace?: {
       context: AcpRuntimeSemanticTraceContext;
@@ -3017,11 +3017,14 @@ async function sendAcpConversationPromptOnce(args: {
   sessionRuntime.snapshot.lastHostContext = args.hostContext
     ? JSON.parse(JSON.stringify(args.hostContext))
     : null;
-  emitSessionRuntimeSnapshot(sessionRuntime);
   const promptToken = nextOpaqueId("acp-prompt-turn");
-  let traceTurn: NonNullable<
-    NonNullable<AcpChatSessionRuntime["activePrompt"]>["semanticTrace"]
-  > | null = null;
+  const turn: NonNullable<AcpChatSessionRuntime["activePrompt"]> = {
+    token: promptToken,
+    promise: null,
+    watchdog: null,
+  };
+  sessionRuntime.activePrompt = turn;
+  emitSessionRuntimeSnapshot(sessionRuntime);
   if (
     __acp_runtime_semantic_trace_recorder_enabled__ &&
     (typeof __debug_mode__ === "undefined"
@@ -3044,7 +3047,7 @@ async function sendAcpConversationPromptOnce(args: {
           payload: { message: promptMessage, hostContext: args.hostContext },
         })
       ) {
-        traceTurn = {
+        turn.semanticTrace = {
           context: traceBinding.context,
           owner,
           terminalRecorded: false,
@@ -3054,24 +3057,29 @@ async function sendAcpConversationPromptOnce(args: {
   }
   try {
     await flushPendingChatTranscriptWrites(sessionRuntime);
-    const promptPromise = adapter.prompt({
-      sessionId: sessionRuntime.snapshot.sessionId,
-      message: promptMessage,
-    });
-    linkAssistantReplySubmissionTranscript(
-      createAcpChatWorkspaceOwner(
-        sessionRuntime.backendId,
-        sessionRuntime.snapshot.conversationId,
-      ),
-      userItemId,
-    );
-    sessionRuntime.activePrompt = {
-      token: promptToken,
-      promise: promptPromise,
-      watchdog: null,
-      ...(traceTurn ? { semanticTrace: traceTurn } : {}),
-    };
-    const response = await promptPromise;
+    if (sessionRuntime.activePrompt !== turn) {
+      if (
+        (typeof __debug_mode__ === "undefined"
+          ? isDebugModeEnabled()
+          : __debug_mode__) &&
+        __acp_runtime_semantic_trace_recorder_enabled__
+      ) {
+        await finishAcpChatSemanticTraceTurn(turn, { outcome: "cancelled" });
+      }
+      return;
+    }
+    if (
+      normalizeAcpPromptInterruptState(
+        sessionRuntime.snapshot.promptInterruptState,
+      ) !== "requested"
+    ) {
+      turn.promise = adapter.prompt({
+        sessionId: sessionRuntime.snapshot.sessionId,
+        message: promptMessage,
+      });
+    }
+    linkAssistantReplySubmissionTranscript(replyOwner, userItemId);
+    const response = await (turn.promise ?? { stopReason: "cancelled" });
     if (sessionRuntime.activePrompt?.token !== promptToken) {
       return;
     }
@@ -3240,6 +3248,8 @@ export async function cancelAcpConversationPrompt(args?: {
   emitSessionRuntimeSnapshot(sessionRuntime, {
     uiReason: "critical",
   });
+  const promptPromise = activePrompt.promise;
+  if (!promptPromise) return;
   try {
     await sessionRuntime.adapter.cancel({
       sessionId: sessionRuntime.snapshot.sessionId,
@@ -3252,7 +3262,7 @@ export async function cancelAcpConversationPrompt(args?: {
     return;
   }
   activePrompt.watchdog = watchPromiseSettlement(
-    activePrompt.promise,
+    promptPromise,
     acpChatPromptInterruptGraceMs,
     () => forceStopAcpChatPrompt(sessionRuntime, activePrompt.token),
   );

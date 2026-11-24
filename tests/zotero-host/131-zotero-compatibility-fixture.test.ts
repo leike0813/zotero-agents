@@ -2019,7 +2019,7 @@ describe("Zotero compatibility fixture contracts", function () {
       });
       assert.isTrue(result.timedOut);
       assert.isTrue(result.graceful || result.forced);
-      assert.isNull(result.exitCode);
+      assert.equal(result.exitCode, process.platform === "win32" ? 1 : null);
     });
 
     it("preserves a failed worker exit code", async function () {

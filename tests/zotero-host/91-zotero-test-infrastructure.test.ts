@@ -28,6 +28,7 @@ import {
   normalizeTestDomain,
   resolveMockSkillRunnerPort,
   resolveSystemE2EScaffoldRoot,
+  selectWindowsRestartAcpBridges,
   waitForSystemE2EAdmissionCheckpoint,
 } from "../../scripts/run-zotero-test-with-mock";
 import { buildSynthesisCloseTestEnvironment } from "../../scripts/run-zotero-e2e-stress";
@@ -595,6 +596,37 @@ describe("zotero test infrastructure helpers", function () {
       );
     });
 
+    it("selects only the isolated owner's ACP bridge that still has the same identity", function () {
+      const scaffoldRoot = "D:/test/scaffold";
+      const bridge = {
+        ProcessId: 4243,
+        ParentProcessId: 4242,
+        CreationDate: "2026-11-24T06:00:00Z",
+        ExecutablePath:
+          "D:/test/scaffold/data/zotero-agents/runtime/bin/acp-ws-bridge/5efa9797146c430e/zotero-acp-bridge.exe",
+      };
+      const otherOwner = { ...bridge, ProcessId: 4244, ParentProcessId: 42 };
+      const outside = {
+        ...bridge,
+        ProcessId: 4245,
+        ExecutablePath:
+          "D:/test/scaffold-other/data/zotero-agents/runtime/bin/zotero-acp-bridge.exe",
+      };
+      const reused = {
+        ...bridge,
+        ProcessId: 4246,
+      };
+      assert.deepEqual(
+        selectWindowsRestartAcpBridges(
+          [bridge, otherOwner, outside, reused],
+          [bridge, otherOwner, outside, { ...reused, CreationDate: "later" }],
+          4242,
+          scaffoldRoot,
+        ),
+        [bridge],
+      );
+    });
+
     it("confirms exact child termination before returning", async function () {
       const child = spawn(
         process.execPath,
@@ -609,7 +641,7 @@ describe("zotero test infrastructure helpers", function () {
       assert.isNumber(child.pid);
       try {
         await terminateExactProcess(child.pid!);
-        assert.isNull(await exited);
+        assert.equal(await exited, process.platform === "win32" ? 1 : null);
       } finally {
         child.kill("SIGKILL");
       }
@@ -1985,11 +2017,12 @@ try {
     });
 
     it("resolves the System E2E scaffold tree from the run-local data dir", function () {
+      const scaffold = path.resolve("/run/e2e-1/.scaffold/test");
       assert.equal(
         resolveSystemE2EScaffoldRoot({
-          ZOTERO_TEST_DATA_DIR: "/run/e2e-1/.scaffold/test/data",
+          ZOTERO_TEST_DATA_DIR: path.join(scaffold, "data"),
         }),
-        "/run/e2e-1/.scaffold/test",
+        scaffold,
       );
       assert.equal(
         resolveSystemE2EScaffoldRoot({

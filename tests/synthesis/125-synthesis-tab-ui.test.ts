@@ -328,6 +328,7 @@ describe("Synthesis tab UI model", function () {
       const workbench = await mountTestWorkbench({
         getSynthesisWorkbenchChromeInput: async () => ({ libraryId: 1 }),
         getSynthesisWorkbenchSurfaceInput: async (surface, readState) => {
+          if (surface === "home") return { libraryId: 1 };
           reads.push(surface);
           if (
             surface === "index" &&
@@ -367,6 +368,11 @@ describe("Synthesis tab UI model", function () {
         ];
       };
       try {
+        await waitUntil(() =>
+          workbench.messages.some(
+            (message) => message.type === "synthesis:init",
+          ),
+        );
         await workbench.bridge.postMessage("setFilters", {
           reviews: { activeTab: scenario.reviewTab },
         });
@@ -381,8 +387,9 @@ describe("Synthesis tab UI model", function () {
         assert.lengthOf(visibleRows(), 1);
         const firstMessageCount = messages(scenario.surface).length;
         for (let round = 0; round < 2; round += 1) {
+          const reviewMessageCount = messages("review").length;
           await workbench.bridge.postMessage("selectTab", { tab: "reviews" });
-          await waitUntil(() => messages("review").length === round + 1);
+          await waitUntil(() => messages("review").length > reviewMessageCount);
           await workbench.bridge.postMessage("selectTab", {
             tab: scenario.tab,
           });
@@ -399,8 +406,9 @@ describe("Synthesis tab UI model", function () {
             ? ["index", "index", "review"]
             : [scenario.surface, "review"],
         );
+        const reviewMessageCount = messages("review").length;
         await workbench.bridge.postMessage("selectTab", { tab: "reviews" });
-        await waitUntil(() => messages("review").length === 3);
+        await waitUntil(() => messages("review").length > reviewMessageCount);
         notifySynthesisWorkbenchSidecarChanged({
           invalidatedSurfaces: [scenario.surface],
           reason: "regression_test",
@@ -6840,19 +6848,25 @@ describe("Synthesis tab UI model", function () {
         await waitUntil(() => reads.some((read) => read.cursor === "c1"));
         await workbench.bridge.postMessage("selectTab", { tab: "tags" });
         gate.resolve();
-        await new Promise((resolve) => setTimeout(resolve, 30));
+        const indexMessageCount = indexMessages(workbench).length;
         await workbench.bridge.postMessage("selectTab", { tab: "registry" });
+        await waitUntil(
+          () => indexMessages(workbench).length > indexMessageCount,
+        );
         await waitUntil(() => reads.some((read) => read.cursor === "c2"));
         summaryGate.resolve();
-        await waitUntil(() =>
+        await waitUntil(
+          () =>
+            window()?.status === "failed" && window()?.queryStatus === "failed",
+        );
+        assert.isTrue(
           workbench.messages.some(
             (message) =>
               message.type === "synthesis:surface-error" &&
               message.payload?.surface === "index",
           ),
+          "the failed resumed scan reports an Index surface error",
         );
-        assert.equal(window().queryStatus, "failed");
-        assert.equal(window().status, "failed");
         assert.deepEqual(
           lastIndexRows(workbench).map((row) => row.paper_ref),
           ["1:KEPT"],

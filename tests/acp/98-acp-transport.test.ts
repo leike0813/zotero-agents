@@ -2432,19 +2432,20 @@ describe("acp transport", function () {
 
   it("keeps non-Windows Mozilla ACP transport on direct subprocess stdio", async function () {
     const callInvocations: SubprocessCallInvocation[] = [];
+    const agentPath = "/usr/local/bin/zs-test-acp-agent";
     setAcpWebSocketBridgeTestOverridesForTests({ enabled: true });
     const previousZotero = redefineGlobalProperty("Zotero", {
       isWin: false,
       isLinux: true,
     });
     const previousIOUtils = redefineGlobalProperty("IOUtils", {
-      exists: async (candidate: string) =>
-        String(candidate || "") === "C:\\Tools\\agent.exe",
+      exists: async (candidate: string) => candidate === agentPath,
     });
     const previousChromeUtils = redefineGlobalProperty("ChromeUtils", {
       import: () => ({
         Subprocess: {
-          pathSearch: async () => "C:\\Tools\\agent.exe",
+          pathSearch: async (command: string) =>
+            command === "zs-test-acp-agent" ? agentPath : null,
           call: async (args: {
             command: string;
             arguments?: string[];
@@ -2481,7 +2482,7 @@ describe("acp transport", function () {
           displayName: "ACP Linux",
           type: "acp",
           baseUrl: "local://acp-linux",
-          command: "C:\\Tools\\agent.exe",
+          command: "zs-test-acp-agent",
           args: ["acp"],
         } as BackendInstance,
         cwd: "/tmp/acp",
@@ -2490,7 +2491,7 @@ describe("acp transport", function () {
       assert.lengthOf(getAcpProcessInvocations(callInvocations), 1);
       assert.equal(
         getAcpProcessInvocations(callInvocations)[0].command,
-        "C:\\Tools\\agent.exe",
+        agentPath,
       );
       assert.deepEqual(getAcpProcessInvocations(callInvocations)[0].arguments, [
         "acp",

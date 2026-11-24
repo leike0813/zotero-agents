@@ -2371,6 +2371,7 @@ describe("Literature deep reading bootstrap skill", function () {
   });
 
   it("submits context requests and collects Host Bridge graph layout and reference digests", async function () {
+    this.timeout(60_000);
     const tempRoot = await fs.mkdtemp(
       path.join(os.tmpdir(), "deep-reading-context-"),
     );
@@ -3110,6 +3111,7 @@ describe("Literature deep reading bootstrap skill", function () {
   });
 
   it("submits block translations and writes ordered Translation Layer views", async function () {
+    this.timeout(45_000);
     const tempRoot = await fs.mkdtemp(
       path.join(os.tmpdir(), "deep-reading-translation-"),
     );

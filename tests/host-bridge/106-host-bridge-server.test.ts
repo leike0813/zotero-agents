@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import {
   configureHostBridgeServerForTests,
+  ensureHostBridgeServer,
   getHostBridgeServerStatus,
   handleHostBridgeHttpRequestForTests,
   hostBridgeServerInternalsForTests,
@@ -2060,6 +2061,10 @@ describe("host bridge server phase 1", function () {
     await withTemporaryLocalAppData(async (profileRoot) => {
       let listener: { onStopListening?: () => void } | null = null;
       const listened: Array<{ port: number; bindMode: string }> = [];
+      let signalRecovery!: () => void;
+      const recoveryListening = new Promise<void>((resolve) => {
+        signalRecovery = resolve;
+      });
       setPref("hostBridgeLanEnabled", true);
       setPref("hostBridgePinPortEnabled", false);
       setPref("hostBridgePinnedPort", 27655);
@@ -2068,24 +2073,20 @@ describe("host bridge server phase 1", function () {
           asyncListen: (nextListener: { onStopListening?: () => void }) => {
             listener = nextListener;
             listened.push({ port, bindMode });
+            if (listened.length === 2) signalRecovery();
           },
           close: () => undefined,
         }),
       );
 
       startHostBridgeSupervisor();
-      await new Promise((resolve) => setTimeout(resolve, 20));
+      await ensureHostBridgeServer();
       assert.deepEqual(listened, [{ port: 27655, bindMode: "lan" }]);
+      const initialProfile = readTemporaryWellKnownProfile(profileRoot);
 
       listener?.onStopListening?.();
-      await new Promise((resolve) =>
-        setTimeout(
-          resolve,
-          hostBridgeServerInternalsForTests.constants.RECOVERY_DELAY_MS + 20,
-        ),
-      );
-
-      const status = getHostBridgeServerStatus();
+      await recoveryListening;
+      const status = await ensureHostBridgeServer();
       assert.strictEqual(status.status, "running");
       assert.strictEqual(status.bindMode, "lan");
       assert.isTrue(status.lanEnabled);
@@ -2099,6 +2100,7 @@ describe("host bridge server phase 1", function () {
 
       const profile = readTemporaryWellKnownProfile(profileRoot);
       assert.strictEqual(profile.endpoint, "http://127.0.0.1:27655/bridge/v2");
+      assert.notEqual(profile.updatedAt, initialProfile.updatedAt);
     });
   });
 

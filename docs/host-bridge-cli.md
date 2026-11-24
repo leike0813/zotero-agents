@@ -461,6 +461,8 @@ Bridge 写库 mutation；该 per-run 标记不影响 workflow submit。workflow 
 - macOS：`~/Library/Application Support/zotero-agents/bridge-profile.json`
 - Linux：`${XDG_DATA_HOME:-~/.local/share}/zotero-agents/bridge-profile.json`
 
+Zotero 在监听成功后发布 profile。更新以完整文件原子替换，避免 CLI 在恢复或轮换令牌时读到半份 JSON。
+
 well-known profile 可直接保存 `auth.token`：
 
 ```json

@@ -11,7 +11,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import {
   buildHostBridgeReleaseSet,
   classifyHostBridgeReleaseChanges,
@@ -589,10 +589,23 @@ describe("Host Bridge release coordinator", function () {
       "releases/host-bridge/release-set.json",
     ];
     const before = identityPaths.map((path) => readFileSync(path, "utf8"));
-    execFileSync("npm", ["run", "render:host-bridge-content"], {
-      cwd: process.cwd(),
-      stdio: "pipe",
-    });
+    const npmExecPath = process.env.npm_execpath;
+    assert.isString(
+      npmExecPath,
+      "run the release coordinator tests through npm",
+    );
+    execFileSync(
+      process.execPath,
+      [
+        join(dirname(npmExecPath), "npm-cli.js"),
+        "run",
+        "render:host-bridge-content",
+      ],
+      {
+        cwd: process.cwd(),
+        stdio: "pipe",
+      },
+    );
     assert.deepEqual(
       identityPaths.map((path) => readFileSync(path, "utf8")),
       before,

@@ -41,7 +41,7 @@
             "score": 0.77
           }
         ],
-        "issues": []
+        "issues": ["fixture"]
       }
     },
     {
@@ -133,7 +133,7 @@
             "match": true
           }
         ],
-        "issues": []
+        "issues": ["fixture"]
       }
     },
     {
@@ -179,7 +179,34 @@
       "valid": true,
       "admitted": true,
       "value": {
-        "args": [{ "query": "语义检索", "libraryIds": [1], "limit": 4 }]
+        "args": [
+          {
+            "query": "语义检索",
+            "target": "paper",
+            "libraryIds": [1],
+            "collectionRef": { "libraryId": 1, "key": "COLL1" },
+            "itemRefs": [{ "libraryId": 1, "key": "ITEM1" }],
+            "sourceKinds": ["metadata"],
+            "limit": 4
+          }
+        ]
+      }
+    },
+    {
+      "id": "semantic-evidence-topic-search",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/SearchSemanticEvidenceClientRequest",
+      "valid": true,
+      "admitted": true,
+      "value": {
+        "args": [
+          {
+            "query": "语义检索",
+            "target": "topic",
+            "topicIds": ["fixture"],
+            "sections": ["summary"],
+            "limit": 4
+          }
+        ]
       }
     },
     {
@@ -416,6 +443,11 @@
       "valid": true,
       "admitted": true,
       "value": {
+        "maintenance": {
+          "schema": "synthesis.maintenance_operation.v1",
+          "operation_id": "fixture",
+          "status": "running"
+        },
         "enabled": true,
         "status": "paused",
         "activeIdentity": null,
@@ -455,6 +487,7 @@
       "valid": true,
       "admitted": true,
       "value": {
+        "maintenance": null,
         "enabled": false,
         "status": "missing",
         "activeIdentity": null,

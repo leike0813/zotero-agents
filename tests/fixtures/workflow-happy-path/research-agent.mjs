@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { pythonRuntimeCommand } from "../../helpers/pythonRuntime.mjs";
+import { resolveFixtureBridgeCli } from "./ingest-agent.mjs";
 
 const RESEARCH_SKILLS = new Set([
   "export-research-bundle",
@@ -100,22 +101,12 @@ function unwrapCli(stdout) {
   return outer?.data ?? outer;
 }
 
-function cliPath(workspace, env) {
-  const candidates = [
-    String(env.ZOTERO_BRIDGE_BIN || ""),
-    path.join(workspace, ".zotero-bridge", "bin", "zotero-bridge"),
-  ].filter(Boolean);
-  const found = candidates.find((candidate) => existsSync(candidate));
-  if (!found) fail("bridge_missing");
-  return found;
-}
-
 function runCli(workspace, env, command, query, label) {
   const queryPath = path.join(workspace, "runtime", "payloads", `${label}.json`);
   writeJson(queryPath, query);
   const relative = path.relative(workspace, queryPath).split(path.sep).join("/");
   const completed = spawnSync(
-    cliPath(workspace, env),
+    resolveFixtureBridgeCli(workspace, env),
     [...command, "--query", `@${relative}`],
     {
       cwd: workspace,

@@ -1,6 +1,9 @@
 import { assert } from "chai";
 import { nativeMutations } from "../../../../src/modules/zoteroHost/zoteroHostNativeMutations";
-import { ensureRuntimeDirectoryExclusive } from "../../../../src/modules/runtimePersistence";
+import {
+  ensureRuntimeDirectoryExclusive,
+  removeRuntimePathStrict,
+} from "../../../../src/modules/runtimePersistence";
 import { systemE2ECase } from "../../systemE2ECases";
 
 type PreparedAttachment = Parameters<
@@ -204,7 +207,7 @@ describe("Stored attachment sync full E2E", function () {
         zipReader?.close();
         if (parent.id && !parent.deleted)
           await Zotero.Items.trashTx([parent.id]);
-        await IOUtils.remove(root, { recursive: true, ignoreAbsent: true });
+        await removeRuntimePathStrict(root);
       }
     },
   );

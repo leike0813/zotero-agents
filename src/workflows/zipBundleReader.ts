@@ -5,6 +5,7 @@ import {
   ensureRuntimeDirectoryStrict,
   readRuntimeTextFileStrict,
   reserveRuntimeTemporaryDirectory,
+  setRuntimeFilePermissions,
   toRuntimeNativeFsPath,
   type RuntimeTemporaryDirectory,
 } from "../modules/runtimePersistence";
@@ -184,6 +185,7 @@ export class ZipBundleReader {
               entryName,
               runtime.Zotero.File.pathToFile(toRuntimeNativeFsPath(targetPath)),
             );
+            await setRuntimeFilePermissions(targetPath, 0o600);
           }
           this.extractedDirScope = scope;
           scope = null;

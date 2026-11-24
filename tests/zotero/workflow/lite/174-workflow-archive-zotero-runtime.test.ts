@@ -1,17 +1,11 @@
 import { assert } from "chai";
+import { reserveRuntimeTemporaryDirectory } from "../../../../src/modules/runtimePersistence";
 import { joinPath } from "../../../../src/utils/path";
 import { createWorkflowArchiveApi } from "../../../../src/workflows/archive";
 
 function getRealZoteroRuntime() {
   const runtime = globalThis as {
     Zotero?: { __parity?: { runtime?: string } };
-    PathUtils?: { tempDir?: string };
-    IOUtils?: {
-      remove?: (
-        path: string,
-        options?: { recursive?: boolean; ignoreAbsent?: boolean },
-      ) => Promise<void>;
-    };
   };
   return runtime.Zotero && runtime.Zotero.__parity?.runtime !== "node-mock"
     ? runtime
@@ -24,17 +18,11 @@ describe("workflow archive Zotero runtime", function () {
     if (!runtime) {
       this.skip();
     }
-    const tempDir = runtime?.PathUtils?.tempDir;
-    const remove = runtime?.IOUtils?.remove;
-    assert.isString(tempDir);
-    assert.isFunction(remove);
-    if (!tempDir || typeof remove !== "function") {
-      throw new Error("Zotero archive test runtime file APIs are unavailable");
-    }
-    const targetPath = joinPath(
-      tempDir,
-      `zs-runtime-archive-${Date.now()}-${Math.random().toString(36).slice(2)}.zip`,
-    );
+    const fixture = await reserveRuntimeTemporaryDirectory({
+      category: "workflow-archive-test",
+      relativePaths: [{ path: "archive.zip" }],
+    });
+    const targetPath = joinPath(fixture.path, "archive.zip");
     const archive = createWorkflowArchiveApi();
     try {
       const written = await archive.writeZipAtomic({
@@ -71,10 +59,7 @@ describe("workflow archive Zotero runtime", function () {
         },
       );
     } finally {
-      await remove(targetPath, {
-        recursive: true,
-        ignoreAbsent: true,
-      });
+      await fixture.cleanup();
     }
   });
 });

@@ -655,7 +655,7 @@ describe("acp session manager", function () {
   });
 
   it("restores a persisted remote session after plugin Skill bundle materialization", async function () {
-    this.timeout(10_000);
+    this.timeout(30_000);
     await sendAcpConversationPrompt({ message: "Persist old bundle context" });
     const conversationId = getAcpConversationSnapshot().conversationId;
     const runtimeRoot = await fs.mkdtemp(

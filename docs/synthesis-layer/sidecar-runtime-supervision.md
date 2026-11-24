@@ -322,7 +322,9 @@ descriptor scans use the active operation's remaining deadline, capped at
 that deadline policy; artifact, representative-image and evidence reads have
 an explicit 8 MiB response limit. Export delivery calls have a 30-second cap;
 other reverse-Host calls retain the 1 MiB and two-second defaults, also bounded
-by the active operation's remaining deadline. An
+by the active operation's remaining deadline. The broker allows up to 16 ms of
+sender clock lead at admission and caps the handler deadline at the receiver's
+capability limit. An
 oversized response exposes the applicable debug budget and stable code without
 retaining the attempted body, and the nested stable reason survives the Rust
 and plugin RPC boundaries. Retry is safe after a truncated response, timeout,

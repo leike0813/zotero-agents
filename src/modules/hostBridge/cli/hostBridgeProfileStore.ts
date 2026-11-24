@@ -1,10 +1,6 @@
 import { joinPath } from "../../../utils/path";
 import { HOST_BRIDGE_PROTOCOL_VERSION } from "../server/hostBridgeProtocol";
-import {
-  ensureRuntimeDirectory,
-  setRuntimeFilePermissions,
-  writeRuntimeTextFile,
-} from "../../runtimePersistence";
+import { replacePrivateRuntimeTextFileAtomically } from "../../runtimePersistence";
 
 export type HostBridgeWellKnownProfile = {
   schema: "zotero-bridge.profile.v1";
@@ -90,18 +86,7 @@ export function resolveHostBridgeWellKnownProfilePath() {
   return joinPath(resolveWellKnownProfileRoot(), "bridge-profile.json");
 }
 
-function parentPath(pathRaw: string) {
-  const path = normalizeString(pathRaw);
-  const index = Math.max(path.lastIndexOf("\\"), path.lastIndexOf("/"));
-  return index > 0 ? path.slice(0, index) : "";
-}
-
-async function chmodOwnerReadWrite(path: string) {
-  if (resolvePlatform() === "win32") {
-    return false;
-  }
-  return setRuntimeFilePermissions(path, 0o600);
-}
+let pendingProfileWrite: Promise<unknown> = Promise.resolve();
 
 export async function writeHostBridgeWellKnownProfile(args: {
   endpoint: string;
@@ -112,7 +97,7 @@ export async function writeHostBridgeWellKnownProfile(args: {
   const token = normalizeString(args.token);
   if (!endpoint || !token) {
     return {
-      ok: false,
+      ok: false as const,
       path: "",
       permissionProtected: false,
       reason: "missing_endpoint_or_token",
@@ -133,20 +118,17 @@ export async function writeHostBridgeWellKnownProfile(args: {
     updatedAt: args.updatedAt || new Date().toISOString(),
   };
 
-  await ensureRuntimeDirectory(parentPath(path));
-  await writeRuntimeTextFile(path, `${JSON.stringify(profile, null, 2)}\n`);
-  let permissionProtected = resolvePlatform() === "win32";
-  try {
-    permissionProtected =
-      (await chmodOwnerReadWrite(path)) || permissionProtected;
-  } catch {
-    permissionProtected = false;
-  }
-  return {
-    ok: true,
-    path,
-    permissionProtected,
-  };
+  const write = pendingProfileWrite
+    .catch(() => undefined)
+    .then(async () => {
+      await replacePrivateRuntimeTextFileAtomically(
+        path,
+        `${JSON.stringify(profile, null, 2)}\n`,
+      );
+      return { ok: true as const, path, permissionProtected: true };
+    });
+  pendingProfileWrite = write;
+  return write;
 }
 
 export const hostBridgeProfileStoreInternalsForTests = {

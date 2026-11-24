@@ -1,9 +1,10 @@
-import { spawn } from "child_process";
+import { execFile, spawn } from "child_process";
 import { randomUUID } from "crypto";
 import { cp, mkdir, mkdtemp, readFile, rm } from "fs/promises";
 import os from "os";
 import path from "path";
 import { pathToFileURL } from "url";
+import { promisify } from "util";
 import { isTruthyDiagnosticFlag } from "../src/modules/diagnosticVerbosity";
 import pkg from "../package.json";
 import { applyZoteroTestHeadlessEnvironment } from "../zotero-plugin.config";
@@ -593,6 +594,84 @@ async function waitForExactProcessExit(processId: number) {
   throw new Error("system_e2e_restart_process_still_alive");
 }
 
+type WindowsAcpBridgeProcess = {
+  ProcessId: number;
+  ParentProcessId: number;
+  CreationDate: string;
+  ExecutablePath: string;
+};
+
+export function selectWindowsRestartAcpBridges(
+  before: readonly WindowsAcpBridgeProcess[],
+  after: readonly WindowsAcpBridgeProcess[],
+  ownerPid: number,
+  scaffoldRoot: string,
+) {
+  const bin = path.win32.resolve(
+    scaffoldRoot,
+    "data/zotero-agents/runtime/bin",
+  );
+  return before.filter((entry) => {
+    if (
+      entry.ParentProcessId !== ownerPid ||
+      !Number.isInteger(entry.ProcessId) ||
+      entry.ProcessId <= 1 ||
+      !entry.CreationDate ||
+      !entry.ExecutablePath ||
+      !path.win32.isAbsolute(entry.ExecutablePath)
+    )
+      return false;
+    const relative = path.win32
+      .relative(bin, entry.ExecutablePath)
+      .toLowerCase();
+    return (
+      /^(?:acp-ws-bridge\\[a-f0-9]{16}\\)?zotero-acp-bridge\.exe$/.test(
+        relative,
+      ) &&
+      after.some(
+        (current) =>
+          current.ProcessId === entry.ProcessId &&
+          current.ParentProcessId === ownerPid &&
+          current.CreationDate === entry.CreationDate &&
+          current.ExecutablePath === entry.ExecutablePath,
+      )
+    );
+  });
+}
+
+async function queryWindowsAcpBridges(): Promise<WindowsAcpBridgeProcess[]> {
+  const { stdout } = await promisify(execFile)(
+    "powershell.exe",
+    [
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      "Get-CimInstance Win32_Process -Filter \"Name = 'zotero-acp-bridge.exe'\" | Select-Object ProcessId,ParentProcessId,CreationDate,ExecutablePath | ConvertTo-Json -Compress",
+    ],
+    { windowsHide: true, timeout: 10_000 },
+  );
+  const parsed = stdout.trim() ? JSON.parse(stdout) : [];
+  return Array.isArray(parsed) ? parsed : [parsed];
+}
+
+async function terminateSystemE2EOwner(
+  processId: number,
+  scaffoldRoot: string,
+) {
+  if (process.platform !== "win32") return terminateExactProcess(processId);
+  const before = await queryWindowsAcpBridges();
+  await terminateExactProcess(processId);
+  // The ACP bridge can retain the retired owner's workspace and stdio handles.
+  for (const bridge of selectWindowsRestartAcpBridges(
+    before,
+    await queryWindowsAcpBridges(),
+    processId,
+    scaffoldRoot,
+  )) {
+    await terminateExactProcess(bridge.ProcessId);
+  }
+}
+
 async function snapshotSystemE2EScaffold(scaffoldRoot: string) {
   return profileSpan(
     "resume snapshot",
@@ -747,7 +826,10 @@ async function main() {
               })
             : Promise.resolve("held" as const)
         ).then(async () => {
-          await terminateExactProcess(requestedRestart.processId);
+          await terminateSystemE2EOwner(
+            requestedRestart.processId,
+            resolveSystemE2EScaffoldRoot(testEnv),
+          );
           return requestedRestart;
         });
       }

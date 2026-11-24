@@ -53,15 +53,13 @@ function parseCollectionRef(value) {
 
 // Runtime discovery: the plugin injects ZOTERO_BRIDGE_* into the run env and a
 // workspace shim on PATH; ZOTERO_BRIDGE_CLI remains the documented dev override.
-function resolveCli(workspace, env) {
+export function resolveFixtureBridgeCli(workspace, env = process.env) {
   const override = String(env.ZOTERO_BRIDGE_CLI || "").trim();
   if (override) return override;
-  const shim = path.join(
-    workspace,
-    ".zotero-bridge",
-    "bin",
-    process.platform === "win32" ? "zotero-bridge.cmd" : "zotero-bridge",
-  );
+  const injected = String(env.ZOTERO_BRIDGE_BIN || "").trim();
+  if (injected && existsSync(injected)) return injected;
+  if (process.platform === "win32") return "zotero-bridge.exe";
+  const shim = path.join(workspace, ".zotero-bridge", "bin", "zotero-bridge");
   if (existsSync(shim)) return shim;
   return "zotero-bridge";
 }
@@ -124,7 +122,7 @@ function runMutation({ cli, profile, workspace, operationId }) {
     cwd: workspace,
     encoding: "utf8",
     maxBuffer: 64 * 1024 * 1024,
-    shell: process.platform === "win32",
+    shell: process.platform === "win32" && /\.(?:cmd|bat)$/i.test(cli),
   });
   const stdout = String(completed.stdout || "");
   if (completed.error) {
@@ -181,7 +179,7 @@ export function handleIngestSkill({
   });
   writeJson(paths.payload, payload);
   const { envelope, stdout } = runMutation({
-    cli: resolveCli(paths.root, env),
+    cli: resolveFixtureBridgeCli(paths.root, env),
     profile: resolveProfile(paths.root, env),
     workspace: paths.root,
     operationId,

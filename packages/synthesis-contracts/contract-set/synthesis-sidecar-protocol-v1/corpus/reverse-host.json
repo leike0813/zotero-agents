@@ -489,7 +489,18 @@
             },
             "sourceVersion": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             "format": "markdown",
-            "contentLength": 42
+            "contentLength": 262145
+          },
+          {
+            "itemRef": { "libraryId": 1, "key": "ABCD1234" },
+            "source": {
+              "kind": "analysis",
+              "artifactType": "citation-analysis",
+              "noteRef": { "libraryId": 1, "key": "NOTE0001" }
+            },
+            "sourceVersion": "source-v1",
+            "format": "text",
+            "contentLength": 1048576
           }
         ],
         "nextCursor": null,

@@ -1658,14 +1658,13 @@ async function startServer() {
 }
 
 export async function ensureHostBridgeServer() {
+  if (startingPromise) return startingPromise;
   if (state.status === "running" && state.endpoint && state.token) {
     return getHostBridgeServerStatus();
   }
-  if (!startingPromise) {
-    startingPromise = startServer().finally(() => {
-      startingPromise = null;
-    });
-  }
+  startingPromise = startServer().finally(() => {
+    startingPromise = null;
+  });
   return startingPromise;
 }
 

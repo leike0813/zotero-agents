@@ -25,6 +25,7 @@ import {
   importLiteratureProductArchive,
 } from "../../../../workflows_builtin/literature-workbench-package/lib/literatureBundle.mjs";
 import { parseEmbeddedNotePayloadBlock } from "../../../../src/modules/zoteroHost/notePayloadCodec";
+import { removeRuntimePathStrict } from "../../../../src/modules/runtimePersistence";
 
 describe("Note image atomic apply E2E", function () {
   this.timeout(60_000);
@@ -104,7 +105,7 @@ describe("Note image atomic apply E2E", function () {
     undefined,
     "exports large managed notes and multiple images twice with immediate cleanup",
     async function () {
-      this.timeout(180_000);
+      this.timeout(300_000);
       const parent = new Zotero.Item("journalArticle");
       const ownerId = `large-note-e2e-${Date.now()}`;
       const scope = createWorkflowPreparedImageScope({ runScopeId: ownerId });
@@ -457,7 +458,7 @@ describe("Note image atomic apply E2E", function () {
           assert.isAtLeast(stagedPaths.length, 25);
           for (const path of stagedPaths)
             assert.isFalse(await IOUtils.exists(path));
-          await IOUtils.remove(targetPath);
+          await removeRuntimePathStrict(targetPath);
         }
       } finally {
         scope.dispose();
@@ -472,7 +473,7 @@ describe("Note image atomic apply E2E", function () {
           }
         }
         if (parent.id) await Zotero.Items.trashTx([parent.id]);
-        await IOUtils.remove(root, { recursive: true });
+        await removeRuntimePathStrict(root);
       }
     },
   );

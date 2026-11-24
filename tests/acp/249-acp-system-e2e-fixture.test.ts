@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { createInterface } from "node:readline";
 import { classifyAcpTranscriptSessionUpdate } from "../../src/modules/acp/transport/acpTranscriptBoundary";
 
 const fixture = path.resolve("tests/fixtures/acp/acp-composer-reply-agent.mjs");
@@ -10,7 +11,6 @@ const fixture = path.resolve("tests/fixtures/acp/acp-composer-reply-agent.mjs");
 async function runFixture(
   mode: string,
   requests: object[],
-  waitMs = 50,
   manifest?: object,
   modeFileContent?: string,
 ) {
@@ -31,30 +31,42 @@ async function runFixture(
     },
     stdio: ["pipe", "pipe", "pipe"],
   });
-  const exited = new Promise<number | null>((resolve) =>
-    child.on("exit", resolve),
+  const exited = new Promise<number | null>((resolve, reject) =>
+    child.once("close", resolve).once("error", reject),
   );
-  let stdout = "";
-  child.stdout.setEncoding("utf8").on("data", (chunk) => (stdout += chunk));
+  const messages: any[] = [];
+  const lines = createInterface({ input: child.stdout });
+  const responseId = (requests[0] as { id?: number })?.id;
+  const replied = new Promise<void>((resolve) => {
+    lines.on("line", (line) => {
+      const message = JSON.parse(line);
+      messages.push(message);
+      if (message.id === responseId) resolve();
+    });
+  });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error("fixture did not settle")),
+      4_000,
+    );
+  });
   try {
     for (const request of requests) {
-      child.stdin.write(
-        `${JSON.stringify(request).replace("__E2E_MANIFEST__", manifestPath)}\n`,
+      const line = JSON.stringify(request, (_key, value: unknown) =>
+        typeof value === "string"
+          ? value.replace("__E2E_MANIFEST__", () => manifestPath)
+          : value,
       );
+      child.stdin.write(`${line}\n`);
     }
-    await new Promise((resolve) => setTimeout(resolve, waitMs));
+    if (
+      (mode === "normal" && !modeFileContent) ||
+      mode === "cancel-result-race"
+    )
+      await Promise.race([replied, exited, deadline]);
     child.stdin.end();
-    const code = await Promise.race([
-      exited,
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("fixture did not exit")), 2_000),
-      ),
-    ]);
-    const messages = stdout
-      .trim()
-      .split("\n")
-      .filter(Boolean)
-      .map((line) => JSON.parse(line));
+    const code = await Promise.race([exited, deadline]);
     const evidence =
       mode === "typo"
         ? null
@@ -63,7 +75,11 @@ async function runFixture(
           );
     return { code, messages, evidence };
   } finally {
-    child.kill();
+    clearTimeout(timer);
+    lines.close();
+    if (child.exitCode === null && child.kill()) {
+      await exited.catch(() => undefined);
+    }
     await rm(root, { recursive: true, force: true });
   }
 }
@@ -92,7 +108,6 @@ describe("ACP System E2E peer modes", function () {
     const result = await runFixture(
       "normal",
       [{ jsonrpc: "2.0", id: 1, method: "initialize", params: {} }],
-      50,
       undefined,
       "startup-stall",
     );
@@ -109,14 +124,10 @@ describe("ACP System E2E peer modes", function () {
   });
 
   it("emits trailing updates before a non-cancelled prompt result", async function () {
-    const result = await runFixture(
-      "cancel-result-race",
-      [
-        { jsonrpc: "2.0", id: 3, method: "session/prompt", params: {} },
-        { jsonrpc: "2.0", method: "session/cancel", params: {} },
-      ],
-      150,
-    );
+    const result = await runFixture("cancel-result-race", [
+      { jsonrpc: "2.0", id: 3, method: "session/prompt", params: {} },
+      { jsonrpc: "2.0", method: "session/cancel", params: {} },
+    ]);
     assert.equal(result.evidence.mode, "cancel-result-race");
     const updateIndex = result.messages.findIndex(
       (message) => message.method === "session/update",
@@ -148,7 +159,6 @@ describe("ACP System E2E peer modes", function () {
         },
         { jsonrpc: "2.0", method: "session/cancel", params: {} },
       ],
-      150,
       {
         skill_id: "debug-apply-result-probe",
         parameter: {
@@ -229,7 +239,6 @@ describe("ACP System E2E peer modes", function () {
           },
         },
       ],
-      50,
       {
         skill_id: "debug-apply-result-probe",
         parameter: {
@@ -285,7 +294,6 @@ describe("ACP System E2E peer modes", function () {
           },
         },
       ],
-      50,
       {
         skill_id: "debug-apply-result-probe",
         parameter: {

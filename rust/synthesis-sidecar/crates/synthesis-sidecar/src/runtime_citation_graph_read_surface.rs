@@ -266,6 +266,13 @@ fn graph_request_schema() -> &'static Value {
 
 // Serde owns closed DTO shapes; shared schemas own presence and field bounds.
 fn graph_field_limits(value: &Value, rule: &Value, schema: &Value) -> bool {
+    let accepted = graph_rule_matches(value, rule, schema);
+    #[cfg(test)]
+    crate::runtime_wire_schema::record_schema_predicate(schema, rule, value, accepted);
+    accepted
+}
+
+fn graph_rule_matches(value: &Value, rule: &Value, schema: &Value) -> bool {
     if let Some(reference) = rule["$ref"].as_str() {
         let (file, pointer) = reference.split_once('#').expect("graph field reference");
         let schema = match file {
@@ -322,8 +329,9 @@ fn graph_field_limits(value: &Value, rule: &Value, schema: &Value) -> bool {
         let count = text.chars().count() as u64;
         if count < rule["minLength"].as_u64().unwrap_or(0)
             || count > rule["maxLength"].as_u64().unwrap_or(u64::MAX)
-            || (rule["pattern"].is_string()
-                && text.chars().any(|ch| ch <= '\u{1f}' || ch == '\u{7f}'))
+            || rule["pattern"]
+                .as_str()
+                .is_some_and(|pattern| !crate::runtime_wire_schema::pattern_matches(pattern, text))
         {
             return false;
         }
@@ -397,9 +405,8 @@ where
     let decoded = match args {
         [] => T::default(),
         [value] => {
-            let decoded = serde_json::from_value(value.clone()).map_err(|_| "invalid_request")?;
             validate_graph_request_fields(value, definition)?;
-            decoded
+            serde_json::from_value(value.clone()).map_err(|_| "invalid_request")?
         }
         _ => return Err("invalid_request".into()),
     };
@@ -2076,6 +2083,7 @@ mod tests {
             json!({"paperRef":{"paper_ref":"1:A"}}),
             json!({"cluster_policy":"source_only"}),
             json!({"clusterPolicy":"bounded_external","maxExternalNodes":"0"}),
+            json!({"max_external_nodes":"250"}),
             json!({"source_paper_refs":["DOI:10.1000/xyz123"],"cluster_policy":"include_external"}),
             json!({"maxNodes":1,"maxEdges":0}),
         ] {
@@ -2088,6 +2096,10 @@ mod tests {
         for value in [
             json!({"cluster_policy":"all"}),
             json!({"max_external_nodes":251}),
+            json!({"max_external_nodes":""}),
+            json!({"maxExternalNodes":"01"}),
+            json!({"maxExternalNodes":"251"}),
+            json!({"maxNodes":"1a"}),
             json!({"source_paper_refs":too_many_refs}),
             json!({"paperRef":{"unexpected":"1:A"}}),
         ] {
@@ -2113,16 +2125,15 @@ mod tests {
         let results: Vec<_> = cases
             .iter()
             .map(|case| {
-                let outcome = read_request(
-                    case["capability"].as_str().expect("capability"),
-                    case["value"]["args"]
-                        .as_array()
-                        .expect("nested graph arguments"),
-                );
-                match outcome {
-                    Ok(_) => json!({"id":case["id"],"accepted":true}),
-                    Err(reason) => json!({"id":case["id"],"accepted":false,"reason":reason}),
-                }
+                let (outcome, predicate) = crate::runtime_wire_schema::with_schema_probe(case, || {
+                    read_request(
+                        case["capability"].as_str().expect("capability"),
+                        case["value"]["args"]
+                            .as_array()
+                            .expect("nested graph arguments"),
+                    )
+                });
+                json!({"id":case["id"],"accepted":outcome.is_ok(),"reason":outcome.err(),"predicateAccepted":predicate})
             })
             .collect();
         std::fs::write(

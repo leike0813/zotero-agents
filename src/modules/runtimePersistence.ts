@@ -2039,6 +2039,7 @@ export function writeRuntimeTextFileStrict(pathRaw: string, content: string) {
 async function replaceRuntimeTextFileAtomicallyFromString(
   pathRaw: string,
   content: string,
+  ownerOnly = false,
 ) {
   const path = normalizeString(pathRaw);
   if (!path) {
@@ -2050,8 +2051,21 @@ async function replaceRuntimeTextFileAtomicallyFromString(
   const Encoder =
     (globalThis as { TextEncoder?: typeof TextEncoder }).TextEncoder ||
     TextEncoder;
+  const requireOwnerPermissions = ownerOnly && getPlatform() !== "win32";
   try {
+    if (
+      requireOwnerPermissions &&
+      !(await setRuntimeFilePermissions(temporaryDirectory, 0o700))
+    ) {
+      throw new Error("sidecar_private_file_permissions_unavailable");
+    }
     await writeRuntimeBytes(tempPath, new Encoder().encode(content));
+    if (
+      requireOwnerPermissions &&
+      !(await setRuntimeFilePermissions(tempPath, 0o600))
+    ) {
+      throw new Error("sidecar_private_file_permissions_unavailable");
+    }
     await moveRuntimePath({
       sourcePath: tempPath,
       targetPath: path,
@@ -2066,12 +2080,7 @@ export async function replacePrivateRuntimeTextFileAtomically(
   pathRaw: string,
   content: string,
 ) {
-  await replaceRuntimeTextFileAtomicallyFromString(pathRaw, content);
-  const permissionsSet = await setRuntimeFilePermissions(pathRaw, 0o600);
-  if (getPlatform() !== "win32" && !permissionsSet) {
-    await removeRuntimePath(pathRaw).catch(() => false);
-    throw new Error("sidecar_private_file_permissions_unavailable");
-  }
+  await replaceRuntimeTextFileAtomicallyFromString(pathRaw, content, true);
 }
 
 export async function appendRuntimeTextFile(pathRaw: string, content: string) {

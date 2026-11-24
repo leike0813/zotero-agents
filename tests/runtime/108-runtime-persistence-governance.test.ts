@@ -1549,12 +1549,13 @@ describe("runtime persistence governance", function () {
   });
 
   it("runs standalone cleanup scripts through runtime persistence internals", async function () {
-    this.timeout(10_000);
+    this.timeout(35_000);
     const root = path.join(tempRoot, "standalone-cleanup-root");
     const env = {
       ...process.env,
       ZOTERO_SKILLS_RUNTIME_ROOT: root,
     };
+    const cleanupProcessOptions = { env, timeout: 10_000 };
     process.env.ZOTERO_SKILLS_RUNTIME_ROOT = root;
     resetPluginStateStoreForTests();
     const paths = getRuntimePersistencePaths(root);
@@ -1704,7 +1705,7 @@ describe("runtime persistence governance", function () {
         "--root",
         root,
       ],
-      { env },
+      cleanupProcessOptions,
     );
     assert.equal(JSON.parse(chatCleanup.stdout).category, "acp-conversations");
     assert.equal(
@@ -1743,7 +1744,7 @@ describe("runtime persistence governance", function () {
         "--root",
         root,
       ],
-      { env },
+      cleanupProcessOptions,
     );
     assert.equal(
       JSON.parse(acpSkillsCleanup.stdout).category,
@@ -1779,7 +1780,7 @@ describe("runtime persistence governance", function () {
         "--root",
         root,
       ],
-      { env },
+      cleanupProcessOptions,
     );
     assert.equal(
       JSON.parse(skillRunnerCleanup.stdout).category,

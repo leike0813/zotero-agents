@@ -501,22 +501,24 @@ describe("Dashboard literature migration browser UI", function () {
     await page.locator('[data-role="migration-step-problems"]').click();
     for (const width of [1440, 900, 520]) {
       await page.setViewportSize({ width, height: 800 });
-      const footer = page.locator(".dashboard-migration-wizard-actions");
+      const actions = page.locator(".dashboard-migration-wizard-actions");
       const pager = page.locator(".dashboard-migrations-pagination");
-      const before = await footer.boundingBox();
+      const before = await actions.boundingBox();
       assert.isOk(before);
       const pagingBounds = await pager.boundingBox();
       assert.isOk(pagingBounds);
-      assert.isAtMost(pagingBounds!.y + pagingBounds!.height, before!.y + 1);
+      assert.isAtMost(before!.y + before!.height, pagingBounds!.y + 1);
       await page
         .locator(".dashboard-migrations-results")
         .evaluate((element) => {
           element.scrollTop = element.scrollHeight;
         });
-      const after = await footer.boundingBox();
+      const after = await actions.boundingBox();
       assert.equal(after!.y, before!.y);
       assert.isAtMost(after!.y + after!.height, 800);
       assert.isAtMost(after!.x + after!.width, width);
+      assert.isAtMost(pagingBounds!.y + pagingBounds!.height, 800);
+      assert.isAtMost(pagingBounds!.x + pagingBounds!.width, width);
       const overflow = await page
         .locator(".dashboard-migrations")
         .evaluate((element) => element.scrollWidth - element.clientWidth);

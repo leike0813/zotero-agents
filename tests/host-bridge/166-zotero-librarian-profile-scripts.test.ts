@@ -1,5 +1,5 @@
 import { assert } from "chai";
-import { spawnSync } from "child_process";
+import { spawn, spawnSync } from "child_process";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
@@ -12,6 +12,14 @@ const PROFILE_SOURCE = path.join(
 const SERVICE = path.join(
   PROFILE_SOURCE,
   "scripts/zotero_librarian_service.py",
+);
+const WINDOWS_PACKAGED_BRIDGE = path.join(
+  process.cwd(),
+  "addon/bin/win32-x64/zotero-bridge.exe",
+);
+const BRIDGE_SERVER_FIXTURE = path.join(
+  process.cwd(),
+  "tests/host-bridge/fixtures/librarian-bridge-server.cjs",
 );
 
 function runPython(args: string[], env: NodeJS.ProcessEnv) {
@@ -40,6 +48,58 @@ function runInstaller(args: string[], env: NodeJS.ProcessEnv) {
 function payload(proc: ReturnType<typeof spawnSync>) {
   assert.strictEqual(proc.status, 0, proc.stderr || proc.stdout);
   return JSON.parse(String(proc.stdout));
+}
+
+async function startBridgeServer() {
+  if (process.platform !== "win32") return undefined;
+  const child = spawn(process.execPath, [BRIDGE_SERVER_FIXTURE], {
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let stderr = "";
+  child.stderr?.on("data", (chunk) => {
+    stderr += String(chunk);
+  });
+  const endpoint = await new Promise<string>((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      reject(new Error(`bridge fixture did not start\n${stderr}`));
+    }, 5_000);
+    child.once("error", reject);
+    child.once("exit", (code) => {
+      reject(new Error(`bridge fixture exited with ${code}\n${stderr}`));
+    });
+    child.stdout?.once("data", (chunk) => {
+      clearTimeout(timeout);
+      resolve(String(chunk).trim());
+    });
+  });
+  return {
+    endpoint,
+    async close() {
+      child.kill();
+      if (child.exitCode === null) {
+        await new Promise<void>((resolve) =>
+          child.once("exit", () => resolve()),
+        );
+      }
+    },
+  };
+}
+
+function writePackagedBridgeFixture(sourceRoot: string) {
+  const platform = process.platform === "win32" ? "win32-x64" : "linux-x64";
+  const binaryName =
+    process.platform === "win32" ? "zotero-bridge.exe" : "zotero-bridge";
+  const binary = path.join(
+    sourceRoot,
+    "assets",
+    "zotero-bridge",
+    "bin",
+    platform,
+    binaryName,
+  );
+  fs.mkdirSync(path.dirname(binary), { recursive: true });
+  fs.writeFileSync(binary, "binary");
+  return binaryName;
 }
 
 function writeFakeBridge(root: string) {
@@ -180,14 +240,25 @@ if (args.join(" ") === "context selection get") {
 `,
     "utf8",
   );
-  const sh = path.join(root, "zotero-bridge");
-  fs.writeFileSync(
-    sh,
-    `#!/usr/bin/env sh\nnode "$(dirname "$0")/fake-bridge.js" "$@"\n`,
-    "utf8",
+  const launcher = path.join(
+    root,
+    process.platform === "win32" ? "zotero-bridge.cmd" : "zotero-bridge",
   );
-  fs.chmodSync(sh, 0o755);
-  return sh;
+  if (process.platform === "win32") {
+    fs.writeFileSync(
+      launcher,
+      `@echo off\r\n"${process.execPath}" "%~dp0fake-bridge.js" %*\r\n`,
+      "utf8",
+    );
+  } else {
+    fs.writeFileSync(
+      launcher,
+      `#!/usr/bin/env sh\nnode "$(dirname "$0")/fake-bridge.js" "$@"\n`,
+      "utf8",
+    );
+    fs.chmodSync(launcher, 0o755);
+  }
+  return launcher;
 }
 
 describe("zotero-librarian resident service", function () {
@@ -398,129 +469,139 @@ describe("zotero-librarian resident service", function () {
     assert.strictEqual(attention.status, "unchanged");
   });
 
-  it("isolates explicit profile workspaces and preserves default state", function () {
+  it("isolates explicit profile workspaces and preserves default state", async function () {
     const temp = fs.mkdtempSync(
       path.join(os.tmpdir(), "zotero-librarian-profile-"),
     );
-    const bridge = writeFakeBridge(temp);
-    const profileA = path.join(temp, "profiles", "a.json");
-    const profileB = path.join(temp, "profiles", "b.json");
-    fs.mkdirSync(path.dirname(profileA), { recursive: true });
-    fs.writeFileSync(profileA, '{"endpoint":"a","token":"one"}');
-    fs.writeFileSync(profileB, '{"endpoint":"b","token":"two"}');
-    const env = { ZOTERO_LIBRARIAN_STATE_DIR: temp };
-
-    const refreshed = payload(
-      runPython(
-        ["--bridge", bridge, "--profile", profileA, "index", "refresh"],
-        env,
-      ),
-    );
-    assert.strictEqual(refreshed.status, "changed");
-    const workspaceDir = fs.readdirSync(path.join(temp, "workspaces"))[0];
-    fs.mkdirSync(
-      path.join(temp, "workspaces", workspaceDir, ".zotero-bridge", "bin"),
-      { recursive: true },
-    );
-    fs.copyFileSync(
-      bridge,
-      path.join(
-        temp,
-        "workspaces",
-        workspaceDir,
-        ".zotero-bridge",
-        "bin",
-        "zotero-bridge",
-      ),
-    );
-    fs.copyFileSync(
-      path.join(temp, "fake-bridge.js"),
-      path.join(
-        temp,
-        "workspaces",
-        workspaceDir,
-        ".zotero-bridge",
-        "bin",
-        "fake-bridge.js",
-      ),
-    );
-    const localPreferred = payload(
-      runPython(["--profile", profileA, "workflow", "catalog-refresh"], env),
-    );
-    assert.strictEqual(localPreferred.operation, "workflow.catalog-refresh");
-    const bSearch = payload(
-      runPython(
-        ["--bridge", bridge, "--profile", profileB, "index", "search", "One"],
-        env,
-      ),
-    );
-    assert.deepEqual(bSearch.data.items, []);
-    const aSearch = payload(
-      runPython(
-        [
-          "--bridge",
-          bridge,
-          "--profile",
-          path.join(temp, "profiles", ".", "a.json"),
-          "index",
-          "search",
-          "One",
-        ],
-        env,
-      ),
-    );
-    assert.lengthOf(aSearch.data.items, 1);
-    const profileLink = path.join(temp, "profiles", "a-link.json");
-    fs.symlinkSync(profileA, profileLink);
-    fs.writeFileSync(profileA, '{"endpoint":"a","token":"changed"}');
-    const linkedSearch = payload(
-      runPython(
-        [
-          "--bridge",
-          bridge,
-          "--profile",
-          profileLink,
-          "index",
-          "search",
-          "One",
-        ],
-        env,
-      ),
-    );
-    assert.lengthOf(linkedSearch.data.items, 1);
-    assert.lengthOf(fs.readdirSync(path.join(temp, "workspaces")), 2);
-
-    const outside = path.join(temp, "outside.sqlite");
-    const rejected = runPython(
-      [
-        "--bridge",
-        bridge,
-        "--profile",
+    const bridgeServer = await startBridgeServer();
+    try {
+      const bridge = writeFakeBridge(temp);
+      const profileA = path.join(temp, "profiles", "a.json");
+      const profileB = path.join(temp, "profiles", "b.json");
+      const profileEndpoint = bridgeServer?.endpoint ?? "a";
+      fs.mkdirSync(path.dirname(profileA), { recursive: true });
+      fs.writeFileSync(
         profileA,
-        "--db",
-        outside,
-        "index",
-        "stats",
-      ],
-      env,
-    );
-    assert.notStrictEqual(rejected.status, 0);
-    assert.include(rejected.stdout, "workspace_path_outside_profile");
-    assert.isFalse(fs.existsSync(outside));
+        JSON.stringify({ endpoint: profileEndpoint, token: "one" }),
+      );
+      fs.writeFileSync(
+        profileB,
+        JSON.stringify({ endpoint: "b", token: "two" }),
+      );
+      const env = { ZOTERO_LIBRARIAN_STATE_DIR: temp };
 
-    const missing = runPython(
-      [
-        "--bridge",
-        bridge,
-        "--profile",
-        path.join(temp, "missing.json"),
-        "index",
-        "stats",
-      ],
-      env,
-    );
-    assert.notStrictEqual(missing.status, 0);
-    assert.include(missing.stdout, "profile_path_unavailable");
+      const refreshed = payload(
+        runPython(
+          ["--bridge", bridge, "--profile", profileA, "index", "refresh"],
+          env,
+        ),
+      );
+      assert.strictEqual(refreshed.status, "changed");
+      const workspaceDir = fs.readdirSync(path.join(temp, "workspaces"))[0];
+      const localBin = path.join(
+        temp,
+        "workspaces",
+        workspaceDir,
+        ".zotero-bridge",
+        "bin",
+      );
+      fs.mkdirSync(localBin, { recursive: true });
+      fs.copyFileSync(
+        bridgeServer ? WINDOWS_PACKAGED_BRIDGE : bridge,
+        path.join(
+          localBin,
+          bridgeServer ? "zotero-bridge.exe" : "zotero-bridge",
+        ),
+      );
+      if (!bridgeServer) {
+        fs.copyFileSync(
+          path.join(temp, "fake-bridge.js"),
+          path.join(localBin, "fake-bridge.js"),
+        );
+      }
+      const localPreferred = payload(
+        runPython(["--profile", profileA, "workflow", "catalog-refresh"], env),
+      );
+      assert.strictEqual(localPreferred.operation, "workflow.catalog-refresh");
+      const bSearch = payload(
+        runPython(
+          ["--bridge", bridge, "--profile", profileB, "index", "search", "One"],
+          env,
+        ),
+      );
+      assert.deepEqual(bSearch.data.items, []);
+      const aSearch = payload(
+        runPython(
+          [
+            "--bridge",
+            bridge,
+            "--profile",
+            path.join(temp, "profiles", ".", "a.json"),
+            "index",
+            "search",
+            "One",
+          ],
+          env,
+        ),
+      );
+      assert.lengthOf(aSearch.data.items, 1);
+      const profileLink = path.join(temp, "profiles", "a-link.json");
+      fs.symlinkSync(profileA, profileLink);
+      fs.writeFileSync(
+        profileA,
+        JSON.stringify({ endpoint: profileEndpoint, token: "changed" }),
+      );
+      const linkedSearch = payload(
+        runPython(
+          [
+            "--bridge",
+            bridge,
+            "--profile",
+            profileLink,
+            "index",
+            "search",
+            "One",
+          ],
+          env,
+        ),
+      );
+      assert.lengthOf(linkedSearch.data.items, 1);
+      assert.lengthOf(fs.readdirSync(path.join(temp, "workspaces")), 2);
+
+      const outside = path.join(temp, "outside.sqlite");
+      const rejected = runPython(
+        [
+          "--bridge",
+          bridge,
+          "--profile",
+          profileA,
+          "--db",
+          outside,
+          "index",
+          "stats",
+        ],
+        env,
+      );
+      assert.notStrictEqual(rejected.status, 0);
+      assert.include(rejected.stdout, "workspace_path_outside_profile");
+      assert.isFalse(fs.existsSync(outside));
+
+      const missing = runPython(
+        [
+          "--bridge",
+          bridge,
+          "--profile",
+          path.join(temp, "missing.json"),
+          "index",
+          "stats",
+        ],
+        env,
+      );
+      assert.notStrictEqual(missing.status, 0);
+      assert.include(missing.stdout, "profile_path_unavailable");
+    } finally {
+      await bridgeServer?.close();
+    }
   });
 
   it("passes explicit profile identity to the bridge and keeps catalog, runs, and notifications local", function () {
@@ -572,8 +653,13 @@ describe("zotero-librarian resident service", function () {
       ),
     );
     const logged = fs.readFileSync(bridgeLog, "utf8");
-    assert.include(logged, `"--profile"`);
-    assert.include(logged, path.resolve(profile));
+    const loggedArgs = logged
+      .split(/\r?\n/)
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as string[]);
+    assert.isNotEmpty(loggedArgs);
+    assert.isTrue(loggedArgs.every((args) => args[0] === "--profile"));
+    assert.strictEqual(path.resolve(loggedArgs[0][1]), path.resolve(profile));
     const workspaceRoot = path.join(temp, "workspaces");
     assert.strictEqual(fs.readdirSync(workspaceRoot).length, 1);
   });
@@ -585,16 +671,7 @@ describe("zotero-librarian resident service", function () {
     const profile = path.join(temp, "profile.json");
     fs.writeFileSync(profile, "{}");
     const sourceRoot = path.join(temp, "source");
-    const binary = path.join(
-      sourceRoot,
-      "assets",
-      "zotero-bridge",
-      "bin",
-      "linux-x64",
-      "zotero-bridge",
-    );
-    fs.mkdirSync(path.dirname(binary), { recursive: true });
-    fs.writeFileSync(binary, "binary");
+    const binaryName = writePackagedBridgeFixture(sourceRoot);
     const result = runInstaller(
       [
         "--source-root",
@@ -618,7 +695,7 @@ describe("zotero-librarian resident service", function () {
           workspaceDirs[0],
           ".zotero-bridge",
           "bin",
-          "zotero-bridge",
+          binaryName,
         ),
       ),
     );
@@ -629,37 +706,39 @@ describe("zotero-librarian resident service", function () {
       path.join(os.tmpdir(), "zotero-librarian-installer-default-"),
     );
     const sourceRoot = path.join(temp, "source");
-    const binary = path.join(
-      sourceRoot,
-      "assets",
-      "zotero-bridge",
-      "bin",
-      "linux-x64",
-      "zotero-bridge",
-    );
-    fs.mkdirSync(path.dirname(binary), { recursive: true });
-    fs.writeFileSync(binary, "binary");
+    const binaryName = writePackagedBridgeFixture(sourceRoot);
     const hostProfile = path.join(temp, "host-profile.json");
     fs.writeFileSync(hostProfile, "{}");
+    const home = path.join(temp, "home");
     const result = runInstaller(["--source-root", sourceRoot], {
-      HOME: path.join(temp, "home"),
+      HOME: home,
+      USERPROFILE: home,
+      LOCALAPPDATA: path.join(home, "AppData", "Local"),
       ZOTERO_LIBRARIAN_STATE_DIR: path.join(temp, "state"),
       ZOTERO_BRIDGE_HOST_PROFILE: hostProfile,
     });
     assert.strictEqual(result.status, 0, result.stderr || result.stdout);
     assert.isTrue(
       fs.existsSync(
-        path.join(temp, "state", ".zotero-bridge", "bin", "zotero-bridge"),
+        path.join(temp, "state", ".zotero-bridge", "bin", binaryName),
       ),
     );
-    const link = path.join(
-      temp,
-      "home",
-      ".local",
-      "share",
-      "zotero-agents",
-      "bridge-profile.json",
-    );
+    const link =
+      process.platform === "win32"
+        ? path.join(
+            home,
+            "AppData",
+            "Local",
+            "zotero-agents",
+            "bridge-profile.json",
+          )
+        : path.join(
+            home,
+            ".local",
+            "share",
+            "zotero-agents",
+            "bridge-profile.json",
+          );
     assert.isTrue(fs.lstatSync(link).isSymbolicLink());
     assert.strictEqual(fs.realpathSync(link), fs.realpathSync(hostProfile));
   });

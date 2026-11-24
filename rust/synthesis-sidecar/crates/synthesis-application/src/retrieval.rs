@@ -1905,7 +1905,7 @@ struct QueryRequest {
 impl QueryRequest {
     fn validate(&self) -> Result<(), String> {
         if self.query.trim().is_empty()
-            || self.query.encode_utf16().count() > 4_096
+            || self.query.chars().count() > 4_096
             || self.limit.is_some_and(|limit| limit == 0 || limit > 100)
             || self
                 .max_results
@@ -4051,6 +4051,18 @@ mod tests {
                 .unwrap()
                 .results
                 .is_empty()
+        );
+    }
+
+    #[test]
+    fn query_length_bound_counts_unicode_code_points() {
+        let request = |query: String| {
+            parse_request::<QueryRequest>(json!({ "query": query })).expect("query request")
+        };
+        assert_eq!(request("\u{20000}".repeat(4_096)).validate(), Ok(()));
+        assert_eq!(
+            request("\u{20000}".repeat(4_097)).validate(),
+            Err("invalid_request".into())
         );
     }
 

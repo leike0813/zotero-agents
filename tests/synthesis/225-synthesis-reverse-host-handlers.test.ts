@@ -373,6 +373,7 @@ describe("Synthesis reverse Host handlers", function () {
     assert.deepEqual((failure as SynthesisClientError).details, {
       sidecarCode: "worker_unavailable",
       sidecarReason: "transport_unavailable",
+      retryable: true,
     });
     assert.notInclude(String(failure), "private transfer failure");
     assert.equal(deliveryCalls, 0);

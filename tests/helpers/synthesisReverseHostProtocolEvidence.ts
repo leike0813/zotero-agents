@@ -980,6 +980,8 @@ export async function recordSynthesisProductionDecoderStructureEvidence(
           "SYNTHESIS_TOPIC_REQUEST_CODEC",
           "SYNTHESIS_ARTIFACT_CODEC",
           "SYNTHESIS_EVIDENCE_HOST_CODEC",
+          "SYNTHESIS_GRAPH_QUERY_CODEC",
+          "SYNTHESIS_RETRIEVAL_REQUEST_CODEC",
           "SYNTHESIS_TRANSFER_CODEC",
           "SYNTHESIS_SNAPSHOT_CODEC",
         ].includes(driver.prefix);

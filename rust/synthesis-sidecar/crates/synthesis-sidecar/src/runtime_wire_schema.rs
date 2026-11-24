@@ -9,9 +9,13 @@ pub(super) fn retrieval_schema() -> &'static Value {
     &RETRIEVAL
 }
 
-fn pattern_matches(pattern: &str, text: &str) -> bool {
+pub(super) fn pattern_matches(pattern: &str, text: &str) -> bool {
     match pattern {
         "\\S" => text.chars().any(|ch| !ch.is_whitespace()),
+        "^[0-9]+$" => !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit()),
+        "^(0|[1-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|250)$" => text
+            .parse::<u16>()
+            .is_ok_and(|value| value <= 250 && value.to_string() == text),
         "^[A-Za-z0-9]+$" => {
             !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_alphanumeric())
         }
@@ -53,6 +57,17 @@ fn pattern_matches(pattern: &str, text: &str) -> bool {
 pub(super) fn matches(document: &Value, rule: &Value, value: &Value) -> bool {
     let accepted = matches_rule(document, rule, value);
     #[cfg(test)]
+    record_schema_predicate(document, rule, value, accepted);
+    accepted
+}
+
+#[cfg(test)]
+pub(super) fn record_schema_predicate(
+    document: &Value,
+    rule: &Value,
+    value: &Value,
+    accepted: bool,
+) {
     PROBE.with(|probe| {
         if let Some(probe) = probe.borrow_mut().as_mut()
             && document["$id"]
@@ -66,7 +81,6 @@ pub(super) fn matches(document: &Value, rule: &Value, value: &Value) -> bool {
             probe.accepted = Some(accepted);
         }
     });
-    accepted
 }
 
 #[cfg(test)]

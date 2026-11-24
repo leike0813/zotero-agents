@@ -320,7 +320,9 @@ describe("Synthesis Sidecar Dashboard", function () {
       events: failed.events.map((event) => ({
         ...event,
         traceId: "e".repeat(32),
+        phase: "start",
         outcome: "started",
+        identities: { capability: "client.searchTopics" },
       })),
     });
     payload.synthesisSidecarView.traceSnapshot.eventCount = traces.reduce(

@@ -63,6 +63,8 @@ type EffectResult = {
 };
 
 const textEncoder = new TextEncoder();
+// Rust and JavaScript clocks can differ by one Windows wall-clock tick.
+const WALL_CLOCK_TOLERANCE_MS = 16;
 
 function diagnosticToken(value: unknown) {
   const token = typeof value === "string" ? value : "";
@@ -114,6 +116,7 @@ export function createSynthesisReverseHostBroker(options: BrokerOptions) {
 
   async function execute(
     call: SynthesisReverseHostCall,
+    deadlineAtMs: number,
     signal?: CancellationSignal,
   ) {
     const startedAt = options.now();
@@ -146,7 +149,7 @@ export function createSynthesisReverseHostBroker(options: BrokerOptions) {
         await handler(call.payload, {
           requestId: call.requestId,
           operationId: call.operationId,
-          deadlineAtMs: call.deadlineAtMs,
+          deadlineAtMs,
           ...(call.capability === "retrieval.embedding.encode"
             ? {
                 recordQueueWait: (ms: number) => {
@@ -238,18 +241,20 @@ export function createSynthesisReverseHostBroker(options: BrokerOptions) {
       failure("unavailable", "reverse_host_stale_instance");
     }
     const now = options.now();
+    const maximumDeadlineAtMs =
+      now + synthesisReverseHostCallTimeoutMs(call.capability);
     if (
       call.deadlineAtMs <= now ||
-      call.deadlineAtMs >
-        now + synthesisReverseHostCallTimeoutMs(call.capability)
+      call.deadlineAtMs > maximumDeadlineAtMs + WALL_CLOCK_TOLERANCE_MS
     ) {
       failure("timeout", "reverse_host_deadline_invalid");
     }
+    const deadlineAtMs = Math.min(call.deadlineAtMs, maximumDeadlineAtMs);
     if (!options.isHostConnected()) {
       failure("unavailable", "reverse_host_disconnected");
     }
     if (!isEffect(call.capability)) {
-      return execute(call, input.signal);
+      return execute(call, deadlineAtMs, input.signal);
     }
 
     const identity = callIdentity(call);
@@ -264,7 +269,7 @@ export function createSynthesisReverseHostBroker(options: BrokerOptions) {
     if (inFlight) {
       return inFlight;
     }
-    const operation = execute(call)
+    const operation = execute(call, deadlineAtMs)
       .then((result) => {
         completedEffects.set(call.operationId, {
           callIdentity: identity,

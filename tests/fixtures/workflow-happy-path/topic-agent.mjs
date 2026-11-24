@@ -3,6 +3,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
+import { resolveFixtureBridgeCli } from "./ingest-agent.mjs";
 
 const TOPIC_SKILLS = new Set([
   "create-topic-synthesis-prepare",
@@ -612,10 +613,9 @@ function unwrapCli(stdout) {
 }
 
 function createCliReader(workspace) {
-  const cli = path.join(workspace, ".zotero-bridge", "bin", "zotero-bridge");
+  const cli = resolveFixtureBridgeCli(workspace);
   const payloads = path.join(workspace, "runtime", "payloads");
   const run = (command, inputName, query) => {
-    if (!existsSync(cli)) fail("bridge_missing");
     writeJson(path.join(payloads, inputName), query);
     const completed = spawnSync(
       cli,

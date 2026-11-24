@@ -12,6 +12,7 @@ import {
   normalizeSynthesisSidecarRpcError,
   SynthesisSidecarRpcError,
 } from "../../src/modules/synthesis/sidecar/synthesisSidecarRpcClient";
+import { createCancellationController } from "../../src/utils/wait";
 
 describe("Synthesis reverse Host endpoint", function () {
   it("exposes a normalized transfer cause in the native-consumed reason field", async function () {
@@ -41,6 +42,7 @@ describe("Synthesis reverse Host endpoint", function () {
           reason: "transport_unavailable",
           sidecarCode: "service_unavailable",
           sidecarReason: "transport_unavailable",
+          retryable: true,
         },
       },
     });
@@ -113,9 +115,17 @@ describe("Synthesis reverse Host endpoint", function () {
   }
 
   it("accepts only the scoped POST route and bearer token", async function () {
-    const calls: unknown[] = [];
+    const calls: Array<{
+      authorizationToken: string;
+      call: unknown;
+      signal?: unknown;
+    }> = [];
     const broker = {
-      async dispatch(input: unknown) {
+      async dispatch(input: {
+        authorizationToken: string;
+        call: unknown;
+        signal?: unknown;
+      }) {
         calls.push(input);
         return { accepted: true };
       },
@@ -136,12 +146,12 @@ describe("Synthesis reverse Host endpoint", function () {
       ok: true,
       result: { accepted: true },
     });
-    assert.deepEqual(calls, [
-      {
-        authorizationToken: "scoped-token",
-        call: { schema: SYNTHESIS_REVERSE_HOST_CALL_SCHEMA },
-      },
-    ]);
+    assert.lengthOf(calls, 1);
+    assert.equal(calls[0]?.authorizationToken, "scoped-token");
+    assert.deepEqual(calls[0]?.call, {
+      schema: SYNTHESIS_REVERSE_HOST_CALL_SCHEMA,
+    });
+    assert.isUndefined(calls[0]?.signal);
     assert.equal(
       (
         await handleSynthesisReverseHostHttpRequest(
@@ -156,6 +166,35 @@ describe("Synthesis reverse Host endpoint", function () {
       ).status,
       404,
     );
+  });
+
+  it("forwards an optional cancellation signal into the Broker dispatch", async function () {
+    const signals: unknown[] = [];
+    const broker = {
+      async dispatch(input: {
+        authorizationToken: string;
+        call: unknown;
+        signal?: unknown;
+      }) {
+        signals.push(input.signal);
+        return { accepted: true };
+      },
+    };
+    const cancellation = createCancellationController();
+
+    const result = await handleSynthesisReverseHostHttpRequest(
+      {
+        method: "POST",
+        path: SYNTHESIS_REVERSE_HOST_PATH,
+        headers: { authorization: "Bearer scoped-token" },
+        body: { schema: SYNTHESIS_REVERSE_HOST_CALL_SCHEMA },
+      },
+      broker,
+      cancellation.signal,
+    );
+
+    assert.equal(result.status, 200);
+    assert.deepEqual(signals, [cancellation.signal]);
   });
 
   it("returns stable status and structured details without leaking messages", async function () {

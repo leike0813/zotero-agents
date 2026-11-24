@@ -724,6 +724,10 @@ describe("Synthesis production runtime supervisor", function () {
       );
       releaseHealth.resolve();
       await observing;
+      await waitForSnapshot(
+        supervisor,
+        (snapshot) => snapshot.recoveryState === "scheduled",
+      );
 
       assert.equal(healthCalls, 2);
       assert.equal(supervisor.getSnapshot().restartCount, 1);

@@ -260,7 +260,9 @@ describe("Synthesis reverse Host broker", function () {
     assert.equal(reason(stale), "reverse_host_stale_instance");
   });
 
-  it("accepts a maintenance-length deadline for library reads", async function () {
+  it("bounds maintenance deadlines when the sender clock leads", async function () {
+    const deadlineAtMs =
+      10_000 + SYNTHESIS_REVERSE_HOST_LIMITS.maxCallTimeoutMs;
     const broker = createSynthesisReverseHostBroker({
       profileId,
       serviceInstanceId,
@@ -268,17 +270,25 @@ describe("Synthesis reverse Host broker", function () {
       now: () => 10_000,
       isHostConnected: () => true,
       authorizeCapability: () => true,
-      handlers: makeHandlers(() => emptyPage()),
+      handlers: {
+        ...makeHandlers(() => emptyPage()),
+        "library.items.list_page": async (_payload, context) => {
+          assert.equal(context.deadlineAtMs, deadlineAtMs);
+          return emptyPage();
+        },
+      },
     });
-    assert.deepEqual(
-      await broker.dispatch({
-        authorizationToken: token,
-        call: call("library.items.list_page", {
-          deadlineAtMs: 10_000 + SYNTHESIS_REVERSE_HOST_LIMITS.maxCallTimeoutMs,
+    for (const offset of [0, 4]) {
+      assert.deepEqual(
+        await broker.dispatch({
+          authorizationToken: token,
+          call: call("library.items.list_page", {
+            deadlineAtMs: deadlineAtMs + offset,
+          }),
         }),
-      }),
-      emptyPage(),
-    );
+        emptyPage(),
+      );
+    }
   });
 
   it("rejects authorization, instance, deadline, connection, and permission failures before effects", async function () {

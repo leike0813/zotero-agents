@@ -11,6 +11,7 @@ import { createBackendsPrefsDocument } from "../../../../src/backends/registry";
 import type { BackendInstance } from "../../../../src/backends/types";
 import { createAcpBackendFromPresetOptions } from "../../../../src/modules/acp/chat/acpBackendPresets";
 import { probeAcpBackendRuntimeOptions } from "../../../../src/modules/acp/transport/acpBackendProbe";
+import { shutdownAcpWebSocketBridgeService } from "../../../../src/modules/acp/transport/acpWebSocketBridgeService";
 import {
   listAcpSkillRuns,
   deleteAcpSkillRunRecords,
@@ -1423,14 +1424,18 @@ async function importPrivateSource(
             }
           },
           cleanup: async () => {
-            for (const run of listAcpSkillRuns().filter(
-              (run) => !priorRuns.has(run.requestId),
-            )) {
-              if (run.activePrompt) await cancelAcpSkillRun(run.requestId);
-              await endAcpSkillRunSession(run.requestId);
-              if (!live) await deleteAcpSkillRunRecords([run.requestId]);
+            try {
+              for (const run of listAcpSkillRuns().filter(
+                (run) => !priorRuns.has(run.requestId),
+              )) {
+                if (run.activePrompt) await cancelAcpSkillRun(run.requestId);
+                await endAcpSkillRunSession(run.requestId);
+                if (!live) await deleteAcpSkillRunRecords([run.requestId]);
+              }
+              return "passed" as const;
+            } finally {
+              await shutdownAcpWebSocketBridgeService();
             }
-            return "passed" as const;
           },
           healthGate: () => observeSystemE2EHealth(),
         });

@@ -952,6 +952,16 @@ export function applySkillRunnerRunEvent(
     case "run.terminal_client_error": {
       const existing = resolveEventRunRecord(event);
       if (!existing) return null;
+      if (
+        existing.status === "failed" &&
+        listSkillRunnerRunEvents(existing.runKey).some(
+          (recorded) =>
+            recorded.type === event.type &&
+            recorded.requestId === existing.requestId,
+        )
+      ) {
+        return null;
+      }
       return updateSkillRunnerRunStateByRequest({
         backendId: existing.backendId,
         requestId: existing.requestId || event.requestId || "",
