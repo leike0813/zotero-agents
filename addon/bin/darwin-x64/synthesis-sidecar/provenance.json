@@ -2,7 +2,7 @@
   "schema": "synthesis-rust-sidecar-provenance.v2",
   "target": "darwin-x64",
   "targetTriple": "x86_64-apple-darwin",
-  "sourceFingerprint": "1fd0f3176a7e5769711334f918ce5b18df15553e4b5945f1e0d8fc07452b7f5e",
+  "sourceFingerprint": "557e15a0a3dbbd3a25500e49d6af9a6e2f7077c4cb2d0974ee863d0cc8e6e49a",
   "toolchain": "nightly-2026-07-25",
   "cargoLockSha256": "b2f9614678d25ae66df48e7b5b05e27ac777ca8d0400bb386c264eba14d614f3",
   "licenseInventory": "licenses.json"
