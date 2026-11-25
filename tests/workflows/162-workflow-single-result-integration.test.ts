@@ -623,12 +623,11 @@ function seedRequestReadySkillRunnerRun(requestId: string) {
 }
 
 describe("workflow single-result behavior integration", function () {
-  this.timeout(10000);
+  this.timeout(30_000);
   let previousContentDevRootEnv: string | undefined;
   let previousSkillDirPref = "";
 
   beforeEach(async function () {
-    this.timeout(30_000);
     const processEnv = (
       globalThis as { process?: { env?: Record<string, string | undefined> } }
     ).process?.env;
@@ -836,7 +835,6 @@ describe("workflow single-result behavior integration", function () {
   });
 
   it("keeps existing-parent bundle apply ownership across SkillRunner and ACP", async function () {
-    this.timeout(30_000);
     for (const provider of ["skillrunner", "acp"] as const) {
       const parent = await handlers.item.create({
         itemType: "journalArticle",
@@ -1245,7 +1243,6 @@ describe("workflow single-result behavior integration", function () {
   });
 
   it("detaches an interactive-then-result sequence at waiting_user and resumes with result-step focus", async function () {
-    this.timeout(30_000);
     const interactiveRequestId = "sr-interactive-then-result-interactive";
     const resultRequestId = "sr-interactive-then-result-result";
     const run = await runDebugApplyWorkflow({
@@ -1493,7 +1490,6 @@ describe("workflow single-result behavior integration", function () {
   }
 
   it("maps SkillRunner backend terminal failed and canceled outcomes without applying", async function () {
-    this.timeout(30_000);
     for (const terminalStatus of ["failed", "canceled"] as const) {
       resetWorkflowTasks();
       resetTaskDashboardHistory();

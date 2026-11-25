@@ -208,6 +208,17 @@ export async function stopSynthesisProductionRouteSidecar(
   };
 }
 
+export function isSynthesisProductionRouteReadTimeout(
+  status: number,
+  body: { requestId?: unknown; error?: { code?: unknown } },
+) {
+  return (
+    status === 408 &&
+    body?.requestId === "unknown" &&
+    body.error?.code === "request_timeout"
+  );
+}
+
 export async function callSynthesisProductionRoute(
   port: number,
   capability: string,
@@ -711,8 +722,28 @@ export async function startSynthesisProductionRouteHarness(args: {
     })();
     const requestBytes = Buffer.byteLength(String(init?.body || ""));
     const startedAt = performance.now();
-    const result = await fetch(input, init);
-    const responseText = await result.clone().text();
+    let result = await fetch(input, init);
+    let responseText = await result.clone().text();
+    if (
+      result.status === 408 &&
+      isSynthesisProductionRouteReadTimeout(
+        result.status,
+        JSON.parse(responseText),
+      )
+    ) {
+      // The sidecar did not decode or dispatch the request.
+      result = await fetch(input, init);
+      responseText = await result.clone().text();
+      if (
+        result.status === 408 &&
+        isSynthesisProductionRouteReadTimeout(
+          result.status,
+          JSON.parse(responseText),
+        )
+      ) {
+        return result;
+      }
+    }
     args.onProtocolSample?.({
       capability,
       request: JSON.parse(String(init?.body || "{}")),

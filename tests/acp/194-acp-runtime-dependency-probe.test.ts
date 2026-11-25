@@ -1,4 +1,5 @@
 import { assert } from "chai";
+import { mock } from "node:test";
 import {
   buildAcpRuntimeDependencyPlan,
   defaultAcpRuntimeDependencyProbe,
@@ -27,6 +28,15 @@ describe("ACP dependency probe coordination", function () {
     });
     const previous = Object.getOwnPropertyDescriptor(globalThis, "ChromeUtils");
     let calls = 0;
+    let killed = false;
+    let startRetry!: () => void;
+    let finishRetry!: (result: { exitCode: number }) => void;
+    const retryStarted = new Promise<void>((resolve) => {
+      startRetry = resolve;
+    });
+    const retryExit = new Promise<{ exitCode: number }>((resolve) => {
+      finishRetry = resolve;
+    });
     Object.defineProperty(globalThis, "ChromeUtils", {
       configurable: true,
       value: {
@@ -46,13 +56,18 @@ describe("ACP dependency probe coordination", function () {
                       : "retry download";
                   },
                 },
-                wait: () =>
-                  attempt === 1
-                    ? new Promise((resolve) =>
-                        setTimeout(() => resolve({ exitCode: 1 }), 40),
-                      )
-                    : new Promise(() => undefined),
-                kill() {},
+                wait: async () => {
+                  if (attempt === 1) {
+                    mock.timers.tick(40);
+                    return { exitCode: 1 };
+                  }
+                  startRetry();
+                  return retryExit;
+                },
+                kill() {
+                  killed = true;
+                  finishRetry({ exitCode: 1 });
+                },
               };
             },
           },
@@ -60,16 +75,21 @@ describe("ACP dependency probe coordination", function () {
       },
     });
     try {
-      const started = Date.now();
-      const result = await defaultAcpRuntimeDependencyProbe({
+      mock.timers.enable({ apis: ["setTimeout", "Date"], now: Date.now() });
+      const probing = defaultAcpRuntimeDependencyProbe({
         dependencies: ["jinja2"],
         cwd: "/retry",
         env: {},
         timeoutMs: 70,
       });
-      assert.isFalse(result.ok);
+      await Promise.race([retryStarted, probing]);
       assert.equal(calls, 2);
-      assert.isBelow(Date.now() - started, 500);
+      mock.timers.tick(29);
+      assert.isFalse(killed);
+      mock.timers.tick(1);
+      const result = await probing;
+      assert.isTrue(killed);
+      assert.isFalse(result.ok);
       const attempts = result.details?.probeAttempts as {
         stderrTail: string;
       }[];
@@ -77,6 +97,7 @@ describe("ACP dependency probe coordination", function () {
       assert.include(attempts[0].stderrTail, "resolution failed");
       assert.include(attempts[1].stderrTail, "retry download");
     } finally {
+      mock.timers.reset();
       if (previous) Object.defineProperty(globalThis, "ChromeUtils", previous);
       else Reflect.deleteProperty(globalThis, "ChromeUtils");
     }

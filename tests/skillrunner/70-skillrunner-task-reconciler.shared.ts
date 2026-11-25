@@ -34,6 +34,7 @@ import {
   applySkillRunnerRunEvent,
   getSkillRunnerRunRecordByRequest,
   listSkillRunnerRunRecords,
+  trackSkillRunnerForegroundWorkflowUnit,
 } from "../../src/modules/skillRunner/run/skillRunnerRunStore";
 import { resetSkillRunnerSessionSyncForTests } from "../../src/modules/skillRunner/run/skillRunnerSessionSyncManager";
 import { resetSkillRunnerForegroundContinuationForTests } from "../../src/modules/skillRunner/run/skillRunnerForegroundContinuation";
@@ -133,6 +134,7 @@ function makeJob(args: {
 function persistRun(args: {
   requestId: string;
   state: JobState;
+  submissionUnitId?: string;
   applyState?:
     | "idle"
     | "pending"
@@ -178,6 +180,7 @@ function persistRun(args: {
         args.sequenceRunId || String(job.meta.runId || `run-${args.requestId}`),
       jobId: job.id,
       taskName: String(job.meta.taskName || job.id),
+      submissionUnitId: args.submissionUnitId,
       skillId: String(job.meta.skillId || "") || undefined,
       sequenceRunId: args.sequenceRunId,
       sequenceJobId: args.sequenceRunId,
@@ -634,10 +637,9 @@ export function registerSkillRunnerTaskReconcilerForegroundHandoffTests() {
         applyState: "running",
       });
 
-      await reconcileSkillRunnerMissingContextOnce({
-        backendId: TEST_SKILLRUNNER_BACKEND_ID,
-        source: "startup",
-      });
+      const reconciler = createTrackedReconciler();
+      reconciler.start();
+      await reconciler.drain();
 
       const stored = getSkillRunnerRunRecordByRequest({
         backendId: TEST_SKILLRUNNER_BACKEND_ID,
@@ -646,6 +648,43 @@ export function registerSkillRunnerTaskReconcilerForegroundHandoffTests() {
       assert.equal(counts["/v1/jobs/req-apply-running"] || 0, 0);
       assert.equal(stored?.status, "failed");
       assert.include(stored?.error || "", "unrecoverable-apply-running");
+    });
+
+    it("leaves an in-progress apply to the foreground after backend recovery", async function () {
+      const reconciler = createTrackedReconciler();
+      reconciler.start();
+      const requestId = "req-live-apply";
+      const backendId = TEST_SKILLRUNNER_BACKEND_ID;
+      persistRun({ requestId, state: "succeeded", applyState: "running" });
+
+      markSkillRunnerBackendHealthFailure({
+        backendId,
+        error: new Error("offline"),
+      });
+      markSkillRunnerBackendHealthFailure({
+        backendId,
+        error: new Error("offline"),
+      });
+      markSkillRunnerBackendHealthSuccess(backendId);
+      await reconciler.drain();
+
+      const current = getSkillRunnerRunRecordByRequest({
+        backendId,
+        requestId,
+      });
+      assert.equal(current?.status, "succeeded");
+      assert.equal(current?.apply.state, "running");
+      applySkillRunnerRunEvent({
+        type: "apply.succeeded",
+        backendId,
+        requestId,
+      });
+      const settled = getSkillRunnerRunRecordByRequest({
+        backendId,
+        requestId,
+      });
+      assert.equal(settled?.status, "succeeded");
+      assert.equal(settled?.apply.state, "succeeded");
     });
 
     it("fires backend-healthy recovery handoff once for flagged backends", async function () {
@@ -679,6 +718,33 @@ export function registerSkillRunnerTaskReconcilerForegroundHandoffTests() {
       await reconciler.drain();
 
       assert.equal(counts["/v1/jobs/req-backend-healthy"], 1);
+    });
+
+    it("recovers a submitted request only after its foreground workflow releases it", async function () {
+      const requestId = "req-foreground-owned";
+      const backendId = TEST_SKILLRUNNER_BACKEND_ID;
+      const route = `/v1/jobs/${requestId}`;
+      const counts: Record<string, number> = {};
+      installFetchRouter(
+        { [route]: { request_id: requestId, status: "waiting_user" } },
+        counts,
+      );
+      const submissionUnitId = "submission-unit-foreground-owned";
+      persistRun({ requestId, state: "running", submissionUnitId });
+      const reconcile = () =>
+        reconcileSkillRunnerMissingContextOnce({
+          backendId,
+          source: "backend-healthy",
+        });
+      const release = trackSkillRunnerForegroundWorkflowUnit(submissionUnitId);
+      try {
+        await reconcile();
+        assert.equal(counts[route] || 0, 0);
+      } finally {
+        release();
+      }
+      await reconcile();
+      assert.equal(counts[route], 1);
     });
 
     it("starts auto-reply observer when recovery restores an enabled waiting run", async function () {

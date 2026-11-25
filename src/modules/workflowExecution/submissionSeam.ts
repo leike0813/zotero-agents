@@ -1,3 +1,4 @@
+import { DEFAULT_BACKEND_TYPE } from "../../config/defaults";
 import type { WorkflowSubmissionQueue } from "../../jobQueue/workflowSubmissionQueue";
 import type {
   WorkflowExecutionUnitOutcome,
@@ -6,6 +7,7 @@ import type {
   WorkflowSubmissionSummary,
 } from "../../jobQueue/workflowSubmissionQueueContracts";
 import type { appendRuntimeLog } from "../runtimeLogManager";
+import { trackSkillRunnerForegroundWorkflowUnit } from "../skillRunner/run/skillRunnerRunStore";
 import type { WorkflowMessageFormatter } from "./workflowExecuteMessage";
 import type {
   PreparedWorkflowExecution,
@@ -140,10 +142,19 @@ export async function submitPreparedWorkflowUnits(
     string,
     PreparedWorkflowUnitExecutionResult
   >();
+  const backendType = String(
+    args.prepared.executionContext.backend.type || "",
+  ).trim();
   const executeUnit = async (
     unit: PreparedWorkflowUnit,
     submissionContext?: WorkflowSubmissionQueueExecutionContext,
   ) => {
+    const releaseForegroundUnit =
+      backendType === DEFAULT_BACKEND_TYPE && submissionContext
+        ? trackSkillRunnerForegroundWorkflowUnit(
+            submissionContext.submissionUnitId,
+          )
+        : undefined;
     let result: PreparedWorkflowUnitExecutionResult;
     try {
       result = await deps.executePreparedUnit({
@@ -174,6 +185,8 @@ export async function submitPreparedWorkflowUnits(
         },
         error,
       });
+    } finally {
+      releaseForegroundUnit?.();
     }
     executionResults.set(unit.unitId, result);
     return result.outcome;
@@ -185,9 +198,6 @@ export async function submitPreparedWorkflowUnits(
       reasonCode: "workflow-unit-filtered-or-duplicate",
     }),
   );
-  const backendType = String(
-    args.prepared.executionContext.backend.type || "",
-  ).trim();
   if (backendType === "acp" || backendType === "skillrunner") {
     const providerOptions =
       args.prepared.executionContext.providerOptions || {};

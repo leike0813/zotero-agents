@@ -1,7 +1,7 @@
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::fs;
-use std::io::{Read, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
@@ -94,21 +94,29 @@ fn read_http_request(stream: &mut TcpStream) {
     stream
         .set_read_timeout(Some(Duration::from_secs(2)))
         .expect("reverse host timeout");
-    let mut bytes = Vec::new();
-    let mut byte = [0_u8; 1];
-    while !bytes.ends_with(b"\r\n\r\n") {
-        stream.read_exact(&mut byte).expect("request header");
-        bytes.push(byte[0]);
+    read_http_body(stream, "reverse host request");
+}
+
+fn read_http_body(stream: &mut TcpStream, context: &str) -> Vec<u8> {
+    let mut reader = BufReader::new(stream);
+    let mut header = String::new();
+    while !header.ends_with("\r\n\r\n") {
+        let count = reader
+            .read_line(&mut header)
+            .unwrap_or_else(|error| panic!("{context} header: {error}"));
+        assert!(count > 0, "{context} header ended early");
     }
-    let header = String::from_utf8(bytes).expect("request header utf8");
     let content_length = header
         .lines()
         .filter_map(|line| line.split_once(':'))
         .find(|(name, _)| name.eq_ignore_ascii_case("content-length"))
         .and_then(|(_, value)| value.trim().parse::<usize>().ok())
-        .expect("request content length");
+        .unwrap_or_else(|| panic!("{context} has no valid Content-Length"));
     let mut body = vec![0_u8; content_length];
-    stream.read_exact(&mut body).expect("request body");
+    reader
+        .read_exact(&mut body)
+        .unwrap_or_else(|error| panic!("{context} body: {error}"));
+    body
 }
 
 fn target_identity() -> (&'static str, &'static str, Value) {
@@ -495,22 +503,19 @@ fn call(
     stream
         .set_write_timeout(Some(Duration::from_secs(10)))
         .expect("call write timeout");
-    write!(
-        stream,
+    let mut request = format!(
         "POST /synthesis/v1/call HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nAuthorization: Bearer {lifecycle_token}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
         body.len()
     )
-    .and_then(|_| stream.write_all(&body))
-    .and_then(|_| stream.flush())
-    .expect("send call");
-    let mut response = Vec::new();
-    stream.read_to_end(&mut response).expect("call response");
-    let body = response
-        .windows(4)
-        .position(|window| window == b"\r\n\r\n")
-        .map(|index| &response[index + 4..])
-        .expect("call response body");
-    serde_json::from_slice(body).expect("call response json")
+    .into_bytes();
+    request.extend_from_slice(&body);
+    stream
+        .write_all(&request)
+        .and_then(|_| stream.flush())
+        .expect("send call");
+    let response = read_http_body(&mut stream, request_id);
+    serde_json::from_slice(&response)
+        .unwrap_or_else(|error| panic!("{request_id} response JSON: {error}"))
 }
 
 fn shutdown(port: u16, lifecycle_token: &str) -> Value {

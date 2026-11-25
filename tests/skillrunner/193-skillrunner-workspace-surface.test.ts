@@ -1648,11 +1648,15 @@ describe("SkillRunner workspace surface (read model + adapter)", function () {
           details?.status === "ready" &&
           details.sections.some(
             (section) =>
-              section.sectionId === "revision-summary" &&
-              section.items.some((item) => item.fieldId === "count"),
+              section.sectionId === "conversation-summary" &&
+              section.items.some(
+                (item) =>
+                  item.fieldId === "latest-kind" &&
+                  item.value === "assistant_final",
+              ),
           )
         );
-      }, "owner details with revision summary");
+      }, "owner details with the final assistant message");
       const regions = await SKILLRUNNER_WORKSPACE_ADAPTER.readOwnerRegions({
         owner: selectedOwner()!,
         kinds: ["owner-details"],

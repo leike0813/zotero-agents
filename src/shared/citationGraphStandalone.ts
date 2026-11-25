@@ -78,11 +78,6 @@ type CitationGraphLabelKey =
   | "currentPaper"
   | "scope";
 
-type RuntimeState = {
-  pointerHoveredNode?: string;
-  hoverClearTimer?: number;
-};
-
 function text(value: unknown, fallback = "") {
   return String(value ?? fallback).trim();
 }
@@ -153,13 +148,6 @@ function haloColors(node: CitationGraphNode, model: CitationGraphRenderModel) {
     strong: GRAPH_EXTERNAL_IMPORTANCE_HALO_LIGHT,
     soft: GRAPH_EXTERNAL_IMPORTANCE_HALO_LIGHT_SOFT,
   };
-}
-
-function cancelScheduledHoverClear(state: RuntimeState) {
-  if (state.hoverClearTimer) {
-    window.clearTimeout(state.hoverClearTimer);
-    state.hoverClearTimer = undefined;
-  }
 }
 
 function renderShell(
@@ -269,7 +257,6 @@ function renderSvgCitationGraph(
   container: HTMLElement,
   model: ProjectedCitationGraphRenderModel,
   options: CitationGraphRenderOptions,
-  state: RuntimeState,
 ) {
   renderShell(container, model, options);
   const stage = container.querySelector(
@@ -277,6 +264,9 @@ function renderSvgCitationGraph(
   ) as HTMLElement | null;
   if (!stage) return;
   const graphStage = stage;
+  let pointerNode: string | undefined;
+  let pendingPointerNode: string | undefined;
+  let hoverTimer: number | undefined;
 
   function connectedToActive(edge: CitationGraphEdge, activeNode: string) {
     return edge.source === activeNode || edge.target === activeNode;
@@ -287,7 +277,6 @@ function renderSvgCitationGraph(
       model.selectedElement?.kind === "node"
         ? model.selectedElement.id
         : undefined;
-    const pointerNode = state.pointerHoveredNode;
     const visibleNodeIds = new Set(model.nodes.map((node) => node.id));
     const ownerIds = Array.from(
       new Set(
@@ -395,36 +384,29 @@ function renderSvgCitationGraph(
       `<g class="graph-nodes">${nodeHtml}</g>`,
       "</svg>",
     ].join("");
-
-    const nodeElements = graphStage.querySelectorAll(
-      "[data-node-id]",
-    ) as NodeListOf<SVGElement>;
-    nodeElements.forEach((nodeEl: SVGElement) => {
-      nodeEl.addEventListener("mouseenter", () => {
-        const nodeId = nodeEl.dataset.nodeId;
-        cancelScheduledHoverClear(state);
-        state.hoverClearTimer = window.setTimeout(() => {
-          state.pointerHoveredNode = nodeId;
-          redrawStage();
-        }, 60);
-      });
-      nodeEl.addEventListener("mouseleave", () => {
-        cancelScheduledHoverClear(state);
-        state.hoverClearTimer = window.setTimeout(() => {
-          state.pointerHoveredNode = undefined;
-          redrawStage();
-        }, 80);
-      });
-    });
   }
 
-  graphStage.addEventListener("mouseleave", () => {
-    cancelScheduledHoverClear(state);
-    state.hoverClearTimer = window.setTimeout(() => {
-      state.pointerHoveredNode = undefined;
-      redrawStage();
-    }, 80);
+  function schedulePointerNode(nodeId?: string) {
+    if (nodeId === pendingPointerNode) return;
+    pendingPointerNode = nodeId;
+    window.clearTimeout(hoverTimer);
+    if (nodeId === pointerNode) return;
+    hoverTimer = window.setTimeout(
+      () => {
+        if (!container.contains(graphStage)) return;
+        pointerNode = nodeId;
+        redrawStage();
+      },
+      nodeId === undefined ? 80 : 60,
+    );
+  }
+
+  graphStage.addEventListener("pointermove", ({ target }) => {
+    const node =
+      target instanceof Element ? target.closest("[data-node-id]") : null;
+    schedulePointerNode(node?.getAttribute("data-node-id") ?? undefined);
   });
+  graphStage.addEventListener("pointerleave", () => schedulePointerNode());
   redrawStage();
   container.dataset.zsCgStatus = "ready";
   delete container.dataset.zsCgError;
@@ -473,7 +455,7 @@ export function renderCitationGraph(
     hoverOnlyEdges: projection.hoverOnlyEdges,
   };
   try {
-    renderSvgCitationGraph(container, drawableModel, options, {});
+    renderSvgCitationGraph(container, drawableModel, options);
   } catch (error) {
     const message = `Citation graph renderer failed: ${text((error as Error)?.message, "unknown error")}`;
     renderEmpty(container, options, message, "failed");

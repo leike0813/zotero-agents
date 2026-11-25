@@ -80,6 +80,7 @@ import {
   SYNTHESIS_PRODUCTION_ROUTE_EXECUTABLE as EXECUTABLE,
   callSynthesisProductionRoute as call,
   captureSynthesisProductionRouteDurableState as captureDurableState,
+  isSynthesisProductionRouteReadTimeout,
   startSynthesisProductionRouteHarness,
   startSynthesisProductionRouteSidecar as start,
   stopSynthesisProductionRouteSidecar as stop,
@@ -704,8 +705,18 @@ describe("Synthesis Rust production client route", function () {
     const seeds = new Map<string, boolean>();
     let verified = 0;
     let accepted = 0;
-    const observe = async (capability: string, value: unknown) =>
-      (await call(harness.port, capability, value)).body;
+    const observe = async (capability: string, value: unknown) => {
+      const response = await call(harness.port, capability, value);
+      // A read timeout with no request ID is issued before dispatch.
+      const observed = isSynthesisProductionRouteReadTimeout(
+        response.status,
+        response.body,
+      )
+        ? await call(harness.port, capability, value)
+        : response;
+      assert.notEqual(observed.status, 408, `${capability}: request not read`);
+      return observed.body;
+    };
     const isRejection = (capability: string, result: Record<string, any>) =>
       (result.ok === false && result.error?.code === "invalid_request") ||
       (capability === "client.resolveResolver" &&

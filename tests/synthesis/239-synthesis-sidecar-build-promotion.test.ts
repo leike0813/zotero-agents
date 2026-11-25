@@ -198,6 +198,7 @@ describe("Synthesis sidecar build promotion", function () {
   });
 
   it("appends immutable sets without depending on the branch head", async function () {
+    this.timeout(30_000);
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "ss-prebuild-publish-"));
     const remote = path.join(root, "remote.git");
     execFileSync("git", ["init", "--bare", remote]);

@@ -3,6 +3,7 @@ import { listBackendInstancesSync } from "../../../backends/registry";
 import { DEFAULT_BACKEND_TYPE } from "../../../config/defaults";
 import type { JobState } from "../../../jobQueue/manager";
 import type { ProviderProgressEvent } from "../../../providers/types";
+import { resolveRuntimeZotero } from "../../../utils/runtimeBridge";
 import {
   appendPluginRunEventStoreEntry,
   clearPluginRunStore,
@@ -401,6 +402,33 @@ export type SkillRunnerRunEvent =
 const SKILLRUNNER_RUN_SCHEMA_VERSION = "3.0.0";
 let eventCounter = 0;
 const listeners = new Set<() => void>();
+const foregroundWorkflowUnitsKey = Symbol.for(
+  "zotero-agents.skillrunner.foreground-workflow-units",
+);
+
+function foregroundWorkflowUnitScope() {
+  // The host is shared even when the plugin and workflow are bundled separately.
+  return (resolveRuntimeZotero() ?? globalThis) as {
+    [foregroundWorkflowUnitsKey]?: Set<string>;
+  };
+}
+
+export function trackSkillRunnerForegroundWorkflowUnit(unitId: string) {
+  const scope = foregroundWorkflowUnitScope();
+  const active = (scope[foregroundWorkflowUnitsKey] ??= new Set());
+  active.add(unitId);
+  return () => {
+    active.delete(unitId);
+  };
+}
+
+export function isSkillRunnerForegroundWorkflowUnitActive(unitId?: string) {
+  return (
+    !!unitId &&
+    foregroundWorkflowUnitScope()[foregroundWorkflowUnitsKey]?.has(unitId) ===
+      true
+  );
+}
 const readDiagnostics: SkillRunnerRunStoreReadDiagnostics = {
   fullPayloadReadCount: 0,
   fullPayloadQueryCount: 0,

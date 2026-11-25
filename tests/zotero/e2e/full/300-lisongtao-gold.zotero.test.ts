@@ -1046,10 +1046,18 @@ describe("Synthesis E2E gold library", function () {
           paperRefs: [`${items[0].libraryID}:${items[0].key}`],
         });
         const topic = topicRequest.bundle.topic_definition;
-        const applied =
-          await topicClient.client.workflowApply.applyTopicSynthesisResult(
-            topicRequest,
-          );
+        const applied = await topicClient.client.workflowApply
+          .applyTopicSynthesisResult(topicRequest)
+          .catch((error: unknown) => {
+            if (!(error instanceof SynthesisClientError)) throw error;
+            const reason = error.details?.sidecarReason ?? error.code;
+            throw new Error(
+              `Synthetic Topic apply failed (${error.code}, ${reason})`,
+              {
+                cause: error,
+              },
+            );
+          });
         assert.equal(applied.status, "persisted");
         topicId = topic.id;
         first

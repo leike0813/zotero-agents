@@ -131,7 +131,7 @@ function rawRequest(args: {
   );
 }
 
-function installXpcom() {
+function installXpcom(waitForFileCopy: () => Promise<void> | undefined) {
   const runtime = globalThis as any;
   const previousComponents = Object.getOwnPropertyDescriptor(
     runtime,
@@ -183,7 +183,7 @@ function installXpcom() {
                 closeSink = closeSinkValue;
               },
               asyncCopy(observer: any) {
-                setTimeout(async () => {
+                void Promise.resolve(waitForFileCopy()).then(async () => {
                   if (canceled) return;
                   try {
                     const bytes = await readRuntimeBytes(source.path);
@@ -194,7 +194,7 @@ function installXpcom() {
                   } catch {
                     observer.onStopRequest(null, 1);
                   }
-                }, 20);
+                });
               },
               cancel() {
                 canceled = true;
@@ -271,9 +271,11 @@ function parseRawHttpResponse(raw: string) {
 describe("host bridge socket lifecycle", function () {
   let restoreXpcom: () => void;
   let listeners: SocketListener[];
+  let fileCopyGate: Promise<void> | undefined;
 
   beforeEach(function () {
-    restoreXpcom = installXpcom();
+    fileCopyGate = undefined;
+    restoreXpcom = installXpcom(() => fileCopyGate);
     listeners = [];
     setPref("hostBridgeLanEnabled", false);
     setPref("hostBridgePinPortEnabled", false);
@@ -474,6 +476,7 @@ describe("host bridge socket lifecycle", function () {
   });
 
   it("retains accepted ownership until an asynchronous file copy completes", async function () {
+    this.timeout(20_000);
     const root = joinPath(
       getRuntimePersistencePaths().tmpDir,
       `socket-file-${Date.now()}-${Math.random().toString(36).slice(2)}`,
@@ -485,6 +488,8 @@ describe("host bridge socket lifecycle", function () {
     }
     await writeRuntimeBytes(filePath, bytes, { overwrite: true });
     setPref("hostBridgeToken", "file-copy-token");
+    const copy = Promise.withResolvers<void>();
+    fileCopyGate = copy.promise;
     try {
       const descriptor = await registerHostBridgeExportFile({
         localPath: filePath,
@@ -502,14 +507,15 @@ describe("host bridge socket lifecycle", function () {
         }),
       );
 
-      await waitUntil(() => transport.output.chunks.length > 0);
+      await waitUntil(() => transport.output.chunks.length > 0, 5_000);
       assert.equal(transport.output.closeCount, 0);
       assert.equal(
         hostBridgeServerInternalsForTests.getAcceptedConnectionCount(),
         1,
       );
 
-      await waitUntil(() => transport.output.closeCount === 1);
+      copy.resolve();
+      await waitUntil(() => transport.output.closeCount === 1, 5_000);
       const parsed = parseRawHttpResponse(transport.output.text());
       assert.equal(parsed.status, 200);
       assert.equal(parsed.body.length, bytes.byteLength);
@@ -518,6 +524,8 @@ describe("host bridge socket lifecycle", function () {
         0,
       );
     } finally {
+      copy.resolve();
+      await shutdownHostBridgeServer();
       await removeRuntimePath(root);
     }
   });

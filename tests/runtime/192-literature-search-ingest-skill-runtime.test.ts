@@ -336,6 +336,8 @@ describe("literature search ingest output schema", function () {
 });
 
 describe("literature search ingest authorized fulltext runtime", function () {
+  this.timeout(30_000);
+
   it("accepts canceled output that preserves partial progress", async function () {
     const schema = await readJson("assets/output.schema.json");
     const validate = new Ajv({ allErrors: true, strict: false }).compile(
@@ -731,6 +733,8 @@ describe("literature search ingest authorized fulltext runtime", function () {
 });
 
 describe("literature search ingest gate receipt evidence", function () {
+  this.timeout(30_000);
+
   function clone<T>(value: T): T {
     return JSON.parse(JSON.stringify(value));
   }

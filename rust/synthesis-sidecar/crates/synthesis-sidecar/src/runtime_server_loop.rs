@@ -287,12 +287,21 @@ mod tests {
         assert!(transport.accept_if_capacity().expect("saturated").is_none());
 
         leases.pop();
-        assert!(
-            transport
-                .accept_if_capacity()
-                .expect("capacity released")
-                .is_some()
+        // A completed client connect can precede readiness on the nonblocking listener.
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let accepted = loop {
+            if let Some(stream) = transport.accept_if_capacity().expect("capacity released") {
+                break stream;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "queued connection was not accepted"
+            );
+            thread::sleep(Duration::from_millis(5));
+        };
+        assert_eq!(
+            accepted.peer_addr().expect("accepted peer"),
+            queued.local_addr().expect("queued address"),
         );
-        drop(queued);
     }
 }

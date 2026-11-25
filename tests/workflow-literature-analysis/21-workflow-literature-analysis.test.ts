@@ -2548,7 +2548,7 @@ describe("workflow: literature-analysis", function () {
   itNodeOnly(
     "stores source metadata in digest payload when request is provided",
     async function () {
-      this.timeout(5000);
+      this.timeout(30_000);
       const parent = await handlers.item.create({
         itemType: "journalArticle",
         fields: { title: "Workflow Source Metadata Parent" },

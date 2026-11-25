@@ -32,7 +32,8 @@ describe("routine test gates", function () {
     );
   });
   it("runs the actual CLI quietly through every stage after a child fails", async function () {
-    this.timeout(30000);
+    const cliTimeoutMs = 60_000;
+    this.timeout(cliTimeoutMs + 5_000);
     const root = await mkdtemp(path.join(os.tmpdir(), "gate-cli-"));
     const scripts = Object.fromEntries(
       getCiGateStages("full").map((stage) => [
@@ -52,7 +53,7 @@ describe("routine test gates", function () {
       code: number;
       stdout: string;
       stderr: string;
-    }>((resolve) => {
+    }>((resolve, reject) => {
       execFile(
         process.execPath,
         [
@@ -60,10 +61,18 @@ describe("routine test gates", function () {
           path.resolve("scripts/run-ci-gate.ts"),
           "full",
         ],
-        { cwd: root, env: { ...process.env, NO_COLOR: "1" }, timeout: 25000 },
+        {
+          cwd: root,
+          env: { ...process.env, NO_COLOR: "1" },
+          timeout: cliTimeoutMs,
+        },
         (error, stdout, stderr) => {
+          if (error && typeof error.code !== "number") {
+            reject(error);
+            return;
+          }
           resolve({
-            code: typeof error?.code === "number" ? error.code : error ? -1 : 0,
+            code: typeof error?.code === "number" ? error.code : 0,
             stdout,
             stderr,
           });

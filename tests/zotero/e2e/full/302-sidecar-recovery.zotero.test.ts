@@ -22,11 +22,13 @@ import {
   listSidecarDiscoveries,
   observeSystemE2EHealth,
   processIsAlive,
+  SIDECAR_SETTLE_WINDOW_MS,
   terminateProcess,
   waitUntil,
   type SidecarDiscoveryEntry,
 } from "../../../../scripts/system-e2e/healthGate";
 import {
+  assertRuntimePathBudget,
   getRuntimePersistencePaths,
   ensureRuntimeDirectoryExclusive,
   ensureRuntimeDirectoryStrict,
@@ -37,13 +39,16 @@ import {
   runtimePathExists,
   setRuntimeFilePermissions,
   writeRuntimeTextFile,
+  writeRuntimeTextFileStrict,
 } from "../../../../src/modules/runtimePersistence";
+import { buildSubprocessEnvironment } from "../../../../src/platform/env";
 import { detectRuntimePlatform } from "../../../../src/platform/runtimePlatform";
 import { setSystemE2ELaunchFault } from "../../../../src/modules/systemE2ETestRun";
 import { executeOneShotSubprocess } from "../../../../src/platform/subprocess";
 import { joinPath } from "../../../../src/utils/path";
 import { getPref, setPref } from "../../../../src/utils/prefs";
 import { resolveHostBridgeCliBinary } from "../../../../src/modules/hostBridge/cli/hostBridgeCliResolver";
+import { getHostBridgeToken } from "../../../../src/modules/hostBridge/server/hostBridgeAuth";
 import { ensureHostBridgeServer } from "../../../../src/modules/hostBridge/server/hostBridgeServer";
 import { createNativeSynthesisClientComposition } from "../../../../src/modules/synthesisClient/nativeComposition";
 import {
@@ -102,7 +107,14 @@ type HostBridgeCliEnvelope = {
     capability?: string;
     data?: Record<string, unknown>;
   };
-  error?: { code?: string; message?: string; details?: { status?: number } };
+  error?: {
+    code?: string;
+    message?: string;
+    details?: {
+      status?: number;
+      bridge?: { error?: { details?: { reasonCode?: string } } };
+    };
+  };
 };
 
 async function readyDiscovery(
@@ -638,12 +650,17 @@ async function productionLockAvailable() {
   return result.outcome === "exited" && result.exitCode === 0;
 }
 
-async function runHostBridgeCli(args: string[], timeoutMs = 120_000) {
+async function runHostBridgeCli(
+  args: string[],
+  timeoutMs = 120_000,
+  environment?: Record<string, string>,
+) {
   const cli = await resolveHostBridgeCliBinary();
   if (!cli.available) throw new Error(cli.code);
   const result = await executeOneShotSubprocess({
     command: cli.binaryPath,
     args,
+    environment,
     timeoutMs,
   });
   let output: HostBridgeCliEnvelope;
@@ -781,7 +798,6 @@ describe("System E2E sidecar recovery", function () {
   sl("SL-01", "SL-01 restores a healthy owner and exports through the default Bridge", async function () {
     const initial = await responsiveReadyDiscovery();
     const composition = await clientFor(initial);
-    let shutdownAccepted = false;
     let restored: SidecarDiscoveryEntry;
     let caseError = "";
     const ownedItems: Zotero.Item[] = [];
@@ -814,6 +830,8 @@ describe("System E2E sidecar recovery", function () {
             digest: { markdown: "## Summary\n\nSynthetic recovered export digest." },
           });
           assert.equal(applied.outcome, "committed");
+          const bridgeProfilePath = joinPath(runRoot, "bridge.json");
+          assertRuntimePathBudget(bridgeProfilePath);
           await ensureRuntimeDirectoryStrict(parentPath(runRoot));
           await ensureRuntimeDirectoryExclusive(runRoot);
           runRootReserved = true;
@@ -821,6 +839,15 @@ describe("System E2E sidecar recovery", function () {
           const bridge = await plugin.hooks.onPrefsEvent("showHostBridgeEndpoint", {});
           assert.isTrue(bridge.ok);
           assert.equal(bridge.details.status, "running");
+          const endpoint = String(bridge.details.endpoint);
+          assert.isNotEmpty(endpoint);
+          // Other E2E bundles can publish their Bridge to the well-known profile.
+          await writeRuntimeTextFileStrict(bridgeProfilePath, JSON.stringify({ endpoint }));
+          const environment = buildSubprocessEnvironment({
+            ZOTERO_BRIDGE_TOKEN: getHostBridgeToken(),
+          });
+          const runProductionBridgeCli = (args: string[], timeoutMs?: number) =>
+            runHostBridgeCli(["--endpoint", endpoint, "--profile", bridgeProfilePath, ...args], timeoutMs, environment);
           const fetchOwner = Zotero.getMainWindow() as unknown as {
             fetch: typeof globalThis.fetch;
           };
@@ -828,12 +855,6 @@ describe("System E2E sidecar recovery", function () {
             fetch: fetchOwner.fetch.bind(fetchOwner),
             timeoutMs: 10_000,
           }).shutdown(composition.controlConnection);
-          shutdownAccepted = true;
-          restored = await waitUntil(
-            async () =>
-              (await readyDiscovery(initial.discovery.serviceInstanceId)) ||
-              null,
-          );
           await waitUntil(async () =>
             !(await runtimePathExists(initial.path)) &&
             !(await processIsAlive(initial.discovery.pid))
@@ -841,16 +862,26 @@ describe("System E2E sidecar recovery", function () {
               : null,
           );
           const query = { paper_refs: [paperRef(paper)], artifact_types: ["digest"] };
-          await waitUntil(async () => {
-            const probe = await runHostBridgeCli([
+          let lastBridgeReason = "";
+          restored = await waitUntil(async () => {
+            const candidate = await readyDiscovery(initial.discovery.serviceInstanceId);
+            if (!candidate) return null;
+            const probe = await runProductionBridgeCli([
               "synthesis", "artifact", "manifest", "--query", JSON.stringify(query),
             ], 10_000);
-            if (probe.output.error?.details?.status === 503) return null;
+            if (probe.output.error?.details?.status === 503) {
+              const error = probe.output.error;
+              lastBridgeReason = error.details?.bridge?.error?.details?.reasonCode || error.code || "unknown";
+              return null;
+            }
             assert.equal(probe.exitCode, 0, JSON.stringify(probe.output.error));
             assert.isTrue(probe.output.ok);
-            return probe;
-          }, 30_000, "sl-01-default-bridge-ready");
-          const exported = await runHostBridgeCli([
+            return candidate;
+          }, SIDECAR_SETTLE_WINDOW_MS, "sl-01-default-bridge-ready").catch((error) => {
+            if (!lastBridgeReason) throw error;
+            throw new Error(`${error.message} (last Bridge 503 ${lastBridgeReason})`, { cause: error });
+          });
+          const exported = await runProductionBridgeCli([
             "synthesis", "artifact", "export-filtered", "--query",
             JSON.stringify({ ...query, run_root: runRoot }),
           ]);
@@ -896,11 +927,11 @@ describe("System E2E sidecar recovery", function () {
       familyId: "SL",
       caseId: "SL-01",
       result,
-      publicOutcome: result.abort
-        ? undefined
-        : "shutdown_response_flushed_owner_restored_and_default_export_delivered",
+      publicOutcome: exportVerified
+        ? "shutdown_response_flushed_owner_restored_and_default_export_delivered"
+        : undefined,
       evidence:
-        result.abort || !shutdownAccepted || !exportVerified
+        result.abort || !exportVerified
           ? []
           : [
               {

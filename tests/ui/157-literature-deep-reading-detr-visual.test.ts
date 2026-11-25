@@ -1828,8 +1828,12 @@ describe("Synthesis Citation Graph WebGL lifecycle", function () {
     });
     try {
       await fallbackPage.setContent(
-        '<div data-citation-graph style="width:800px;height:600px"></div>',
+        '<div data-citation-graph style="width:800px;height:600px"></div>' +
+          '<button style="position:fixed;right:0;bottom:0">Outside graph</button>',
       );
+      await fallbackPage.addStyleTag({
+        path: path.resolve("src/shared/citationGraphStandalone.css"),
+      });
       await fallbackPage.addScriptTag({ path: fallbackBundlePath });
       await fallbackPage.evaluate(() => {
         const model = {
@@ -1907,13 +1911,25 @@ describe("Synthesis Citation Graph WebGL lifecycle", function () {
           ),
           edgeCount: document.querySelectorAll(".graph-edge").length,
         }));
+      const waitForEdgeCount = (count: number) =>
+        fallbackPage.waitForFunction(
+          (expected) =>
+            document.querySelectorAll(".graph-edge").length === expected,
+          count,
+          { timeout: 5_000 },
+        );
       assert.deepEqual(await readSvg(), {
         nodeIds: ["library:A", "library:B", "external:shared"],
         edgeCount: 0,
       });
 
-      await fallbackPage.locator('[data-node-id="library:A"]').hover();
-      await fallbackPage.waitForTimeout(180);
+      const nodeA = fallbackPage.locator('[data-node-id="library:A"]');
+      const nodeB = fallbackPage.locator('[data-node-id="library:B"]');
+      const outsideGraph = fallbackPage.getByRole("button", {
+        name: "Outside graph",
+      });
+      await nodeA.hover();
+      await waitForEdgeCount(1);
       const hovered = await readSvg();
       assert.deepEqual(hovered.nodeIds, [
         "library:A",
@@ -1921,9 +1937,22 @@ describe("Synthesis Citation Graph WebGL lifecycle", function () {
         "external:shared",
       ]);
       assert.equal(hovered.edgeCount, 1);
+      const hoveredNode = await nodeA.elementHandle();
+      // Give any spurious hover caused by replacing the SVG time to settle.
+      await fallbackPage.waitForTimeout(250);
+      assert.isTrue(await hoveredNode.evaluate((node) => node.isConnected));
 
-      await fallbackPage.mouse.move(850, 650);
-      await fallbackPage.waitForTimeout(180);
+      await nodeB.hover();
+      await fallbackPage
+        .locator(".graph-node-label")
+        .filter({ hasText: /^B$/ })
+        .waitFor({ timeout: 5_000 });
+      assert.equal((await readSvg()).edgeCount, 1);
+
+      await fallbackPage.locator("[data-zs-cg-stage]").hover({
+        position: { x: 14, y: 14 },
+      });
+      await waitForEdgeCount(0);
       assert.deepEqual(await readSvg(), {
         nodeIds: ["library:A", "library:B", "external:shared"],
         edgeCount: 0,
@@ -1949,14 +1978,13 @@ describe("Synthesis Citation Graph WebGL lifecycle", function () {
           },
         );
       });
-      await fallbackPage.waitForTimeout(100);
       assert.deepEqual(await readSvg(), {
         nodeIds: ["library:A", "library:B", "external:shared"],
         edgeCount: 1,
       });
 
-      await fallbackPage.locator('[data-node-id="library:B"]').hover();
-      await fallbackPage.waitForTimeout(180);
+      await nodeB.hover();
+      await waitForEdgeCount(2);
       const selectedAndHovered = await readSvg();
       assert.deepEqual(selectedAndHovered.nodeIds, [
         "library:A",
@@ -1969,8 +1997,8 @@ describe("Synthesis Citation Graph WebGL lifecycle", function () {
         "B",
       );
 
-      await fallbackPage.mouse.move(850, 650);
-      await fallbackPage.waitForTimeout(180);
+      await outsideGraph.hover();
+      await waitForEdgeCount(1);
       assert.equal((await readSvg()).edgeCount, 1);
       const neighborhoodRender = await fallbackPage.evaluate(() => {
         const testWindow = window as Window & {
@@ -2013,8 +2041,8 @@ describe("Synthesis Citation Graph WebGL lifecycle", function () {
         nodeIds: neighborhoodNodes,
         edgeCount: 0,
       });
-      await fallbackPage.locator('[data-node-id="library:A"]').hover();
-      await fallbackPage.waitForTimeout(180);
+      await nodeA.hover();
+      await waitForEdgeCount(2);
       assert.equal((await readSvg()).edgeCount, 2);
       const singleFill = await fallbackPage
         .locator('[data-node-id="external:single"]')
@@ -2027,8 +2055,8 @@ describe("Synthesis Citation Graph WebGL lifecycle", function () {
         untypedFill,
         "single-source tier stays distinct from an untyped external",
       );
-      await fallbackPage.mouse.move(850, 650);
-      await fallbackPage.waitForTimeout(180);
+      await outsideGraph.hover();
+      await waitForEdgeCount(0);
       assert.deepEqual(await readSvg(), {
         nodeIds: neighborhoodNodes,
         edgeCount: 0,

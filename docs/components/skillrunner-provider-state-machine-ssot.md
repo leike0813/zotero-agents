@@ -333,6 +333,9 @@ waiting or terminal boundaries.
 Startup recovery hands active running records to foreground continuation.
 Waiting records stay detached, and apply-retry records are not retried by
 recovery.
+Recovery leaves requests owned by a live submission unit with that unit from
+dispatch through Host apply. After a host restart, startup marks an interrupted
+apply as a local failure without replaying it.
 
 ### INV-PROV-UI-GATING-BACKEND-FLAG
 

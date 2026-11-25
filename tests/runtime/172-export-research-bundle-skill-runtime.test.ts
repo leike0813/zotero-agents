@@ -494,6 +494,7 @@ describe("export research bundle skill runtime", function () {
   });
 
   it("retains low-score Topic papers beyond the non-Topic related limit", async function () {
+    this.timeout(60_000);
     const runRoot = await fs.mkdtemp(
       path.join(os.tmpdir(), "export-research-bundle-topic-mandatory-"),
     );

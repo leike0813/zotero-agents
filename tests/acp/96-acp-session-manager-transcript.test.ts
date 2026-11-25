@@ -1349,6 +1349,7 @@ describe("acp session manager", function () {
       assert.deepEqual(unavailable?.raw?.failedTargets, []);
       assert.isOk(harness.lastAdapter);
     } finally {
+      await shutdownAcpSessionManager();
       if (typeof previousSkillDir === "undefined") {
         Zotero.Prefs.clear(`${config.prefsPrefix}.skillDir`, true);
       } else {
@@ -1446,6 +1447,7 @@ describe("acp session manager", function () {
       assert.isOk(harness.lastAdapter);
     } finally {
       runtime.IOUtils = previousIOUtils;
+      await shutdownAcpSessionManager();
       if (typeof previousSkillDir === "undefined") {
         Zotero.Prefs.clear(`${config.prefsPrefix}.skillDir`, true);
       } else {
@@ -1510,6 +1512,7 @@ describe("acp session manager", function () {
       );
       assert.equal(getAcpConversationSnapshot().status, "connected");
     } finally {
+      await shutdownAcpSessionManager();
       await fs.rm(dataDirectory, { recursive: true, force: true });
     }
   });

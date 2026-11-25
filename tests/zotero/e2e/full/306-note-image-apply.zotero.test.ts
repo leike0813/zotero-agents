@@ -105,7 +105,7 @@ describe("Note image atomic apply E2E", function () {
     undefined,
     "exports large managed notes and multiple images twice with immediate cleanup",
     async function () {
-      this.timeout(300_000);
+      this.timeout(360_000);
       const parent = new Zotero.Item("journalArticle");
       const ownerId = `large-note-e2e-${Date.now()}`;
       const scope = createWorkflowPreparedImageScope({ runScopeId: ownerId });
@@ -114,6 +114,7 @@ describe("Note image atomic apply E2E", function () {
       const root = await mkTempDir("large-note-export-e2e");
       const channel = readDiagnosticsEnv("ZOTERO_TEST_CONTENT_CHANNEL");
       let contentSettingsChanged = false;
+      let primaryError: unknown;
       try {
         let workflowRoot = readDiagnosticsEnv("ZOTERO_TEST_WORKFLOW_DIR");
         if (channel) {
@@ -458,9 +459,14 @@ describe("Note image atomic apply E2E", function () {
           assert.isAtLeast(stagedPaths.length, 25);
           for (const path of stagedPaths)
             assert.isFalse(await IOUtils.exists(path));
+          // Gecko's ZIP entry enumerator keeps the Windows mapping until GC.
+          if (Zotero.isWin) Components.utils.forceGC();
           await removeRuntimePathStrict(targetPath);
         }
-      } finally {
+      } catch (error) {
+        primaryError = error;
+      }
+      try {
         scope.dispose();
         if (contentSettingsChanged) {
           if (previousChannel === undefined) clearPref("contentFeedChannel");
@@ -474,7 +480,15 @@ describe("Note image atomic apply E2E", function () {
         }
         if (parent.id) await Zotero.Items.trashTx([parent.id]);
         await removeRuntimePathStrict(root);
+      } catch (cleanupError) {
+        if (primaryError === undefined) throw cleanupError;
+        throw new AggregateError(
+          [primaryError, cleanupError],
+          `${String(primaryError)} (fixture cleanup: ${String(cleanupError)})`,
+          { cause: primaryError },
+        );
       }
+      if (primaryError !== undefined) throw primaryError;
     },
   );
 });

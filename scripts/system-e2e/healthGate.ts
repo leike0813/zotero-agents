@@ -76,7 +76,7 @@ function sidecarGenerationReady(
 // One full bounded retry ladder (`DEFAULT_RESTART_DELAYS_MS`) plus the launch
 // time of each attempt, so a runtime that is recovering inside its budget is
 // not judged while it is still within it.
-const SIDECAR_SETTLE_WINDOW_MS = 60_000;
+export const SIDECAR_SETTLE_WINDOW_MS = 60_000;
 
 const SIDECAR_TERMINAL_OPERATION_STATUSES = new Set([
   "completed",

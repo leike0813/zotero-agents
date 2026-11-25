@@ -45,6 +45,7 @@ import {
 import {
   applySkillRunnerRunEvent,
   getSkillRunnerRunRecordByRequest,
+  isSkillRunnerForegroundWorkflowUnitActive,
   listSkillRunnerRunRecords,
   type SkillRunnerRunRecord,
 } from "./skillRunnerRunStore";
@@ -56,6 +57,10 @@ type RecoverySweepSource =
   | "backend-healthy"
   | "local-runtime-up"
   | "manual";
+
+function isApplyingSucceededRun(record: SkillRunnerRunRecord) {
+  return record.status === "succeeded" && record.apply.state === "running";
+}
 
 type RecoveryDecision =
   | {
@@ -598,14 +603,21 @@ export class SkillRunnerTaskReconciler {
 
   private async resolveRecoveryDecision(
     record: SkillRunnerRunRecord,
+    source: RecoverySweepSource,
   ): Promise<RecoveryDecision> {
     const requestId = normalizeString(record.requestId);
     if (!requestId) {
       return { action: "skip", reason: "missing-request-id" };
     }
+    if (isSkillRunnerForegroundWorkflowUnitActive(record.submissionUnitId)) {
+      return { action: "skip", reason: "foreground-workflow-running" };
+    }
     const status = normalizeStatus(record.status, "running");
     if (status === "failed" || status === "canceled") {
       return { action: "skip", reason: `terminal-${status}` };
+    }
+    if (source !== "startup" && isApplyingSucceededRun(record)) {
+      return { action: "skip", reason: "foreground-apply-running" };
     }
     if (status === "succeeded") {
       if (
@@ -805,7 +817,7 @@ export class SkillRunnerTaskReconciler {
       }
       scanned += 1;
       registerSkillRunnerBackendForHealthTracking(record.backendId);
-      const decision = await this.resolveRecoveryDecision(record);
+      const decision = await this.resolveRecoveryDecision(record, args.source);
       if (decision.action === "skip") {
         continue;
       }
@@ -922,6 +934,25 @@ export class SkillRunnerTaskReconciler {
     }
     this.running = true;
     this.runGeneration += 1;
+    this.spawnBackgroundTask(
+      "startup-interrupted-apply",
+      this.runGeneration,
+      async () => {
+        for (const record of listSkillRunnerRunRecords()) {
+          if (
+            record.requestId &&
+            isApplyingSucceededRun(record) &&
+            !isSkillRunnerForegroundWorkflowUnitActive(record.submissionUnitId)
+          ) {
+            this.settleRunRecordAsUnrecoverable({
+              record,
+              reason: "unrecoverable-apply-running",
+              source: "startup",
+            });
+          }
+        }
+      },
+    );
     this.backendWasFlagged.clear();
     for (const state of listSkillRunnerBackendHealthStates()) {
       if (!state.reachable && state.status !== "disabled") {

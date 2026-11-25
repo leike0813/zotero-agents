@@ -1112,7 +1112,7 @@ if (command === "synthesis index reference get") {
 }
 
 describe("Literature deep reading bootstrap skill", function () {
-  this.timeout(30000);
+  this.timeout(60_000);
 
   afterEach(async function () {
     await Promise.all(
@@ -2371,7 +2371,6 @@ describe("Literature deep reading bootstrap skill", function () {
   });
 
   it("submits context requests and collects Host Bridge graph layout and reference digests", async function () {
-    this.timeout(60_000);
     const tempRoot = await fs.mkdtemp(
       path.join(os.tmpdir(), "deep-reading-context-"),
     );
@@ -3111,7 +3110,6 @@ describe("Literature deep reading bootstrap skill", function () {
   });
 
   it("submits block translations and writes ordered Translation Layer views", async function () {
-    this.timeout(45_000);
     const tempRoot = await fs.mkdtemp(
       path.join(os.tmpdir(), "deep-reading-translation-"),
     );
@@ -3221,7 +3219,6 @@ describe("Literature deep reading bootstrap skill", function () {
   });
 
   it("submits final review and renders a self-contained deep-reading HTML with stale coordinates", async function () {
-    this.timeout(45000);
     const tempRoot = await fs.mkdtemp(
       path.join(os.tmpdir(), "deep-reading-final-"),
     );

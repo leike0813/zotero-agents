@@ -3213,6 +3213,12 @@ describe("System E2E Phase 2 SkillRunner apply restart", function () {
         assert.equal(run!.apply.state, "running");
         const parentRef = findParentRef(run);
         assert.isOk(parentRef);
+        const parent = Zotero.Items.getByLibraryAndKey(
+          parentRef!.libraryId,
+          parentRef!.key,
+        );
+        assert.isOk(parent);
+        assert.isEmpty(parent!.getTags());
         const processId = Number(
           (Zotero.Utilities.Internal as any).getProcessID?.() || 0,
         );
@@ -3311,7 +3317,7 @@ describe("System E2E Phase 2 SkillRunner apply restart", function () {
             state.parentRef.key,
           );
           assert.isOk(parent);
-          assert.isAtMost(parent!.getTags().length, 1);
+          assert.isEmpty(parent!.getTags());
           assert.isFalse(
             listActiveWorkflowTasks().some(
               (task) => task.requestId === state.requestId,

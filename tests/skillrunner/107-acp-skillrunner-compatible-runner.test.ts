@@ -2883,7 +2883,9 @@ describe("ACP SkillRunner-compatible runner", function () {
     let requestId = "";
     let cancelCount = 0;
     let closeCount = 0;
-    let releasePrompt: (() => void) | null = null;
+    const promptWait = createDeferred();
+    let execution: ReturnType<typeof executeAcpSkillRunnerJob> | null = null;
+    let teardownStarted = false;
     const fakeAdapter: AcpConnectionAdapter = {
       initialize: async () => ({
         authMethods: [],
@@ -2911,43 +2913,43 @@ describe("ACP SkillRunner-compatible runner", function () {
       loadSession: async () => ({ sessionId: "loaded" }),
       resumeSession: async () => ({ sessionId: "resumed" }),
       prompt: async ({ sessionId }) => {
-        await permissionListener?.({
-          requestId: "permission-timeout-pause",
-          sessionId,
-          toolCallId: "tool-timeout-pause",
-          toolTitle: "Run protected tool",
-          source: "acp-tool-call",
-          summary: "Run protected tool.",
-          requestedAt: "2026-06-05T00:00:00.000Z",
-          options: [
-            {
-              optionId: "approve",
-              kind: "allow_once",
-              name: "Approve",
-            },
-          ],
-          resolve: () => undefined,
-        });
-        await new Promise<void>((resolve) => {
-          releasePrompt = resolve;
-        });
+        if (!teardownStarted) {
+          await permissionListener?.({
+            requestId: "permission-timeout-pause",
+            sessionId,
+            toolCallId: "tool-timeout-pause",
+            toolTitle: "Run protected tool",
+            source: "acp-tool-call",
+            summary: "Run protected tool.",
+            requestedAt: "2026-06-05T00:00:00.000Z",
+            options: [
+              {
+                optionId: "approve",
+                kind: "allow_once",
+                name: "Approve",
+              },
+            ],
+            resolve: () => undefined,
+          });
+        }
+        await promptWait.promise;
         return { stopReason: "cancelled", cancelRequested: true };
       },
       cancel: async () => {
         cancelCount += 1;
-        releasePrompt?.();
+        promptWait.resolve();
       },
       setMode: async () => undefined,
       setModel: async () => undefined,
       authenticate: async () => undefined,
       close: async () => {
         closeCount += 1;
-        releasePrompt?.();
+        promptWait.resolve();
       },
     };
 
     try {
-      const execution = executeAcpSkillRunnerJob({
+      execution = executeAcpSkillRunnerJob({
         requestKind: ACP_SKILL_RUN_REQUEST_KIND,
         backend: createBackend(),
         request: {
@@ -3006,8 +3008,28 @@ describe("ACP SkillRunner-compatible runner", function () {
       assert.include(resumedStages, "hard-timeout-disconnect-requested");
       assert.isNull(resumedRecord?.pendingPermission || null);
     } finally {
-      releasePrompt?.();
-      await fs.rm(root, { recursive: true, force: true });
+      teardownStarted = true;
+      const pendingPermission = requestId
+        ? getAcpSkillRunRecord(requestId)?.pendingPermission
+        : null;
+      if (pendingPermission) {
+        resolveAcpSkillRunPermissionRequest({
+          runRequestId: requestId,
+          permissionRequestId: pendingPermission.requestId,
+          outcome: "cancelled",
+        });
+      }
+      promptWait.resolve();
+      await execution?.catch(() => undefined);
+      await flushAcpSkillRunRuntimeFileWritesForTests();
+      await flushAcpSkillRunAuditTrailWritesForTests();
+      await flushAcpSkillRunRuntimeFileWritesForTests();
+      await fs.rm(root, {
+        recursive: true,
+        force: true,
+        maxRetries: 10,
+        retryDelay: 100,
+      });
     }
   });
 
