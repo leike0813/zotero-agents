@@ -1378,10 +1378,14 @@ impl KnowledgeCheckpointRepositoryPort for RepositoryPort {
 
 impl RepositoryPort {
     pub(crate) fn capture_bundle(&self) -> Result<DurableBundleCapture, String> {
-        self.repository
+        let mut repository = self
+            .repository
             .lock()
-            .map_err(|_| "repository_unavailable".to_owned())?
-            .capture_durable_bundle_state()
+            .map_err(|_| "repository_unavailable".to_owned())?;
+        if !repository.pending_legacy_topics()?.is_empty() {
+            return Err("canonical_legacy_topics_pending".into());
+        }
+        repository.capture_durable_bundle_state()
     }
 
     pub(crate) fn capture_import(&self) -> Result<DurableImportCapture, String> {

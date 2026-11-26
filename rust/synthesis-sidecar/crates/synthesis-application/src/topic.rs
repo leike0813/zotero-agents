@@ -126,6 +126,10 @@ pub fn project_legacy_canonical_topic(
     if definition_id != topic_id {
         return Err("canonical_legacy_topic_sources_mismatch".into());
     }
+    // Legacy repository migration parses every topic payload column as an object.
+    if !legacy.resolved_paper_set.is_object() {
+        return Err("canonical_legacy_topic_sources_invalid".into());
+    }
     let metadata = snapshot
         .metadata
         .get("data")
@@ -394,31 +398,36 @@ impl TopicApplication {
         )>,
     ) -> Result<Vec<TopicRecord>, String> {
         let artifacts = self.reference_artifacts_for_rows(&rows);
-        rows.into_iter()
-            .map(|(state, projection)| {
-                let state = self.read_canonical_topic_content(state)?;
-                project_record(state, projection, &artifacts)
-            })
-            .collect()
+        let mut records = Vec::with_capacity(rows.len());
+        for (state, projection) in rows {
+            let Some(state) = self.read_canonical_topic_content(state)? else {
+                continue;
+            };
+            if let Ok(record) = project_record(state, projection, &artifacts) {
+                records.push(record);
+            }
+        }
+        Ok(records)
     }
 
+    /// Reads one Topic's canonical content. `Ok(None)` marks a Topic that is
+    /// unavailable on its own: canonical invalid or absent, or content that
+    /// fails validation. `Err` stays reserved for a shared canonical owner
+    /// failure, which must fail the whole read instead of hiding one Topic.
     fn read_canonical_topic_content(
         &self,
         state: TopicApplicationStateRecord,
-    ) -> Result<TopicApplicationStateRecord, String> {
+    ) -> Result<Option<TopicApplicationStateRecord>, String> {
         match self
             .canonical
             .read_topic(&state.topic_id)
             .map_err(|error| error.code().to_owned())?
         {
             CanonicalTopicState::Ready(snapshot) => {
-                project_canonical_topic_content(state, &snapshot)
+                Ok(project_canonical_topic_content(state, &snapshot).ok())
             }
-            CanonicalTopicState::Absent { .. } => Err("canonical_topic_missing".into()),
-            CanonicalTopicState::Invalid { diagnostics, .. } => Err(diagnostics
-                .into_iter()
-                .next()
-                .unwrap_or_else(|| "canonical_snapshot_invalid".into())),
+            CanonicalTopicState::Absent { .. } => Ok(None),
+            CanonicalTopicState::Invalid { .. } => Ok(None),
         }
     }
 
@@ -453,44 +462,46 @@ impl TopicApplication {
         )>,
     ) -> Result<Vec<TopicWorkbenchRow>, String> {
         let artifacts = self.reference_artifacts_for_rows(&rows);
-        rows.into_iter()
-            .map(|(state, projection)| {
-                let state = self.read_canonical_topic_content(state)?;
-                let projection = projection
-                    .map(|projection| {
-                        Ok::<Value, String>(json!({
-                            "discovery":parse_object(&projection.discovery_json)?,
-                        }))
-                    })
-                    .transpose()?
-                    .unwrap_or_else(|| json!({}));
-                let readiness = topic_readiness_view(&state, &projection, &artifacts);
-                Ok(TopicWorkbenchRow {
-                    id: state.topic_id,
-                    title: state.title,
-                    kind: "topic_synthesis".into(),
-                    definition: state.definition,
-                    language: state.language,
-                    status: state.operation,
-                    paper_count: state.paper_count,
-                    updated_at: state.updated_at,
-                    freshness: readiness.freshness,
-                    source_materials_status: readiness.source_materials_status,
-                    source_materials_percent: readiness.source_materials_percent,
-                    stale_reasons: readiness.stale_reasons,
-                    dirty_reasons: readiness.dirty_reasons,
-                    missing_sections: readiness.missing_sections,
-                })
-            })
-            .collect()
+        let mut projected = Vec::with_capacity(rows.len());
+        for (state, projection) in rows {
+            let Some(state) = self.read_canonical_topic_content(state)? else {
+                continue;
+            };
+            let discovery = match projection {
+                Some(projection) => match parse_object(&projection.discovery_json) {
+                    Ok(discovery) => discovery,
+                    Err(_) => continue,
+                },
+                None => json!({}),
+            };
+            let projection = json!({"discovery":discovery});
+            let readiness = topic_readiness_view(&state, &projection, &artifacts);
+            projected.push(TopicWorkbenchRow {
+                id: state.topic_id,
+                title: state.title,
+                kind: "topic_synthesis".into(),
+                definition: state.definition,
+                language: state.language,
+                status: state.operation,
+                paper_count: state.paper_count,
+                updated_at: state.updated_at,
+                freshness: readiness.freshness,
+                source_materials_status: readiness.source_materials_status,
+                source_materials_percent: readiness.source_materials_percent,
+                stale_reasons: readiness.stale_reasons,
+                dirty_reasons: readiness.dirty_reasons,
+                missing_sections: readiness.missing_sections,
+            });
+        }
+        Ok(projected)
     }
 
     pub fn list(&self, request: TopicListRequest) -> Result<TopicListResult, String> {
         let offset = topic_list_offset(&request)?;
         let (rows, total) = self.repository.list_records(offset, request.limit)?;
-        let returned = rows.len();
-        let next = offset.saturating_add(returned);
+        let next = offset.saturating_add(rows.len());
         let topics = self.project_rows(rows)?;
+        let returned = topics.len();
         Ok(TopicListResult {
             topics,
             cursor: request.cursor,
@@ -509,9 +520,9 @@ impl TopicApplication {
     pub fn list_workbench(&self, request: TopicListRequest) -> Result<TopicWorkbenchPage, String> {
         let offset = topic_list_offset(&request)?;
         let (rows, total) = self.repository.list_records(offset, request.limit)?;
-        let returned = rows.len();
-        let next = offset.saturating_add(returned);
+        let next = offset.saturating_add(rows.len());
         let rows = self.project_workbench_rows(rows)?;
+        let returned = rows.len();
         Ok(TopicWorkbenchPage {
             rows,
             cursor: request.cursor,
@@ -535,16 +546,16 @@ impl TopicApplication {
             .read_topic(&request.topic_id)
             .map_err(|error| error.code().to_owned())?;
         match (state, current) {
-            (None, _) | (_, CanonicalTopicState::Absent { .. }) => Ok(TopicDetailResult::Absent {
-                topic_id: request.topic_id,
-                diagnostics: Vec::new(),
-            }),
             (_, CanonicalTopicState::Invalid { diagnostics, .. }) => {
                 Ok(TopicDetailResult::Invalid {
                     topic_id: request.topic_id,
                     diagnostics,
                 })
             }
+            (None, _) | (_, CanonicalTopicState::Absent { .. }) => Ok(TopicDetailResult::Absent {
+                topic_id: request.topic_id,
+                diagnostics: Vec::new(),
+            }),
             (Some(state), CanonicalTopicState::Ready(snapshot)) => {
                 let state = project_canonical_topic_content(state, &snapshot)?;
                 let projection = self.repository.get_projection(&request.topic_id)?;
@@ -3121,7 +3132,7 @@ mod tests {
     use crate::topic_graph::{TopicGraphComputePort, TopicGraphIndexOutput};
     use std::sync::Mutex as TestMutex;
     use std::sync::atomic::AtomicUsize;
-    use synthesis_canonical_store::{CanonicalIdentity, CanonicalStore};
+    use synthesis_canonical_store::{CanonicalBasis, CanonicalIdentity, CanonicalStore};
     use synthesis_repository::{
         Repository, RepositoryIdentity, TopicApplicationRecordPage,
         TopicGraphApplicationStateRecord, TopicGraphNodeRecord, TopicGraphReplacement,
@@ -3151,6 +3162,35 @@ mod tests {
                 "tag":{"and":["topic:r7"],"not":["status:excluded"]},
                 "combine":"intersection"
             })
+        );
+    }
+
+    #[test]
+    fn legacy_topic_projection_rejects_non_object_resolved_paper_sets() {
+        let mut legacy = LegacyCanonicalTopic {
+            topic_definition: json!({"id":"topic-legacy","title":"Legacy","definition":"Legacy"}),
+            topic_resolver: json!({"paper_refs":[],"collection_key":[],"combine":"union"}),
+            resolved_paper_set: json!({"papers":[]}),
+            snapshot: CanonicalTopicView {
+                topic_id: "topic-legacy".into(),
+                path_id: "topic-legacy".into(),
+                manifest: json!({}),
+                artifact: json!({}),
+                metadata: json!({"data":{},"updated_at":"2026-07-26T12:00:00.000Z"}),
+                sections: BTreeMap::new(),
+                markdown: BTreeMap::new(),
+                basis: CanonicalBasis {
+                    manifest_hash: String::new(),
+                    artifact_hash: String::new(),
+                },
+                metadata_hash: String::new(),
+            },
+        };
+        assert!(project_legacy_canonical_topic(&legacy).is_ok());
+        legacy.resolved_paper_set = json!([]);
+        assert_eq!(
+            project_legacy_canonical_topic(&legacy).unwrap_err(),
+            "canonical_legacy_topic_sources_invalid"
         );
     }
 
@@ -3935,6 +3975,164 @@ mod tests {
         assert_eq!(page.rows.len(), 1);
         assert_eq!(page.rows[0].id, "topic-legacy");
         assert_eq!(page.rows[0].kind, "topic_synthesis");
+        drop(application);
+    }
+
+    fn corrupt_canonical_manifest(root: &std::path::Path, topic_id: &str) {
+        let path_id = canonical_topic_path_id(topic_id).expect("canonical path id");
+        let manifest = root
+            .join("shadow-canonical/data_typed/topics")
+            .join(path_id)
+            .join("current/manifest.json");
+        assert!(manifest.exists(), "canonical manifest for {topic_id}");
+        std::fs::write(manifest, "{").expect("corrupt canonical manifest");
+    }
+
+    #[test]
+    fn topic_reads_isolate_unavailable_topics_from_healthy_rows() {
+        let root = root("read-isolation");
+        let (repository, canonical) = owners(&root);
+        let application = TopicApplication::with_factories(
+            Arc::new(repository),
+            Arc::new(canonical),
+            Arc::new(FixtureEngine),
+            Arc::new(|| "2026-07-26T12:00:00.000Z".into()),
+            Arc::new(|topic| format!("operation:{topic}")),
+        );
+        for topic_id in ["topic-alpha", "topic-beta", "topic-gamma"] {
+            assert!(
+                application.apply(request(topic_id, "create")).ok,
+                "{topic_id}"
+            );
+        }
+        corrupt_canonical_manifest(root.path(), "topic-beta");
+
+        let page = application
+            .list(TopicListRequest::default())
+            .expect("topic page");
+        assert_eq!(
+            page.topics
+                .iter()
+                .map(|topic| topic.topic_id.as_str())
+                .collect::<Vec<_>>(),
+            ["topic-alpha", "topic-gamma"]
+        );
+        assert_eq!(page.returned, 2);
+        assert_eq!(page.total, 3);
+        assert!(page.next_cursor.is_empty());
+        assert!(!page.has_more);
+
+        let workbench = application
+            .list_workbench(TopicListRequest::default())
+            .expect("workbench page");
+        assert_eq!(
+            workbench
+                .rows
+                .iter()
+                .map(|row| row.id.as_str())
+                .collect::<Vec<_>>(),
+            ["topic-alpha", "topic-gamma"]
+        );
+        assert_eq!(workbench.returned, 2);
+        assert_eq!(workbench.total, 3);
+
+        for (cursor, expected, expected_returned, expected_next) in [
+            ("", vec!["topic-alpha"], 1usize, "1"),
+            ("1", Vec::new(), 0, "2"),
+            ("2", vec!["topic-gamma"], 1, ""),
+        ] {
+            let page = application
+                .list(TopicListRequest {
+                    cursor: cursor.into(),
+                    limit: 1,
+                })
+                .expect("paged topic page");
+            assert_eq!(
+                page.topics
+                    .iter()
+                    .map(|topic| topic.topic_id.as_str())
+                    .collect::<Vec<_>>(),
+                expected
+            );
+            assert_eq!(page.returned, expected_returned);
+            assert_eq!(page.next_cursor, expected_next);
+            assert_eq!(page.has_more, !expected_next.is_empty());
+        }
+
+        let unavailable_page = application
+            .list_workbench(TopicListRequest {
+                cursor: "1".into(),
+                limit: 1,
+            })
+            .expect("unavailable workbench page");
+        assert!(unavailable_page.rows.is_empty());
+        assert_eq!(unavailable_page.returned, 0);
+        assert_eq!(unavailable_page.next_cursor, "2");
+        assert!(unavailable_page.has_more);
+        drop(application);
+    }
+
+    #[test]
+    fn topic_detail_keeps_invalid_state_without_a_migrated_row() {
+        let root = root("detail-invalid");
+        let (repository, canonical) = owners(&root);
+        let application = TopicApplication::with_factories(
+            Arc::new(repository.clone()),
+            Arc::new(canonical),
+            Arc::new(FixtureEngine),
+            Arc::new(|| "2026-07-26T12:00:00.000Z".into()),
+            Arc::new(|topic| format!("operation:{topic}")),
+        );
+        assert!(application.apply(request("topic-alpha", "create")).ok);
+        assert!(application.apply(request("topic-beta", "create")).ok);
+        corrupt_canonical_manifest(root.path(), "topic-beta");
+
+        let invalid = application
+            .detail(TopicDetailRequest {
+                topic_id: "topic-beta".into(),
+            })
+            .expect("invalid topic detail");
+        let TopicDetailResult::Invalid { diagnostics, .. } = invalid else {
+            panic!("expected invalid topic detail");
+        };
+        assert!(!diagnostics.is_empty());
+
+        repository
+            .owner()
+            .lock()
+            .expect("repository")
+            .execute(
+                "DELETE FROM synt_topic_application_state WHERE topic_id=?1",
+                &[json!("topic-beta")],
+            )
+            .expect("delete migrated state");
+
+        let invalid = application
+            .detail(TopicDetailRequest {
+                topic_id: "topic-beta".into(),
+            })
+            .expect("invalid topic detail");
+        let TopicDetailResult::Invalid { diagnostics, .. } = invalid else {
+            panic!("expected invalid topic detail without a migrated row");
+        };
+        assert!(!diagnostics.is_empty());
+
+        assert!(matches!(
+            application
+                .detail(TopicDetailRequest {
+                    topic_id: "topic-alpha".into()
+                })
+                .expect("ready topic detail"),
+            TopicDetailResult::Ready { .. }
+        ));
+        assert!(matches!(
+            application
+                .detail(TopicDetailRequest {
+                    topic_id: "topic-missing".into()
+                })
+                .expect("absent topic detail"),
+            TopicDetailResult::Absent { .. }
+        ));
         drop(application);
     }
 

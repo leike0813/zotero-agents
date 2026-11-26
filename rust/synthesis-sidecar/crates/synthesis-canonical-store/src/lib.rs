@@ -365,6 +365,8 @@ pub struct CanonicalStore {
     writer: AtomicBool,
     repair_required: bool,
     historical_topic_paths: HashSet<String>,
+    unavailable_topic_paths: BTreeMap<String, String>,
+    pending_topic_paths: BTreeMap<String, String>,
     #[cfg(feature = "parity-harness")]
     parity_transaction_ids: Option<Arc<Mutex<VecDeque<String>>>>,
 }
@@ -1025,11 +1027,38 @@ fn resolve_current_topic(root: &Path, topic_id: &str) -> Result<ResolvedCurrentT
     Ok(ResolvedCurrentTopic { path_id, current })
 }
 
-fn read_topic_snapshot(root: &Path, topic_id: &str) -> Result<TopicSnapshot, String> {
-    let resolved = resolve_current_topic(root, topic_id)?;
-    let path_id = resolved.path_id;
-    let current = resolved.current;
-    read_topic_snapshot_at(&current, topic_id, path_id)
+fn topic_current_present(current: &Path) -> Result<bool, String> {
+    let topic_root = current.parent().ok_or("canonical_path_invalid")?;
+    for path in [topic_root, current] {
+        match fs::symlink_metadata(path) {
+            Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_dir() => {
+                return Err("canonical_topic_directory_invalid".into());
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+            Err(error) => return Err(format!("canonical_read_failed:{error}")),
+        }
+    }
+    Ok(true)
+}
+
+fn validate_topic_identity(
+    manifest: &Value,
+    metadata: &Value,
+    topic_id: &str,
+) -> Result<(), String> {
+    if [manifest.get("topic_id"), metadata.pointer("/data/topic_id")]
+        .into_iter()
+        .flatten()
+        .any(|declared| declared.as_str() != Some(topic_id))
+    {
+        return Err("canonical_topic_identity_invalid".into());
+    }
+    Ok(())
+}
+
+fn stable_topic_issue(error: &str) -> String {
+    error.split(':').next().unwrap_or(error).to_owned()
 }
 
 /// Read one enumerated current Topic. The identity comes from the snapshot's
@@ -1054,7 +1083,7 @@ fn search_topic_member(
             _ => return Err("canonical_topic_identity_invalid".into()),
         };
         let snapshot =
-            read_topic_snapshot_within(current, topic_id, path_id.to_owned(), remaining)?;
+            read_topic_snapshot_within(current, topic_id, path_id.to_owned(), remaining, false)?;
         validate_snapshot_representation(&snapshot)?;
         let view = canonical_topic_view(&snapshot)?;
         let content_hash = topic_representation_hash(&snapshot)?;
@@ -1109,8 +1138,15 @@ fn read_topic_snapshot_at(
     topic_id: &str,
     path_id: String,
 ) -> Result<TopicSnapshot, String> {
-    let mut unbounded = None;
-    read_topic_snapshot_within(current, topic_id, path_id, &mut unbounded)
+    read_topic_snapshot_within(current, topic_id, path_id, &mut None, false)
+}
+
+fn read_historical_topic_snapshot(
+    current: &Path,
+    topic_id: &str,
+    path_id: String,
+) -> Result<TopicSnapshot, String> {
+    read_topic_snapshot_within(current, topic_id, path_id, &mut None, true)
 }
 
 /// The bounded search pass reads the same snapshot through its own remaining
@@ -1120,11 +1156,12 @@ fn read_topic_snapshot_within(
     topic_id: &str,
     path_id: String,
     remaining: &mut Option<usize>,
+    historical: bool,
 ) -> Result<TopicSnapshot, String> {
     if !current.is_dir() {
         return Err("canonical_legacy_topic_sources_mismatch".into());
     }
-    descriptor_within(current, topic_id, &path_id, remaining)?;
+    descriptor_within(current, topic_id, &path_id, remaining, historical)?;
     let (manifest, _) = read_json_within(&current.join("manifest.json"), remaining)?;
     let (artifact, _) = read_json_within(&current.join("artifact.json"), remaining)?;
     // The final TypeScript owner wrote metadata with a stable payload hash but
@@ -1141,7 +1178,13 @@ fn read_topic_snapshot_within(
         sections.insert(name.clone(), section);
     }
     let mut markdown = BTreeMap::new();
-    collect_markdown_within(current, current, &mut markdown, remaining)?;
+    collect_markdown_within(
+        current,
+        current,
+        &mut markdown,
+        remaining,
+        historical.then_some(&manifest),
+    )?;
     Ok(TopicSnapshot {
         topic_id: topic_id.into(),
         path_id,
@@ -1154,8 +1197,7 @@ fn read_topic_snapshot_within(
 }
 
 fn descriptor(current: &Path, topic_id: &str, path_id: &str) -> Result<Value, String> {
-    let mut unbounded = None;
-    descriptor_within(current, topic_id, path_id, &mut unbounded)
+    descriptor_within(current, topic_id, path_id, &mut None, false)
 }
 
 fn descriptor_within(
@@ -1163,6 +1205,7 @@ fn descriptor_within(
     topic_id: &str,
     path_id: &str,
     remaining: &mut Option<usize>,
+    historical: bool,
 ) -> Result<Value, String> {
     let metadata =
         fs::symlink_metadata(current).map_err(|_| "canonical_snapshot_incomplete".to_owned())?;
@@ -1173,6 +1216,7 @@ fn descriptor_within(
     let (artifact_value, _artifact) = read_json_within(&current.join("artifact.json"), remaining)?;
     let (metadata_value, _metadata) =
         read_json_bytes_within(&current.join("metadata.json"), remaining)?;
+    validate_topic_identity(&manifest_value, &metadata_value, topic_id)?;
     let mut sections = Vec::new();
     let sections_root = current.join("sections");
     let section_metadata = fs::symlink_metadata(&sections_root)
@@ -1262,7 +1306,11 @@ fn descriptor_within(
             if metadata.is_file() {
                 validate_relative_file(&name)?;
             } else if metadata.is_dir() {
-                fn validate_markdown_tree(root: &Path, directory: &Path) -> Result<(), String> {
+                fn validate_markdown_tree(
+                    root: &Path,
+                    directory: &Path,
+                    historical_manifest: Option<&Value>,
+                ) -> Result<(), String> {
                     for entry in fs::read_dir(directory)
                         .map_err(|error| format!("canonical_read_failed:{error}"))?
                     {
@@ -1275,13 +1323,16 @@ fn descriptor_within(
                             return Err("canonical_symlink_rejected".into());
                         }
                         if metadata.is_dir() {
-                            validate_markdown_tree(root, &path)?;
+                            validate_markdown_tree(root, &path, historical_manifest)?;
                         } else if metadata.is_file() {
                             let relative = path
                                 .strip_prefix(root)
                                 .map_err(|_| "canonical_path_invalid".to_owned())?
                                 .to_string_lossy()
                                 .replace('\\', "/");
+                            if historical_auxiliary_file(&relative, historical_manifest) {
+                                continue;
+                            }
                             validate_relative_file(&relative)?;
                             if metadata.len() > MAX_SECTION_BYTES as u64 {
                                 return Err("canonical_snapshot_too_large".into());
@@ -1292,7 +1343,7 @@ fn descriptor_within(
                     }
                     Ok(())
                 }
-                validate_markdown_tree(current, &path)?;
+                validate_markdown_tree(current, &path, historical.then_some(&manifest_value))?;
             } else {
                 return Err("canonical_unknown_file".into());
             }
@@ -1310,11 +1361,33 @@ fn descriptor_within(
     }))
 }
 
+fn historical_auxiliary_file(relative: &str, manifest: Option<&Value>) -> bool {
+    let Some(manifest) = manifest else {
+        return false;
+    };
+    // TypeScript placed rendered exports in assets/. Keep the source bytes in
+    // the historical directory and carry forward only the snapshot content.
+    relative.starts_with("assets/")
+        && Path::new(relative)
+            .extension()
+            .is_none_or(|ext| ext != "md")
+        && !["sections", "sidecars"].iter().any(|key| {
+            manifest[*key].as_object().is_some_and(|entries| {
+                entries.values().any(|entry| {
+                    entry["path"]
+                        .as_str()
+                        .is_some_and(|path| Path::new(&path.replace('\\', "/")).ends_with(relative))
+                })
+            })
+        })
+}
+
 fn collect_markdown_within(
     current: &Path,
     directory: &Path,
     output: &mut BTreeMap<String, String>,
     remaining: &mut Option<usize>,
+    historical_manifest: Option<&Value>,
 ) -> Result<(), String> {
     for entry in
         fs::read_dir(directory).map_err(|error| format!("canonical_read_failed:{error}"))?
@@ -1338,8 +1411,11 @@ fn collect_markdown_within(
             return Err("canonical_symlink_rejected".into());
         }
         if metadata.is_dir() {
-            collect_markdown_within(current, &path, output, remaining)?;
+            collect_markdown_within(current, &path, output, remaining, historical_manifest)?;
         } else if metadata.is_file() {
+            if historical_auxiliary_file(&relative, historical_manifest) {
+                continue;
+            }
             validate_relative_file(&relative)?;
             let text = if remaining.is_none() {
                 fs::read_to_string(&path).map_err(|_| "canonical_snapshot_invalid".to_owned())?
@@ -1360,7 +1436,22 @@ impl CanonicalStore {
         root: &Path,
         canonical_topic_ids: &BTreeSet<String>,
         graph_only_topic_ids: &BTreeSet<String>,
-    ) -> Result<Vec<LegacyCanonicalTopic>, String> {
+    ) -> Result<BTreeMap<String, Result<LegacyCanonicalTopic, String>>, String> {
+        Self::read_legacy_production(root, canonical_topic_ids, Some(graph_only_topic_ids))
+    }
+
+    pub fn retry_legacy_production(
+        root: &Path,
+        topic_ids: &BTreeSet<String>,
+    ) -> Result<BTreeMap<String, Result<LegacyCanonicalTopic, String>>, String> {
+        Self::read_legacy_production(root, topic_ids, None)
+    }
+
+    fn read_legacy_production(
+        root: &Path,
+        canonical_topic_ids: &BTreeSet<String>,
+        graph_only_topic_ids: Option<&BTreeSet<String>>,
+    ) -> Result<BTreeMap<String, Result<LegacyCanonicalTopic, String>>, String> {
         if !root.is_absolute()
             || root.file_name().and_then(|value| value.to_str()) != Some("synthesis")
         {
@@ -1371,91 +1462,109 @@ impl CanonicalStore {
         if !metadata.is_dir() || metadata.file_type().is_symlink() {
             return Err("canonical_production_path_invalid".into());
         }
-        if root.join("identity.json").exists() {
+        if graph_only_topic_ids.is_some() && root.join("identity.json").exists() {
             return Err("canonical_legacy_identity_present".into());
         }
-        let definitions = legacy_topic_map(&root.join("sidecar/topic-definitions.json"), "topics")?;
-        let resolvers = legacy_topic_map(&root.join("sidecar/resolvers.json"), "resolvers")?;
+        for dir in ["topics", "sidecar"] {
+            match fs::symlink_metadata(root.join(dir)) {
+                Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                _ => return Err("canonical_production_path_invalid".into()),
+            }
+        }
+        let definitions = legacy_topic_map(&root.join("sidecar/topic-definitions.json"), "topics");
+        let resolvers = legacy_topic_map(&root.join("sidecar/resolvers.json"), "resolvers");
         let paper_sets =
-            legacy_topic_map(&root.join("sidecar/resolved-paper-sets.json"), "paper_sets")?;
-        if !canonical_topic_ids.is_disjoint(graph_only_topic_ids) {
-            return Err("canonical_legacy_topic_sources_mismatch".into());
+            legacy_topic_map(&root.join("sidecar/resolved-paper-sets.json"), "paper_sets");
+        if let Some(graph_only) = graph_only_topic_ids {
+            if !canonical_topic_ids.is_disjoint(graph_only)
+                || [&definitions, &resolvers, &paper_sets]
+                    .into_iter()
+                    .filter_map(|source| source.as_ref().ok())
+                    .flat_map(|source| source.keys())
+                    .any(|id| !canonical_topic_ids.contains(id) && !graph_only.contains(id))
+            {
+                return Err("canonical_legacy_topic_sources_mismatch".into());
+            }
         }
-        let known_topic_ids = canonical_topic_ids
-            .union(graph_only_topic_ids)
-            .collect::<BTreeSet<_>>();
-        if definitions
-            .keys()
-            .chain(resolvers.keys())
-            .chain(paper_sets.keys())
-            .any(|topic_id| !known_topic_ids.contains(topic_id))
-        {
-            return Err("canonical_legacy_topic_sources_mismatch".into());
-        }
-        canonical_topic_ids
-            .iter()
-            .map(|topic_id| {
-                let definition = definitions
+        let read_topic = |topic_id: &String| {
+            let definition = definitions
+                .as_ref()
+                .map_err(Clone::clone)?
+                .get(topic_id)
+                .ok_or_else(|| "canonical_legacy_topic_sources_mismatch".to_owned())?;
+            if definition.get("id").and_then(Value::as_str) != Some(topic_id.as_str()) {
+                return Err("canonical_legacy_topic_sources_mismatch".into());
+            }
+            let ResolvedCurrentTopic { path_id, current } = resolve_current_topic(root, topic_id)?;
+            let snapshot = if topic_current_present(&current)? {
+                read_topic_snapshot_at(&current, topic_id, path_id)?
+            } else {
+                let candidates = historical_topic_path_ids(topic_id)?
+                    .into_iter()
+                    .map(|path_id| root.join("topics").join(path_id).join("current"))
+                    .map(|current| Ok(topic_current_present(&current)?.then_some(current)))
+                    .collect::<Result<Vec<_>, String>>()?
+                    .into_iter()
+                    .flatten()
+                    .collect::<Vec<_>>();
+                if candidates.len() != 1 {
+                    return Err("canonical_legacy_topic_sources_mismatch".into());
+                }
+                let historical = candidates.into_iter().next().expect("one legacy candidate");
+                read_historical_topic_snapshot(&historical, topic_id, path_id)?
+            };
+            if snapshot.manifest["topic_id"].as_str() != Some(topic_id.as_str()) {
+                return Err("canonical_topic_identity_invalid".into());
+            }
+            validate_snapshot_representation(&snapshot)?;
+            let topic_definition = snapshot
+                .sections
+                .get("topic")
+                .cloned()
+                .ok_or_else(|| "canonical_legacy_topic_sources_invalid".to_owned())?;
+            if topic_definition.get("id").and_then(Value::as_str) != Some(topic_id.as_str()) {
+                return Err("canonical_legacy_topic_sources_mismatch".into());
+            }
+            Ok(LegacyCanonicalTopic {
+                topic_definition,
+                topic_resolver: resolvers
+                    .as_ref()
+                    .map_err(Clone::clone)?
                     .get(topic_id)
                     .cloned()
-                    .ok_or_else(|| "canonical_legacy_topic_sources_mismatch".to_owned())?;
-                if definition.get("id").and_then(Value::as_str) != Some(topic_id.as_str()) {
-                    return Err("canonical_legacy_topic_sources_mismatch".into());
-                }
-                let ResolvedCurrentTopic { path_id, current } =
-                    resolve_current_topic(root, topic_id)?;
-                let current = if current.exists() {
-                    current
-                } else {
-                    let candidates = historical_topic_path_ids(topic_id)?
-                        .into_iter()
-                        .map(|path_id| root.join("topics").join(path_id).join("current"))
-                        .filter(|current| current.exists())
-                        .collect::<Vec<_>>();
-                    if candidates.len() != 1 {
-                        return Err("canonical_legacy_topic_sources_mismatch".into());
-                    }
-                    candidates.into_iter().next().expect("one legacy candidate")
-                };
-                let snapshot = read_topic_snapshot_at(&current, topic_id, path_id)?;
-                if snapshot.topic_id.as_str() != topic_id
-                    || snapshot.manifest.get("topic_id").and_then(Value::as_str)
-                        != Some(topic_id.as_str())
-                {
-                    return Err("canonical_legacy_topic_sources_mismatch".into());
-                }
-                let topic_definition = snapshot
-                    .sections
-                    .get("topic")
+                    .ok_or_else(|| "canonical_legacy_topic_sources_mismatch".to_owned())?,
+                resolved_paper_set: paper_sets
+                    .as_ref()
+                    .map_err(Clone::clone)?
+                    .get(topic_id)
                     .cloned()
-                    .ok_or_else(|| "canonical_legacy_topic_sources_invalid".to_owned())?;
-                if topic_definition.get("id").and_then(Value::as_str) != Some(topic_id.as_str()) {
-                    return Err("canonical_legacy_topic_sources_mismatch".into());
-                }
-                Ok(LegacyCanonicalTopic {
-                    topic_definition,
-                    topic_resolver: resolvers
-                        .get(topic_id)
-                        .cloned()
-                        .ok_or_else(|| "canonical_legacy_topic_sources_mismatch".to_owned())?,
-                    resolved_paper_set: paper_sets
-                        .get(topic_id)
-                        .cloned()
-                        .ok_or_else(|| "canonical_legacy_topic_sources_mismatch".to_owned())?,
-                    snapshot: canonical_topic_view(&snapshot)?,
-                })
+                    .ok_or_else(|| "canonical_legacy_topic_sources_mismatch".to_owned())?,
+                snapshot: canonical_topic_view(&snapshot)?,
             })
-            .collect()
+        };
+        Ok(canonical_topic_ids
+            .iter()
+            .map(|id| (id.clone(), read_topic(id)))
+            .collect())
     }
 
     pub fn open(profile_runtime_root: &Path, identity: CanonicalIdentity) -> Result<Self, String> {
         let root = profile_runtime_root
             .join("shadow-canonical")
             .join(path_segment(&identity.data_root_id));
-        Self::open_root(root, identity, IDENTITY_SCHEMA)
+        Self::open_root(root, identity, IDENTITY_SCHEMA, &BTreeMap::new())
     }
 
     pub fn open_production(root: &Path, identity: CanonicalIdentity) -> Result<Self, String> {
+        Self::open_production_with_pending_topics(root, identity, &BTreeMap::new())
+    }
+
+    pub fn open_production_with_pending_topics(
+        root: &Path,
+        identity: CanonicalIdentity,
+        pending_topics: &BTreeMap<String, String>,
+    ) -> Result<Self, String> {
         if !root.is_absolute()
             || root.file_name().and_then(|value| value.to_str()) != Some("synthesis")
         {
@@ -1466,7 +1575,12 @@ impl CanonicalStore {
         if !metadata.is_dir() || metadata.file_type().is_symlink() {
             return Err("canonical_production_path_invalid".into());
         }
-        Self::open_root(root.to_owned(), identity, PRODUCTION_IDENTITY_SCHEMA)
+        Self::open_root(
+            root.to_owned(),
+            identity,
+            PRODUCTION_IDENTITY_SCHEMA,
+            pending_topics,
+        )
     }
 
     pub fn initialize_production(root: &Path, identity: CanonicalIdentity) -> Result<Self, String> {
@@ -1478,20 +1592,31 @@ impl CanonicalStore {
         if root.exists() {
             return Err("canonical_production_root_exists".into());
         }
-        Self::open_root(root.to_owned(), identity, PRODUCTION_IDENTITY_SCHEMA)
+        Self::open_root(
+            root.to_owned(),
+            identity,
+            PRODUCTION_IDENTITY_SCHEMA,
+            &BTreeMap::new(),
+        )
     }
 
     fn open_root(
         root: PathBuf,
         identity: CanonicalIdentity,
         identity_schema: &str,
+        pending_topics: &BTreeMap<String, String>,
     ) -> Result<Self, String> {
         validate_identity_part(&identity.profile_id)?;
         validate_identity_part(&identity.data_root_id)?;
-        fs::create_dir_all(root.join("topics"))
-            .map_err(|error| format!("canonical_root_create:{error}"))?;
-        fs::create_dir_all(root.join("deleted"))
-            .map_err(|error| format!("canonical_root_create:{error}"))?;
+        for directory in [root.join("topics"), root.join("deleted")] {
+            fs::create_dir_all(&directory)
+                .map_err(|error| format!("canonical_root_create:{error}"))?;
+            let metadata = fs::symlink_metadata(&directory)
+                .map_err(|error| format!("canonical_read_failed:{error}"))?;
+            if metadata.file_type().is_symlink() || !metadata.is_dir() {
+                return Err("canonical_production_path_invalid".into());
+            }
+        }
         let store_id = if identity_schema == IDENTITY_SCHEMA {
             stable_id(&identity)
         } else {
@@ -1524,99 +1649,149 @@ impl CanonicalStore {
             writer: AtomicBool::new(false),
             repair_required: false,
             historical_topic_paths: HashSet::new(),
+            unavailable_topic_paths: BTreeMap::new(),
+            pending_topic_paths: BTreeMap::new(),
             #[cfg(feature = "parity-harness")]
             parity_transaction_ids: None,
         };
-        store.recover_all(None)?;
-        store.migrate_historical_topic_roots()?;
+        store.recover_topics_on_open()?;
         store.recover_import_batch_on_open()?;
+        store.migrate_historical_topic_roots(pending_topics)?;
         Ok(store)
     }
 
-    fn migrate_historical_topic_roots(&mut self) -> Result<(), String> {
+    fn migrate_historical_topic_roots(
+        &mut self,
+        pending_topics: &BTreeMap<String, String>,
+    ) -> Result<(), String> {
         let topics_root = self.root.join("topics");
-        let roots = fs::read_dir(&topics_root)
-            .map_err(|error| format!("canonical_read_failed:{error}"))?
-            .map(|entry| entry.map(|entry| entry.path()))
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|error| format!("canonical_read_failed:{error}"))?;
-        for historical_root in roots {
-            let historical_path_id = historical_root
-                .file_name()
-                .and_then(|value| value.to_str())
-                .ok_or_else(|| "canonical_path_invalid".to_owned())?
-                .to_owned();
-            let current = historical_root.join("current");
-            if !current.is_dir() {
+        let mut candidates = BTreeMap::<String, Vec<(PathBuf, String)>>::new();
+        for (topic_id, code) in pending_topics {
+            self.mark_legacy_topic_pending(topic_id, code);
+        }
+        for entry in
+            fs::read_dir(&topics_root).map_err(|error| format!("canonical_read_failed:{error}"))?
+        {
+            let entry = entry.map_err(|error| format!("canonical_read_failed:{error}"))?;
+            let name = entry.file_name();
+            let Some(path_id) = name.to_str() else {
+                self.unavailable_topic_paths.insert(
+                    name.to_string_lossy().into_owned(),
+                    "canonical_path_invalid".into(),
+                );
                 continue;
-            }
-            let metadata_path = current.join("metadata.json");
-            let topic_id = if metadata_path.is_file() {
-                let (metadata, _) = read_json_bytes(&metadata_path)?;
-                metadata
-                    .pointer("/data/topic_id")
-                    .and_then(Value::as_str)
-                    .map(str::to_owned)
-            } else {
-                None
             };
-            let Some(topic_id) = topic_id else {
-                if has_current_topic_path_shape(&historical_path_id) {
-                    continue;
-                }
-                return Err("canonical_topic_identity_invalid".into());
-            };
-            let path_id = canonical_topic_path_id(&topic_id)?;
-            if historical_path_id == path_id {
-                continue;
-            }
-            if !historical_topic_path_ids(&topic_id)?.contains(&historical_path_id) {
-                return Err("canonical_path_identity_mismatch".into());
-            }
-            let snapshot = read_topic_snapshot_at(&current, &topic_id, path_id.clone())?;
-            if snapshot.manifest.get("topic_id").and_then(Value::as_str) != Some(topic_id.as_str())
+            if self.historical_topic_paths.contains(path_id) || self.topic_issue(path_id).is_some()
             {
-                return Err("canonical_topic_identity_invalid".into());
+                continue;
             }
-            validate_snapshot_representation(&snapshot)?;
-            let basis = canonical_topic_view(&snapshot)?.basis;
-            let canonical_current = topics_root.join(&path_id).join("current");
-            if canonical_current.exists() {
-                let current_snapshot =
-                    read_topic_snapshot_at(&canonical_current, &topic_id, path_id)?;
-                if current_snapshot
-                    .manifest
-                    .get("topic_id")
-                    .and_then(Value::as_str)
-                    != Some(topic_id.as_str())
-                    || current_snapshot
-                        .metadata
-                        .pointer("/data/topic_id")
-                        .and_then(Value::as_str)
-                        != Some(topic_id.as_str())
+            let current = entry.path().join("current");
+            let classify = || -> Result<Option<(String, String)>, String> {
+                if !topic_current_present(&current)? {
+                    return Ok(None);
+                }
+                let (metadata, _) = read_json_bytes(&current.join("metadata.json"))?;
+                let topic_id = metadata.pointer("/data/topic_id").and_then(Value::as_str);
+                let Some(topic_id) = topic_id else {
+                    return if has_current_topic_path_shape(path_id) {
+                        Ok(None)
+                    } else {
+                        Err("canonical_topic_identity_invalid".into())
+                    };
+                };
+                let current_path_id = canonical_topic_path_id(topic_id)?;
+                if path_id == current_path_id {
+                    return Ok(None);
+                }
+                if historical_topic_path_ids(topic_id)?
+                    .iter()
+                    .any(|id| id == path_id)
                 {
+                    return Ok(Some((topic_id.to_owned(), current_path_id)));
+                }
+                Err("canonical_path_identity_mismatch".into())
+            };
+            match classify() {
+                Ok(Some((topic_id, current_path_id))) => {
+                    self.historical_topic_paths.insert(path_id.to_owned());
+                    candidates
+                        .entry(topic_id)
+                        .or_default()
+                        .push((current, current_path_id));
+                }
+                Ok(None) => {}
+                Err(error) => {
+                    self.unavailable_topic_paths
+                        .insert(path_id.to_owned(), stable_topic_issue(&error));
+                }
+            }
+        }
+        for (topic_id, candidates) in candidates {
+            let (historical_current, path_id) = &candidates[0];
+            let canonical_current = topics_root.join(path_id).join("current");
+            let mut migrate = || -> Result<(), String> {
+                if self.topic_issue(path_id).is_some() {
+                    return Ok(());
+                }
+                if topic_current_present(&canonical_current)? {
+                    let snapshot =
+                        read_topic_snapshot_at(&canonical_current, &topic_id, path_id.clone())?;
+                    return validate_snapshot_representation(&snapshot);
+                }
+                if candidates.len() != 1 {
+                    return Err("canonical_legacy_topic_sources_mismatch".into());
+                }
+                let snapshot =
+                    read_historical_topic_snapshot(historical_current, &topic_id, path_id.clone())?;
+                if snapshot.manifest["topic_id"].as_str() != Some(topic_id.as_str()) {
                     return Err("canonical_topic_identity_invalid".into());
                 }
-                // Retained migration evidence can predate valid updates to the current snapshot.
-                validate_snapshot_representation(&current_snapshot)?;
-                self.historical_topic_paths.insert(historical_path_id);
-                continue;
+                validate_snapshot_representation(&snapshot)?;
+                let basis = canonical_topic_view(&snapshot)?.basis;
+                let transaction_id = self.next_transaction_id(path_id);
+                self.promote(Promotion {
+                    transaction_id,
+                    expected_basis: None,
+                    snapshot,
+                })?;
+                let descriptor = descriptor(&canonical_current, &topic_id, path_id)?;
+                if descriptor["manifestHash"] != basis.manifest_hash
+                    || descriptor["artifactHash"] != basis.artifact_hash
+                {
+                    return Err("canonical_legacy_topic_sources_mismatch".into());
+                }
+                Ok(())
+            };
+            if let Err(error) = migrate() {
+                if self.repair_required
+                    || error.starts_with("canonical_writer_failed:")
+                    || error == "canonical_store_busy"
+                {
+                    return Err(error);
+                }
+                self.unavailable_topic_paths
+                    .insert(path_id.clone(), stable_topic_issue(&error));
             }
-            let transaction_id = self.next_transaction_id(&path_id);
-            self.promote(Promotion {
-                transaction_id,
-                expected_basis: None,
-                snapshot,
-            })?;
-            let descriptor = descriptor(&canonical_current, &topic_id, &path_id)?;
-            if descriptor["manifestHash"] != basis.manifest_hash
-                || descriptor["artifactHash"] != basis.artifact_hash
-            {
-                return Err("canonical_legacy_topic_sources_mismatch".into());
-            }
-            self.historical_topic_paths.insert(historical_path_id);
         }
         Ok(())
+    }
+
+    pub fn topic_issues(&self) -> impl Iterator<Item = &str> {
+        self.unavailable_topic_paths
+            .iter()
+            .filter(|(path, _)| !self.pending_topic_paths.contains_key(*path))
+            .map(|(_, code)| code.as_str())
+            .chain(self.pending_topic_paths.values().map(String::as_str))
+    }
+
+    pub fn mark_legacy_topic_pending(&mut self, topic_id: &str, code: &str) {
+        if let Ok(path_id) = canonical_topic_path_id(topic_id) {
+            self.pending_topic_paths
+                .insert(path_id, stable_topic_issue(code));
+        }
+        if let Ok(historical) = historical_topic_path_ids(topic_id) {
+            self.historical_topic_paths.extend(historical);
+        }
     }
 
     pub fn root(&self) -> &Path {
@@ -1673,11 +1848,10 @@ impl CanonicalStore {
     }
 
     pub fn inspect(&self, topic_id: &str) -> Result<Value, String> {
-        let resolved = resolve_current_topic(&self.root, topic_id)?;
-        let path_id = resolved.path_id;
-        let current = resolved.current;
-        if !current.exists() {
-            return Ok(json!({
+        let path_id = canonical_topic_path_id(topic_id)?;
+        match self.inspect_resolved_current(topic_id) {
+            Ok(Some(value)) => Ok(value),
+            Ok(None) => Ok(json!({
                 "status":"absent",
                 "topicId":topic_id,
                 "pathId":path_id,
@@ -1686,10 +1860,7 @@ impl CanonicalStore {
                 "metadataHash":null,
                 "sections":[],
                 "diagnostics":[],
-            }));
-        }
-        match descriptor(&current, topic_id, &path_id) {
-            Ok(value) => Ok(value),
+            })),
             Err(error) => Ok(json!({
                 "status":"invalid",
                 "topicId":topic_id,
@@ -1698,7 +1869,7 @@ impl CanonicalStore {
                 "artifactHash":null,
                 "metadataHash":null,
                 "sections":[],
-                "diagnostics":[error],
+                "diagnostics":[stable_topic_issue(&error)],
             })),
         }
     }
@@ -1707,34 +1878,31 @@ impl CanonicalStore {
         let resolved = resolve_current_topic(&self.root, topic_id)?;
         let path_id = resolved.path_id;
         let current = resolved.current;
-        if !current.exists() {
-            return Ok(CurrentTopic::Absent {
+        let result = (|| {
+            self.ensure_topic_available(&path_id)?;
+            if !topic_current_present(&current)? {
+                return Ok(None);
+            }
+            let snapshot = read_topic_snapshot_at(&current, topic_id, path_id.clone())?;
+            validate_snapshot_representation(&snapshot)?;
+            Ok::<_, String>(Some(CurrentTopic::Ready {
+                basis: CanonicalBasis {
+                    manifest_hash: hash_json(&snapshot.manifest)?,
+                    artifact_hash: hash_json(&snapshot.artifact)?,
+                },
+                snapshot,
+            }))
+        })();
+        Ok(match result {
+            Ok(Some(ready)) => ready,
+            Ok(None) => CurrentTopic::Absent {
                 topic_id: topic_id.into(),
                 path_id,
-            });
-        }
-        let descriptor = match descriptor(&current, topic_id, &path_id) {
-            Ok(descriptor) => descriptor,
-            Err(error) => {
-                return Ok(CurrentTopic::Invalid {
-                    topic_id: topic_id.into(),
-                    path_id,
-                    diagnostics: vec![error],
-                });
-            }
-        };
-        let snapshot = read_topic_snapshot(&self.root, topic_id)?;
-        Ok(CurrentTopic::Ready {
-            snapshot,
-            basis: CanonicalBasis {
-                manifest_hash: descriptor["manifestHash"]
-                    .as_str()
-                    .ok_or_else(|| "canonical_snapshot_invalid".to_owned())?
-                    .into(),
-                artifact_hash: descriptor["artifactHash"]
-                    .as_str()
-                    .ok_or_else(|| "canonical_snapshot_invalid".to_owned())?
-                    .into(),
+            },
+            Err(error) => CurrentTopic::Invalid {
+                topic_id: topic_id.into(),
+                path_id,
+                diagnostics: vec![stable_topic_issue(&error)],
             },
         })
     }
@@ -1817,6 +1985,8 @@ impl CanonicalStore {
         // work so a root full of non-candidate names cannot run unbounded.
         let mut candidates = Vec::new();
         let mut complete = true;
+        let mut pending_without_directory =
+            self.pending_topic_paths.keys().collect::<BTreeSet<_>>();
         for entry in fs::read_dir(self.root.join("topics"))
             .map_err(|error| CanonicalError::from_code(format!("canonical_read_failed:{error}")))?
             .enumerate()
@@ -1831,26 +2001,33 @@ impl CanonicalStore {
             })?;
             let path = entry.path();
             let path_id = entry.file_name().to_string_lossy().to_string();
+            pending_without_directory.remove(&path_id);
             if self.historical_topic_paths.contains(&path_id) {
                 continue;
             }
             // Every branch produces at most one candidate, so the bound below
             // is the only place that has to know a candidate was collected.
-            let candidate = match fs::symlink_metadata(&path) {
-                Ok(metadata) if metadata.file_type().is_symlink() => {
-                    Some((path_id, Err("canonical_symlink_rejected".into())))
-                }
-                Ok(metadata) if !metadata.is_dir() => None,
-                Ok(_) => match fs::symlink_metadata(path.join("current")) {
-                    Ok(current) if current.is_dir() && !current.file_type().is_symlink() => {
-                        Some((path_id, Ok(path.join("current"))))
+            let candidate = if let Some(code) = self.topic_issue(&path_id) {
+                Some((path_id.clone(), Err(code.to_owned())))
+            } else {
+                match fs::symlink_metadata(&path) {
+                    Ok(metadata) if metadata.file_type().is_symlink() => {
+                        Some((path_id, Err("canonical_symlink_rejected".into())))
                     }
-                    Ok(_) => Some((path_id, Err("canonical_symlink_rejected".into()))),
-                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+                    Ok(metadata) if !metadata.is_dir() => None,
+                    Ok(_) => match fs::symlink_metadata(path.join("current")) {
+                        Ok(current) if current.is_dir() && !current.file_type().is_symlink() => {
+                            Some((path_id, Ok(path.join("current"))))
+                        }
+                        Ok(_) => Some((path_id, Err("canonical_symlink_rejected".into()))),
+                        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+                        Err(error) => {
+                            Some((path_id, Err(format!("canonical_read_failed:{error}"))))
+                        }
+                    },
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
                     Err(error) => Some((path_id, Err(format!("canonical_read_failed:{error}")))),
-                },
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
-                Err(error) => Some((path_id, Err(format!("canonical_read_failed:{error}")))),
+                }
             };
             let Some(candidate) = candidate else {
                 continue;
@@ -1859,6 +2036,18 @@ impl CanonicalStore {
             if candidates.len() > limit {
                 complete = false;
                 break;
+            }
+        }
+        if complete {
+            for path_id in pending_without_directory {
+                candidates.push((
+                    path_id.clone(),
+                    Err(self.pending_topic_paths[path_id].clone()),
+                ));
+                if candidates.len() > limit {
+                    complete = false;
+                    break;
+                }
             }
         }
         candidates.sort();
@@ -1927,11 +2116,10 @@ impl CanonicalStore {
         }
         validate_identity_part(topic_id)?;
         validate_deleted_path_id(deleted_path_id)?;
-        let resolved = resolve_current_topic(&self.root, topic_id)?;
-        let current = resolved.current;
-        if !current.exists() {
+        if self.current_basis_for_write(topic_id)?.is_none() {
             return Ok(false);
         }
+        let current = resolve_current_topic(&self.root, topic_id)?.current;
         let topic_root = current
             .parent()
             .ok_or_else(|| "canonical_path_invalid".to_owned())?
@@ -1978,9 +2166,11 @@ impl CanonicalStore {
         }
         validate_identity_part(topic_id)?;
         validate_deleted_path_id(deleted_path_id)?;
-        let topic_root = self.topic_root(&canonical_topic_path_id(topic_id)?)?;
+        let path_id = canonical_topic_path_id(topic_id)?;
+        self.ensure_topic_available(&path_id)?;
+        let topic_root = self.topic_root(&path_id)?;
         let current = topic_root.join("current");
-        if current.exists() {
+        if topic_current_present(&current)? {
             return Err("canonical_current_exists".into());
         }
         let deleted_root = self.root.join("deleted").join(deleted_path_id);
@@ -2050,12 +2240,36 @@ impl CanonicalStore {
         self.repair_required
     }
 
+    fn topic_issue(&self, path_id: &str) -> Option<&str> {
+        self.pending_topic_paths
+            .get(path_id)
+            .or_else(|| self.unavailable_topic_paths.get(path_id))
+            .map(String::as_str)
+    }
+
+    fn ensure_topic_available(&self, path_id: &str) -> Result<(), String> {
+        self.topic_issue(path_id)
+            .map_or(Ok(()), |code| Err(code.to_owned()))
+    }
+
     fn inspect_resolved_current(&self, topic_id: &str) -> Result<Option<Value>, String> {
         let resolved = resolve_current_topic(&self.root, topic_id)?;
-        if !resolved.current.exists() {
+        self.ensure_topic_available(&resolved.path_id)?;
+        if !topic_current_present(&resolved.current)? {
             return Ok(None);
         }
         descriptor(&resolved.current, topic_id, &resolved.path_id).map(Some)
+    }
+
+    fn current_basis_for_write(&self, topic_id: &str) -> Result<Option<CanonicalBasis>, String> {
+        match self.read_current(topic_id)? {
+            CurrentTopic::Ready { basis, .. } => Ok(Some(basis)),
+            CurrentTopic::Absent { .. } => Ok(None),
+            CurrentTopic::Invalid { diagnostics, .. } => Err(diagnostics
+                .into_iter()
+                .next()
+                .unwrap_or_else(|| "canonical_snapshot_invalid".into())),
+        }
     }
 
     fn promote(&mut self, promotion: Promotion) -> Result<CanonicalReceipt, String> {
@@ -2123,6 +2337,12 @@ impl CanonicalStore {
         if self.root.join("import-batch.json").exists() {
             return Err("canonical_store_busy".into());
         }
+        let path_id = canonical_topic_path_id(&promotion.snapshot.topic_id)?;
+        self.ensure_topic_available(&path_id)?;
+        if path_id != promotion.snapshot.path_id {
+            return Err("canonical_path_identity_mismatch".into());
+        }
+        let topic_root = self.topic_root(&path_id)?;
         let lease = self.acquire_writer()?;
         let result = if fault == Some(FaultPoint::LockAcquired) {
             Err("fault_injected:lock_acquired".into())
@@ -2131,9 +2351,12 @@ impl CanonicalStore {
         };
         if result.is_err()
             && recover_in_process
-            && let Err(error) = self.recover_all(fault)
+            && fs::symlink_metadata(&topic_root)
+                .is_ok_and(|metadata| metadata.is_dir() && !metadata.file_type().is_symlink())
+            && let Err(error) = self.recover_topic(&topic_root, fault)
         {
-            self.repair_required = true;
+            self.unavailable_topic_paths
+                .insert(path_id, stable_topic_issue(&error));
             self.release_writer(lease);
             return Err(error);
         }
@@ -2150,16 +2373,12 @@ impl CanonicalStore {
         validate_identity_part(&promotion.snapshot.topic_id)?;
         validate_identity_part(&promotion.snapshot.path_id)?;
         let topic_root = self.topic_root(&promotion.snapshot.path_id)?;
+        let current_basis = self.current_basis_for_write(&promotion.snapshot.topic_id)?;
+        if current_basis != promotion.expected_basis {
+            return Err("basis_mismatch".into());
+        }
         fs::create_dir_all(&topic_root)
             .map_err(|error| format!("canonical_write_failed:{error}"))?;
-        let current_descriptor = self.inspect_resolved_current(&promotion.snapshot.topic_id)?;
-        match (&promotion.expected_basis, &current_descriptor) {
-            (None, None) => {}
-            (Some(expected), Some(current))
-                if current["manifestHash"] == expected.manifest_hash
-                    && current["artifactHash"] == expected.artifact_hash => {}
-            _ => return Err("basis_mismatch".into()),
-        }
         let staging = topic_root.join("staging").join("current");
         let backup = topic_root.join("backup").join("current");
         if staging.exists() || backup.exists() || topic_root.join("transaction.json").exists() {
@@ -2265,6 +2484,11 @@ impl CanonicalStore {
         if journal.schema != JOURNAL_SCHEMA {
             return Err("canonical_journal_invalid".into());
         }
+        if topic_root.file_name().and_then(|name| name.to_str()) != Some(journal.path_id.as_str())
+            || canonical_topic_path_id(&journal.topic_id)? != journal.path_id
+        {
+            return Err("canonical_journal_invalid".into());
+        }
         let receipt_path = topic_root.join("receipt.json");
         let receipt = if receipt_path.exists() {
             Some(
@@ -2287,19 +2511,22 @@ impl CanonicalStore {
                     && receipt.artifact_hash == journal.artifact_hash
             });
         if !forward {
+            let backup = topic_root.join("backup").join("current");
+            if journal.had_current
+                && journal.phase != JournalPhase::Staged
+                && (fault == Some(FaultPoint::RollbackRestore) || !topic_current_present(&backup)?)
+            {
+                return Err("repair_required".into());
+            }
             if journal.phase != JournalPhase::Staged && topic_root.join("current").exists() {
                 remove_tree(&topic_root.join("current"))?;
             }
             if journal.had_current {
-                let backup = topic_root.join("backup").join("current");
                 if journal.phase == JournalPhase::Staged {
                     if !topic_root.join("current").exists() {
                         return Err("repair_required".into());
                     }
                 } else {
-                    if !backup.exists() || fault == Some(FaultPoint::RollbackRestore) {
-                        return Err("repair_required".into());
-                    }
                     fs::rename(backup, topic_root.join("current"))
                         .map_err(|_| "repair_required".to_owned())?;
                     sync_directory(topic_root)?;
@@ -2328,6 +2555,41 @@ impl CanonicalStore {
         Ok(())
     }
 
+    fn recover_topics_on_open(&mut self) -> Result<(), String> {
+        let batch = self.root.join("import-batch.json");
+        if batch
+            .try_exists()
+            .map_err(|error| format!("canonical_read_failed:{error}"))?
+        {
+            return self.recover_all(None);
+        }
+        let topics = self.root.join("topics");
+        for entry in
+            fs::read_dir(&topics).map_err(|error| format!("canonical_read_failed:{error}"))?
+        {
+            let entry = entry.map_err(|error| format!("canonical_read_failed:{error}"))?;
+            let name = entry.file_name();
+            let Some(path_id) = name
+                .to_str()
+                .filter(|name| has_current_topic_path_shape(name))
+            else {
+                continue;
+            };
+            let result = match entry.file_type() {
+                Ok(kind) if kind.is_dir() && !kind.is_symlink() => {
+                    self.recover_topic(&entry.path(), None)
+                }
+                Ok(_) => Err("canonical_topic_directory_invalid".into()),
+                Err(error) => Err(format!("canonical_read_failed:{error}")),
+            };
+            if let Err(error) = result {
+                self.unavailable_topic_paths
+                    .insert(path_id.to_owned(), stable_topic_issue(&error));
+            }
+        }
+        Ok(())
+    }
+
     fn stage_import_batch(
         &mut self,
         receipt_id: String,
@@ -2351,13 +2613,8 @@ impl CanonicalStore {
                 if !seen.insert(topic.snapshot.topic_id.clone()) {
                     return Err("canonical_import_invalid".into());
                 }
-                let current = self.inspect_resolved_current(&topic.snapshot.topic_id)?;
-                match (&topic.expected_basis, current) {
-                    (None, None) => {}
-                    (Some(expected), Some(current))
-                        if current["manifestHash"] == expected.manifest_hash
-                            && current["artifactHash"] == expected.artifact_hash => {}
-                    _ => return Err("basis_mismatch".into()),
+                if self.current_basis_for_write(&topic.snapshot.topic_id)? != topic.expected_basis {
+                    return Err("basis_mismatch".into());
                 }
             }
             durable_json(
@@ -2417,10 +2674,10 @@ impl CanonicalStore {
             for promotion in batch.topics {
                 let desired_manifest_hash = hash_json(&promotion.snapshot.manifest)?;
                 let desired_artifact_hash = hash_json(&promotion.snapshot.artifact)?;
-                let current = self.inspect_resolved_current(&promotion.snapshot.topic_id)?;
-                if current.as_ref().is_some_and(|descriptor| {
-                    descriptor["manifestHash"] == desired_manifest_hash
-                        && descriptor["artifactHash"] == desired_artifact_hash
+                let current = self.current_basis_for_write(&promotion.snapshot.topic_id)?;
+                if current.as_ref().is_some_and(|basis| {
+                    basis.manifest_hash == desired_manifest_hash
+                        && basis.artifact_hash == desired_artifact_hash
                 }) {
                     let receipt_path = self
                         .topic_root(&promotion.snapshot.path_id)?
@@ -2923,10 +3180,18 @@ mod tests {
             .join(format!("wrong-{}", "0".repeat(64)));
         fs::rename(&canonical_path, &mismatched_path).expect("rename mismatched path");
 
-        assert_eq!(
-            CanonicalStore::open_production(&production_root, identity()).unwrap_err(),
-            "canonical_path_identity_mismatch"
+        let store = CanonicalStore::open_production(&production_root, identity())
+            .expect("isolate invalid path");
+        assert!(
+            store
+                .topic_issues()
+                .any(|code| code == "canonical_path_identity_mismatch")
         );
+        assert!(matches!(
+            store.read_topic("topic:r7").unwrap(),
+            CanonicalTopicState::Absent { .. }
+        ));
+        store.close().unwrap();
         assert!(mismatched_path.join("current").is_dir());
         fs::remove_dir_all(parent).expect("cleanup");
     }
@@ -2963,10 +3228,10 @@ mod tests {
         fs::write(canonical_path.join("current/artifact.json"), b"not-json")
             .expect("write invalid current");
 
-        assert_eq!(
-            CanonicalStore::open_production(&production_root, identity()).unwrap_err(),
-            "canonical_snapshot_incomplete"
-        );
+        let store = CanonicalStore::open_production(&production_root, identity())
+            .expect("isolate invalid Topic");
+        assert_eq!(store.inspect("中文主题").unwrap()["status"], "invalid");
+        store.close().unwrap();
         assert!(production_root.join("topics/63974b299/current").is_dir());
         assert!(canonical_path.join("current/artifact.json").is_file());
 
@@ -2992,10 +3257,14 @@ mod tests {
         manifest["topic_id"] = json!("another-topic");
         let invalid_manifest = json_bytes(&manifest).expect("mismatched identity bytes");
         fs::write(&manifest_path, &invalid_manifest).expect("write mismatched identity");
-        assert_eq!(
-            CanonicalStore::open_production(&production_root, identity()).unwrap_err(),
-            "canonical_topic_identity_invalid"
-        );
+        let store = CanonicalStore::open_production(&production_root, identity())
+            .expect("isolate identity mismatch");
+        assert!(matches!(
+            store.read_topic("中文主题").unwrap(),
+            CanonicalTopicState::Invalid { diagnostics, .. }
+                if diagnostics == ["canonical_topic_identity_invalid"]
+        ));
+        store.close().unwrap();
         assert_eq!(
             fs::read(manifest_path).expect("current bytes"),
             invalid_manifest
@@ -3052,9 +3321,14 @@ mod tests {
             panic!("old numeric topic must remain ready");
         };
         assert_eq!(view.basis, basis);
-        let bounded =
-            read_topic_snapshot_within(&current, TOPIC, view.path_id.clone(), &mut Some(64 * 1024))
-                .expect("bounded read of old topic");
+        let bounded = read_topic_snapshot_within(
+            &current,
+            TOPIC,
+            view.path_id.clone(),
+            &mut Some(64 * 1024),
+            false,
+        )
+        .expect("bounded read of old topic");
         assert_eq!(canonical_topic_view(&bounded).unwrap(), view);
         assert_eq!(
             view.metadata_hash,
@@ -3395,8 +3669,9 @@ mod tests {
         )
         .expect("legacy preflight");
         assert_eq!(topics.len(), 1);
-        assert_eq!(topics[0].topic_definition, canonical_definition);
-        assert_eq!(topics[0].topic_resolver, json!({"tag":"topic:r7"}));
+        let topic = topics["topic:r7"].as_ref().expect("valid canonical topic");
+        assert_eq!(topic.topic_definition, canonical_definition);
+        assert_eq!(topic.topic_resolver, json!({"tag":"topic:r7"}));
         assert_eq!(
             fs::read(current.join("metadata.json")).expect("metadata after"),
             metadata_before

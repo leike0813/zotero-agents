@@ -2,6 +2,7 @@ use crate::runtime_contract::{
     NativeLaunchConfig, SIDECAR_CAPABILITIES, current_time_ms, read_native_launch_config,
 };
 use serde_json::{Value, json};
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::{self, Read};
 use std::path::Path;
@@ -9,10 +10,12 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 use synthesis_application::{RepositoryPort, project_legacy_canonical_topic};
-use synthesis_canonical_store::{CanonicalIdentity, CanonicalStore};
+use synthesis_canonical_store::{
+    CanonicalIdentity, CanonicalStore, CanonicalTopicState, LegacyCanonicalTopic,
+};
 use synthesis_repository::{
-    Repository, RepositoryIdentity, legacy_production_topic_inventory,
-    prepare_production_schema_with_legacy_topics,
+    Repository, RepositoryIdentity, TopicApplicationProjectionRecord, TopicApplicationStateRecord,
+    legacy_production_topic_inventory, prepare_production_schema_with_legacy_topics,
 };
 
 use crate::runtime_background_tasks::BackgroundTaskOwner;
@@ -66,6 +69,33 @@ fn startup_step<T>(
             Err(error)
         }
     }
+}
+
+type LegacyTopicProjection = (
+    TopicApplicationStateRecord,
+    TopicApplicationProjectionRecord,
+);
+
+fn project_legacy_topics(
+    sources: BTreeMap<String, Result<LegacyCanonicalTopic, String>>,
+    pending: &mut BTreeMap<String, String>,
+) -> Vec<LegacyTopicProjection> {
+    let mut projected = Vec::new();
+    for (topic_id, source) in sources {
+        match source.and_then(|topic| project_legacy_canonical_topic(&topic)) {
+            Ok(topic) if topic.0.topic_id == topic_id && topic.1.topic_id == topic_id => {
+                pending.remove(&topic_id);
+                projected.push(topic);
+            }
+            result => {
+                let code = result
+                    .err()
+                    .unwrap_or_else(|| "canonical_legacy_topic_sources_mismatch".into());
+                pending.insert(topic_id, stable_startup_code(&code));
+            }
+        }
+    }
+    projected
 }
 
 fn database_sidecars(database_path: &Path) -> [std::path::PathBuf; 2] {
@@ -225,28 +255,18 @@ impl RunningRuntime {
                 .parent()
                 .ok_or_else(|| "repository_production_path_invalid".to_owned())?
                 .join("synthesis-migration-backups");
+            let mut initial_pending = BTreeMap::new();
             let legacy_topics =
                 startup_step(
                     "source-classify",
                     || match legacy_production_topic_inventory(&config.repository_db_path)? {
                         Some(inventory) => {
-                            let topics = CanonicalStore::preflight_legacy_production(
+                            let sources = CanonicalStore::preflight_legacy_production(
                                 &config.canonical_root,
                                 &inventory.canonical_topic_ids,
                                 &inventory.graph_only_topic_ids,
                             )?;
-                            let projected = topics
-                                .iter()
-                                .map(project_legacy_canonical_topic)
-                                .collect::<Result<Vec<_>, _>>()?;
-                            let projected_topic_ids = projected
-                                .iter()
-                                .map(|(state, _)| state.topic_id.clone())
-                                .collect::<std::collections::BTreeSet<_>>();
-                            if inventory.canonical_topic_ids != projected_topic_ids {
-                                return Err("canonical_legacy_topic_sources_mismatch".into());
-                            }
-                            Ok(projected)
+                            Ok(project_legacy_topics(sources, &mut initial_pending))
                         }
                         None => Ok(Vec::new()),
                     },
@@ -256,6 +276,7 @@ impl RunningRuntime {
                     &config.repository_db_path,
                     &migration_backup_root,
                     &legacy_topics,
+                    &initial_pending,
                 )
             })?;
             let repository = Arc::new(Mutex::new(startup_step("repository-open", || {
@@ -266,15 +287,91 @@ impl RunningRuntime {
                 )
             })?));
             startup.repository = Some(Arc::clone(&repository));
+            let mut repository_owner = repository.lock().map_err(|_| "repository_unavailable")?;
+            let original_pending = repository_owner.pending_legacy_topics()?;
+            let mut pending = original_pending.clone();
+            let retry = if original_pending.is_empty() || !initial_pending.is_empty() {
+                Vec::new()
+            } else {
+                let mut retry_ids = BTreeSet::new();
+                for (topic_id, code) in &mut pending {
+                    if repository_owner.may_resume_legacy_topic(topic_id)? {
+                        retry_ids.insert(topic_id.clone());
+                    } else {
+                        *code = "basis_mismatch".into();
+                    }
+                }
+                if retry_ids.is_empty() {
+                    Vec::new()
+                } else {
+                    startup_step("legacy-topic-retry", || {
+                        let sources = CanonicalStore::retry_legacy_production(
+                            &config.canonical_root,
+                            &retry_ids,
+                        )?;
+                        Ok(project_legacy_topics(sources, &mut pending))
+                    })?
+                }
+            };
             let canonical = Arc::new(Mutex::new(startup_step("canonical-open", || {
-                CanonicalStore::open_production(&config.canonical_root, canonical_identity)
+                CanonicalStore::open_production_with_pending_topics(
+                    &config.canonical_root,
+                    canonical_identity,
+                    &pending,
+                )
             })?));
             startup.canonical = Some(Arc::clone(&canonical));
-            let repository_id = repository
+            let mut canonical_owner = canonical
                 .lock()
-                .map_err(|_| "repository_unavailable".to_owned())?
-                .repository_id()
-                .to_owned();
+                .map_err(|_| "canonical_store_unavailable")?;
+            let mut resumed = Vec::new();
+            for topic in retry {
+                let topic_id = &topic.0.topic_id;
+                let code = match canonical_owner
+                    .read_topic(topic_id)
+                    .map_err(|err| err.code().to_owned())?
+                {
+                    CanonicalTopicState::Ready(view)
+                        if view.basis.manifest_hash == topic.0.manifest_hash
+                            && view.basis.artifact_hash == topic.0.artifact_hash =>
+                    {
+                        resumed.push(topic);
+                        continue;
+                    }
+                    CanonicalTopicState::Absent { .. } => "canonical_topic_missing".into(),
+                    CanonicalTopicState::Invalid { diagnostics, .. } => diagnostics
+                        .into_iter()
+                        .next()
+                        .unwrap_or_else(|| "canonical_snapshot_invalid".into()),
+                    CanonicalTopicState::Ready(_) => "basis_mismatch".into(),
+                };
+                canonical_owner.mark_legacy_topic_pending(topic_id, &code);
+                pending.insert(topic_id.clone(), stable_startup_code(&code));
+            }
+            if !resumed.is_empty() || original_pending != pending {
+                startup_step("legacy-topic-publish", || {
+                    repository_owner.resume_legacy_topics(&resumed, &pending)
+                })?;
+            }
+            let mut issues = BTreeMap::new();
+            for code in canonical_owner.topic_issues() {
+                *issues.entry(stable_startup_code(code)).or_insert(0) += 1;
+            }
+            for (code, count) in issues {
+                emit_startup(
+                    NativeDiagnosticEvent::new(
+                        "lifecycle",
+                        "canonical-topic-isolation",
+                        "succeeded",
+                    )
+                    .mutation_status("partial")
+                    .code(code)
+                    .warning_count(count),
+                );
+            }
+            let repository_id = repository_owner.repository_id().to_owned();
+            drop(repository_owner);
+            drop(canonical_owner);
             let compute_pool = Arc::new(NativeComputePool::new());
             let webdav_state_path = config
                 .repository_db_path

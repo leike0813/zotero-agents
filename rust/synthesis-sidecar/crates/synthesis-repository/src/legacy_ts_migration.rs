@@ -1,9 +1,9 @@
 use super::{
-    REFERENCE_REDIRECT_GRAPH_SCHEMA, REFERENCE_REDIRECT_GRAPH_SCHEMA_KEY, SCHEMA_IDENTITIES,
-    SCHEMA_SQL, SCHEMA_VERSION, TopicApplicationProjectionRecord, TopicApplicationStateRecord,
-    map_sqlite_error, migration_backup_path, open_existing_database_read_only,
-    open_production_database_read_only, read_schema_version, repair_reference_redirect_graph,
-    verify_required_application_schema,
+    REFERENCE_REDIRECT_GRAPH_SCHEMA, REFERENCE_REDIRECT_GRAPH_SCHEMA_KEY, Repository,
+    SCHEMA_IDENTITIES, SCHEMA_SQL, SCHEMA_VERSION, TopicApplicationProjectionRecord,
+    TopicApplicationStateRecord, map_sqlite_error, migration_backup_path,
+    open_existing_database_read_only, open_production_database_read_only, read_schema_version,
+    repair_reference_redirect_graph, verify_required_application_schema,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::{Value, json};
@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 
 pub(crate) const LEGACY_TS_SCHEMA_VERSION: &str = "2026-06-01.sidecar-cache-hard-cut";
 const LEGACY_MIGRATION_ID: &str = "synthesis-legacy-ts-sidecar-cache-hard-cut.v2";
+const PENDING_TOPICS_KEY: &str = "legacy_topic_migration_pending";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum LegacyTsVariant {
@@ -627,6 +628,76 @@ fn insert_legacy_topics(
     Ok(())
 }
 
+fn write_pending_topics(
+    connection: &Connection,
+    pending: &BTreeMap<String, String>,
+) -> Result<(), String> {
+    if pending.is_empty() {
+        connection
+            .execute(
+                "DELETE FROM synt_schema_meta WHERE key=?1",
+                [PENDING_TOPICS_KEY],
+            )
+            .map_err(map_sqlite_error)?;
+    } else {
+        let value = serde_json::to_string(pending)
+            .map_err(|_| "repository_legacy_topic_pending_invalid".to_owned())?;
+        connection
+            .execute(
+                "INSERT OR REPLACE INTO synt_schema_meta(key,value) VALUES(?1,?2)",
+                params![PENDING_TOPICS_KEY, value],
+            )
+            .map_err(map_sqlite_error)?;
+    }
+    Ok(())
+}
+
+impl Repository {
+    pub fn pending_legacy_topics(&self) -> Result<BTreeMap<String, String>, String> {
+        self.connection()?
+            .query_row(
+                "SELECT value FROM synt_schema_meta WHERE key=?1",
+                [PENDING_TOPICS_KEY],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(map_sqlite_error)?
+            .map(|value| {
+                serde_json::from_str(&value)
+                    .map_err(|_| "repository_legacy_topic_pending_invalid".to_owned())
+            })
+            .transpose()
+            .map(Option::unwrap_or_default)
+    }
+
+    pub fn may_resume_legacy_topic(&self, topic_id: &str) -> Result<bool, String> {
+        self.connection()?
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM synt_topic_graph_node
+               WHERE topic_id=?1 AND node_type='materialized' AND definition_status='has_synthesis')
+             AND NOT EXISTS(SELECT 1 FROM synt_topic_application_state WHERE topic_id=?1)",
+                [topic_id],
+                |row| row.get(0),
+            )
+            .map_err(map_sqlite_error)
+    }
+
+    pub fn resume_legacy_topics(
+        &mut self,
+        topics: &[(
+            TopicApplicationStateRecord,
+            TopicApplicationProjectionRecord,
+        )],
+        pending: &BTreeMap<String, String>,
+    ) -> Result<(), String> {
+        self.transaction(|repository| {
+            let connection = repository.connection()?;
+            insert_legacy_topics(connection, topics)?;
+            write_pending_topics(connection, pending)
+        })
+    }
+}
+
 fn build_current_database(
     source: &Path,
     target: &Path,
@@ -634,6 +705,7 @@ fn build_current_database(
         TopicApplicationStateRecord,
         TopicApplicationProjectionRecord,
     )],
+    pending: &BTreeMap<String, String>,
 ) -> Result<(), String> {
     let connection = Connection::open(target).map_err(map_sqlite_error)?;
     connection
@@ -654,6 +726,9 @@ fn build_current_database(
         copy_related_effects(&connection)?;
         copy_topic_payloads(&connection)?;
         insert_legacy_topics(&connection, topics)?;
+        if !pending.is_empty() {
+            write_pending_topics(&connection, pending)?;
+        }
         connection.execute_batch(
             "UPDATE synt_cache_basis SET status='stale',active_operation_id='',stale_reason='legacy_ts_migration';
              UPDATE synt_citation_layout_state SET status='stale';
@@ -776,6 +851,7 @@ pub(crate) fn migrate_if_known_legacy_ts(
         TopicApplicationStateRecord,
         TopicApplicationProjectionRecord,
     )],
+    pending: &BTreeMap<String, String>,
 ) -> Result<bool, String> {
     let source = open_production_database_read_only(database_path)?;
     let Some(variant) = classify_legacy_ts_schema(&source)? else {
@@ -804,7 +880,7 @@ pub(crate) fn migrate_if_known_legacy_ts(
         fs::remove_file(&temporary)
             .map_err(|error| format!("repository_schema_migration_temp_failed:{error}"))?;
     }
-    let result = build_current_database(database_path, &temporary, topics)
+    let result = build_current_database(database_path, &temporary, topics, pending)
         .and_then(|_| publish_database(&temporary, database_path));
     let _ = fs::remove_file(&temporary);
     result.map(|_| true)

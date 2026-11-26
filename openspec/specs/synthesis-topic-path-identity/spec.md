@@ -23,7 +23,7 @@ The canonical Topic path ID SHALL use the normalized lowercase ASCII slug algori
 
 ### Requirement: Historical TypeScript Topic directories remain readable
 
-At startup, the canonical store SHALL discover supported historical Topic directories produced by the previous slug, 16-character hash, or 9-character hash formulas. It SHALL validate the recorded Topic identity and basis. A new-path current snapshot that passes Topic identity, path, and content integrity validation SHALL be the sole runtime authority for its Topic; retained historical snapshots may have a different manifest or artifact basis. Only when the new-path current snapshot is absent SHALL startup migrate each active historical current snapshot to the new path identity through the canonical staged promotion path, and preserve the historical bytes until the new snapshot is verified. A new-path current snapshot that fails validation SHALL fail startup without falling back to or overwriting a historical snapshot. Runtime reads after successful startup SHALL use only the new identity.
+At startup, the canonical store SHALL discover supported historical Topic directories produced by the previous slug, 16-character hash, or 9-character hash formulas. It SHALL validate the recorded Topic identity and basis. A validated new-path current snapshot SHALL be the sole authority for that Topic. When the new current is absent, startup SHALL migrate a valid historical snapshot through staged promotion and retain the historical bytes. Migration SHALL leave unreferenced, ordinary legacy export files under the historical assets directory and promote the validated Topic content. Runtime reads SHALL use the new identity.
 
 #### Scenario: Legacy directory is the only current snapshot
 
@@ -49,13 +49,14 @@ At startup, the canonical store SHALL discover supported historical Topic direct
 #### Scenario: Current directory is invalid
 
 - **WHEN** a new-path current snapshot fails Topic identity, path identity, or content integrity validation
-- **THEN** startup SHALL fail closed
-- **AND** it SHALL preserve existing bytes without falling back to historical data or overwriting the current snapshot.
+- **THEN** the affected Topic SHALL be unavailable and return a stable diagnostic
+- **AND** startup and reads SHALL continue for independent Topics
+- **AND** the existing current and historical bytes SHALL be preserved.
 
 #### Scenario: Legacy candidate has the wrong Topic identity
 
 - **WHEN** a historical candidate's manifest or metadata does not match the identity implied by its supported old path
-- **THEN** startup SHALL fail through the canonical identity or mismatch error path
+- **THEN** that candidate SHALL be isolated with an identity or mismatch diagnostic
 - **AND** it SHALL preserve the candidate bytes.
 
 #### Scenario: Runtime enumeration encounters a verified recovery copy

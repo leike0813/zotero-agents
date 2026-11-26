@@ -38,7 +38,7 @@ The runtime SHALL create and verify one content-addressed legacy backup before p
 - **THEN** startup fails without exposing a partially migrated production database
 
 ### Requirement: Existing canonical Topics SHALL be adopted without rewriting content
-The runtime SHALL classify every recognized legacy Topic Graph row before canonical preflight. Only `materialized` rows with `has_synthesis` definition status SHALL require definitions, resolvers, paper sets, and a valid canonical current snapshot. Known placeholder, stale, and deleted graph-only rows SHALL remain durable migration input without requiring canonical current content. Adoption SHALL preserve every pre-existing canonical file byte-for-byte and SHALL fail before migration writes when a graph state is unknown, a canonical-bearing Topic is incomplete or invalid, or canonical source identities are not explained by the classified graph inventory.
+The runtime SHALL classify every recognized legacy Topic Graph row before canonical preflight. Only `materialized` rows with `has_synthesis` definition status SHALL require definitions, resolvers, paper sets, and a valid canonical current snapshot. Known placeholder, stale, and deleted graph-only rows SHALL remain durable migration input without requiring canonical current content. Adoption SHALL preserve pre-existing canonical bytes. It SHALL publish valid Topics and durable graph facts with a persistent record of Topics pending repair. Unknown graph state or an ambiguous shared source inventory SHALL fail before migration writes.
 
 #### Scenario: Canonical sources agree
 - **WHEN** every canonical-bearing legacy Topic has matching definitions, resolvers, paper sets, database state, and a valid canonical snapshot
@@ -54,9 +54,20 @@ The runtime SHALL classify every recognized legacy Topic Graph row before canoni
 - **THEN** startup fails with `repository_legacy_topic_graph_state_invalid` before backup or migration publication
 - **AND** the source database and canonical tree remain unchanged
 
-#### Scenario: Canonical sources conflict
-- **WHEN** a canonical-bearing Topic is missing, invalid, or inconsistent across required legacy sources, or a canonical identity is not explained by the classified graph inventory
-- **THEN** migration fails before publishing the current database or production identity
+#### Scenario: One canonical Topic source is invalid
+- **WHEN** a classified canonical-bearing Topic is missing, invalid, or inconsistent across required legacy sources
+- **THEN** migration SHALL record that Topic as pending repair and continue with independent Topics
+- **AND** it SHALL retain the graph facts, original files, and verified legacy database backup.
+
+#### Scenario: A pending Topic is repaired
+
+- **WHEN** a later startup validates the retained source and verifies a valid current snapshot for a pending Topic
+- **THEN** the repository SHALL publish its application state and projection and clear the pending record in one transaction.
+
+#### Scenario: Shared source inventory conflicts
+
+- **WHEN** a legacy source Topic identity is unexplained by the classified graph inventory
+- **THEN** migration SHALL leave the source database and existing canonical files in place.
 
 ### Requirement: Real-profile acceptance SHALL protect the source sample
 The acceptance harness SHALL run against an isolated minimal copy, read the matching Zotero database through a read-only snapshot, and report only schema, counts, statuses, and hashes.
@@ -86,6 +97,6 @@ The production owner SHALL recognize the documented release-family and developme
 The owner SHALL create at most one source backup for a migration identity, SHALL never expose an intermediate schema as production storage, and SHALL allow an interrupted pre-publication migration to be retried from the same source facts.
 
 #### Scenario: Validation fails before publication
-- **WHEN** the normalized candidate fails integrity, count, key, field, hash, or canonical validation
+- **WHEN** the shared candidate repository fails integrity, count, key, field, or hash validation
 - **THEN** production continues to contain the original source repository
 - **AND** a subsequent explicit recovery may safely repeat candidate construction

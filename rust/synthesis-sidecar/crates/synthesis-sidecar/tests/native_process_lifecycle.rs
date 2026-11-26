@@ -339,7 +339,7 @@ fn prepare_legacy_startup_fixture_for_topic(
         topic_id: materialized_topic_id.into(),
         manifest: json!({
             "schema":"topic.manifest.v1",
-            "sections":{"summary":{"path":"summary.json"}},
+            "sections":{"summary":{"path":"summary.json"},"topic":{"path":"topic.json"}},
             "topic_id":materialized_topic_id,
         }),
         artifact: json!({"schema":"topic.artifact.v1","title":materialized_topic_id}),
@@ -350,7 +350,10 @@ fn prepare_legacy_startup_fixture_for_topic(
                 "bundle_hash":"legacy-bundle",
             }
         }),
-        sections: BTreeMap::from([("summary".into(), json!({"text":"ready"}))]),
+        sections: BTreeMap::from([
+            ("summary".into(), json!({"text":"ready"})),
+            ("topic".into(), json!({"id":materialized_topic_id,"title":materialized_topic_id,"definition":"definition"})),
+        ]),
         markdown: BTreeMap::from([("synthesis.md".into(), "# Materialized\n".into())]),
     })
     .expect("prepare canonical topic");
@@ -436,6 +439,12 @@ fn prepare_legacy_startup_fixture_for_topic(
 }
 
 fn run_until_ready_then_shutdown(config_path: &Path, discovery_path: &Path, lifecycle_token: &str) {
+    let (mut child, port) = start_until_ready(config_path, discovery_path);
+    assert_eq!(shutdown(port, lifecycle_token)["ok"], true);
+    assert!(wait_for_exit(&mut child).success());
+}
+
+fn start_until_ready(config_path: &Path, discovery_path: &Path) -> (Child, u16) {
     let mut child = Command::new(env!("CARGO_BIN_EXE_synthesis-sidecar"))
         .arg("serve")
         .arg("--config")
@@ -447,8 +456,7 @@ fn run_until_ready_then_shutdown(config_path: &Path, discovery_path: &Path, life
         .expect("spawn sidecar");
     let discovery = wait_for_discovery(&mut child, discovery_path);
     let port = discovery["port"].as_u64().expect("discovery port") as u16;
-    assert_eq!(shutdown(port, lifecycle_token)["ok"], true);
-    assert!(wait_for_exit(&mut child).success());
+    (child, port)
 }
 
 fn wait_for_discovery(child: &mut Child, path: &Path) -> Value {
@@ -637,6 +645,12 @@ fn historical_unicode_topic_path_does_not_block_native_startup() {
     let canonical_topic_root = canonical_root.join("topics").join(&canonical_path_id);
     let legacy_topic_root = canonical_root.join("topics/63974b299");
     fs::rename(&canonical_topic_root, &legacy_topic_root).expect("install historical path");
+    let legacy_assets = legacy_topic_root.join("current/assets");
+    fs::create_dir(&legacy_assets).expect("legacy HTML cache directory");
+    let cached_html = legacy_assets.join("topic-detail.html");
+    let cached_metadata = legacy_assets.join("topic-detail.html.metadata.json");
+    fs::write(&cached_html, "<html>Old Topic export</html>").expect("cached export");
+    fs::write(&cached_metadata, "{}").expect("cached export metadata");
     let artifact_path = legacy_topic_root.join("current/artifact.json");
     let artifact_before = fs::read(&artifact_path).expect("legacy artifact before");
     let metadata_path = legacy_topic_root.join("current/metadata.json");
@@ -655,6 +669,16 @@ fn historical_unicode_topic_path_does_not_block_native_startup() {
         panic!("expected historical Unicode topic to remain readable");
     };
     assert_eq!(view.path_id, canonical_path_id);
+    assert!(view.markdown.contains_key("synthesis.md"));
+    assert!(!canonical_topic_root.join("current/assets").exists());
+    assert_eq!(
+        fs::read_to_string(&cached_html).expect("retain historical export"),
+        "<html>Old Topic export</html>"
+    );
+    assert_eq!(
+        fs::read_to_string(&cached_metadata).expect("retain historical export metadata"),
+        "{}"
+    );
     let updated = prepare_topic(CanonicalTopicDraft {
         topic_id: "中文主题".into(),
         manifest: json!({
@@ -700,6 +724,113 @@ fn historical_unicode_topic_path_does_not_block_native_startup() {
 
     drop(reverse_host);
     fs::remove_dir_all(root).expect("remove historical unicode startup root");
+}
+
+#[test]
+#[cfg(feature = "test-support")]
+fn legacy_topic_startup_preserves_healthy_topics_and_retries_the_failed_topic() {
+    let root = test_root("legacy-partial-topics");
+    let reverse_host = ReverseHost::start();
+    let database_path = root.join("state/synthesis.db");
+    let canonical_root = root.join("data/synthesis");
+    let ids = ["alpha", "broken", "omega"];
+    for id in ids {
+        let source = test_root(id);
+        let path_id = prepare_legacy_startup_fixture_for_topic(&source, "has_synthesis", id);
+        let source_root = source.join("data/synthesis");
+        fs::create_dir_all(canonical_root.join("topics")).expect("create topics root");
+        fs::rename(
+            source_root.join("topics").join(path_id),
+            canonical_root.join("topics").join(id),
+        )
+        .expect("install historical topic");
+        for (name, field) in [
+            ("topic-definitions.json", "topics"),
+            ("resolvers.json", "resolvers"),
+            ("resolved-paper-sets.json", "paper_sets"),
+        ] {
+            let dir = canonical_root.join("sidecar");
+            fs::create_dir_all(&dir).expect("create legacy sidecar root");
+            let mut merged: Value = fs::read(dir.join(name))
+                .map(|bytes| serde_json::from_slice(&bytes).expect("parse merged legacy source"))
+                .unwrap_or_else(|_| json!({"data":{(field):{}}}));
+            let entry: Value =
+                serde_json::from_slice(&fs::read(source_root.join("sidecar").join(name)).unwrap())
+                    .expect("parse legacy source");
+            merged["data"][field][id] = entry["data"][field][id].clone();
+            fs::write(dir.join(name), serde_json::to_vec(&merged).unwrap()).unwrap();
+        }
+    }
+    fs::create_dir_all(database_path.parent().unwrap()).expect("create state root");
+    create_legacy_test_database(&database_path).expect("legacy database");
+    let rows = ids.map(|id| (id, "materialized", "has_synthesis"));
+    insert_legacy_test_topic_graph_rows(&database_path, &rows).expect("legacy graph rows");
+
+    let broken_source = canonical_root.join("topics/broken/current/sections/summary.json");
+    let missing_section = fs::read(&broken_source).expect("legacy section bytes");
+    fs::remove_file(&broken_source).expect("simulate interrupted legacy write");
+    let repaired_path = canonical_root
+        .join("topics")
+        .join(canonical_topic_path_id("broken").unwrap())
+        .join("current");
+
+    for expected in [&["alpha", "omega"][..], &ids[..]] {
+        let (config_path, discovery_path, lifecycle_token) =
+            write_launch_config(&root, reverse_host.port);
+        let (mut child, port) = start_until_ready(&config_path, &discovery_path);
+        let result = call(
+            port,
+            &"7".repeat(64),
+            "list-topic-migrations",
+            "client.listTopics",
+            json!({"args":[{"cursor":"","limit":10}]}),
+        );
+        assert_eq!(result["ok"], true, "{result}");
+        let mut migrated: Vec<_> = result["data"]["topics"]
+            .as_array()
+            .expect("list Topic records")
+            .iter()
+            .map(|topic| topic["topic_id"].as_str().unwrap())
+            .collect();
+        migrated.sort_unstable();
+        assert_eq!(migrated, expected);
+        if expected.len() < ids.len() {
+            let detail = call(
+                port,
+                &"7".repeat(64),
+                "unavailable-topic",
+                "client.readTopicDetail",
+                json!({"args":[{"topicId":"broken"}]}),
+            );
+            assert_eq!(detail["data"]["status"], "unavailable", "{detail}");
+            assert_eq!(
+                detail["data"]["diagnostics"][0],
+                "canonical_snapshot_incomplete",
+            );
+        }
+        assert_eq!(shutdown(port, &lifecycle_token)["ok"], true);
+        assert!(wait_for_exit(&mut child).success());
+        let repository = Repository::open_production(
+            &database_path,
+            repository_identity(),
+            "2026-08-15T00:01:00.000Z",
+        )
+        .expect("open migrated repository");
+        assert_eq!(
+            repository.list_topic_graph_nodes().unwrap().len(),
+            ids.len()
+        );
+        repository.close().expect("close migrated repository");
+
+        if expected.len() < ids.len() {
+            assert!(!repaired_path.exists());
+            assert!(!broken_source.exists());
+            fs::write(&broken_source, &missing_section).expect("restore legacy section");
+        } else {
+            assert!(repaired_path.is_dir());
+            assert_eq!(fs::read(&broken_source).unwrap(), missing_section);
+        }
+    }
 }
 
 #[test]

@@ -827,7 +827,7 @@ fn prepare_production_schema_with_registry(
 }
 
 pub fn prepare_production_schema(database_path: &Path, backup_root: &Path) -> Result<(), String> {
-    prepare_production_schema_with_legacy_topics(database_path, backup_root, &[])
+    prepare_production_schema_with_legacy_topics(database_path, backup_root, &[], &BTreeMap::new())
 }
 
 pub use legacy_ts_migration::LegacyProductionTopicInventory;
@@ -849,8 +849,14 @@ pub fn prepare_production_schema_with_legacy_topics(
         TopicApplicationStateRecord,
         TopicApplicationProjectionRecord,
     )],
+    pending_topics: &BTreeMap<String, String>,
 ) -> Result<(), String> {
-    if legacy_ts_migration::migrate_if_known_legacy_ts(database_path, backup_root, topics)? {
+    if legacy_ts_migration::migrate_if_known_legacy_ts(
+        database_path,
+        backup_root,
+        topics,
+        pending_topics,
+    )? {
         return prepare_reference_redirect_graph_schema(database_path, backup_root);
     }
     prepare_production_schema_with_registry(

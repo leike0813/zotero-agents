@@ -9,6 +9,10 @@
 3. 插件采用模块化、工作流可插拔的设计理念。插件本体提供通用的 UI 界面及菜单。内部通过统一的工作流协议，由各组件分别按流程执行任务。插件本身不包含任何具体的业务逻辑。业务逻辑由用户通过“可插拔”的工作流文件或工作流包来声明和定义。
 4. 插件主要以通过ACP协议调用Agent工具为目标开发，兼容旧的Skill-Runner后端服务，但也应设计为兼容其他通用的REST API后端。
 
+# 局部故障隔离
+
+- 启动、迁移、扫描和批处理先确定可独立完成的最小单元与共享前提。记录失败单元的身份、稳定错误码和恢复状态，继续完成后续独立单元，保留原始数据及成功结果。终止整批或整服务须有共享前提失效的证据。修改相关路径时，用「成功、失败、成功」用例验证失败后的单元仍能完成，并覆盖共享故障。
+
 # 文件系统路径硬约束
 
 - 修改文件写入、目录创建、移动、归档、附件暂存或相邻输出时，先读 `docs/components/runtime-persistence-governance-ssot.md` 的 Safe Operation Paths；完整路径预算与适配器选择统一由 `runtimePersistence.ts` 持有。
@@ -249,7 +253,7 @@
 - Synthesis Index 在选定库和 scope 内全局搜索及筛选，以每批 25 个来源串行扫描匹配父条目。每页最多展示 100 个匹配父条目，引用子行不占页容量。冷开先显示加载状态并优先发布首批摘要，当页加载与全局计数独立推进。底部图标分页支持首/前/后/末页和输入页码，总数未知时禁止末页与任意跳页。显式翻页成功后清空展开并回到顶部，保留筛选。读取失败保留成功内容，basis mismatch 由刷新从首页恢复。修改 Index 读取与失效时，按 [Index 分页与会话复用](docs/synthesis-layer/workbench-ui.md#index-paging-details-and-session-reuse) 核对 Host 游标和 Reference 数据提交边界。
 - Index 会话 LRU 保存匹配目录和访问过的页（最多四个规范化 query、合计 8 MiB），绑定 library、service instance 与数据失效 revision，关闭页面后仍处理失效；重开回首页。同一工作台切换 tab 保留当前页、展开与滚动，扫描完成当前在途批次后暂停，返回从下一未消费 cursor 续读；隐藏区域暂停测量和 RAF。目录超过 2 MiB 时保留完整计数，通过有界重扫定位未缓存页，不截断结果。游标仅属于当前 runtime 扫描，不进入 LRU、不能重放；摘要和详情只按 source refs 读取，详情只合并引用与计数。
 - Index 父条目和展开引用共用有界、逐行测量的虚拟窗口；分页追加、详情加载和折叠必须保留可见行锚点。库自定义列的 UI-only refresh 不得触发 Index 读取失效或 related-item echo 消费，普通宿主 refresh 保留数据语义。
-- Synthesis Topic 新路径 `current` 通过 Topic 身份、路径与内容完整性校验后为唯一运行时权威；历史目录快照仅保留作恢复证据，其 manifest/artifact basis 可以不同；仅新路径缺失时迁移历史快照，`current` 无效时拒绝启动。
+- Synthesis Topic 以通过身份、路径与内容校验的 `current` 为唯一运行时权威。仅新路径缺失时迁移历史快照，旧文件原样保留。无效 `current` 使所属 Topic 不可用，其余 Topic 继续处理。变更旧库迁移、启动恢复或 Topic 读取时，按 [持久化与文件](docs/synthesis-layer/persistence-and-files.md#topic-canonical-directory-identity) 核对重试和发布边界。
 
 # Workflow 执行结算硬约束
 

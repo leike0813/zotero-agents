@@ -1,0 +1,52 @@
+# Spec Delta
+
+## MODIFIED Requirements
+
+### Requirement: Historical TypeScript Topic directories remain readable
+
+At startup, the canonical store SHALL discover supported historical Topic directories produced by the previous slug, 16-character hash, or 9-character hash formulas. It SHALL validate the recorded Topic identity and basis. A validated new-path current snapshot SHALL be the sole authority for that Topic. When the new current is absent, startup SHALL migrate a valid historical snapshot through staged promotion and retain the historical bytes. Migration SHALL leave unreferenced, ordinary legacy export files under the historical assets directory and promote the validated Topic content. Runtime reads SHALL use the new identity.
+
+#### Scenario: Legacy directory is the only current snapshot
+
+- **WHEN** a supported historical directory contains a valid current snapshot for its recorded Topic
+- **THEN** startup SHALL promote and verify that snapshot under the new path ID
+- **AND** subsequent inspect, read, capture, preflight, and archive operations SHALL use the new path.
+
+#### Scenario: Current directory exists
+
+- **WHEN** both a supported historical directory and the new directory for the same recorded Topic exist
+- **AND** the new directory contains a current snapshot that passes Topic identity, canonical path, and content integrity validation
+- **THEN** startup SHALL use that current snapshot as the sole runtime authority for the Topic
+- **AND** it SHALL retain the historical bytes as recovery evidence without requiring their manifest or artifact basis to match.
+
+#### Scenario: Migrated Topic is updated and reopened
+
+- **WHEN** startup migrates and verifies a supported historical current snapshot under the new path
+- **AND** a subsequent update promotes an updated current snapshot
+- **AND** the canonical store reopens with both snapshots present
+- **THEN** startup SHALL use the validated current snapshot as the sole runtime authority even when its manifest or artifact basis differs from the retained historical snapshot
+- **AND** it SHALL retain the historical bytes as recovery evidence.
+
+#### Scenario: Current directory is invalid
+
+- **WHEN** a new-path current snapshot fails Topic identity, path identity, or content integrity validation
+- **THEN** the affected Topic SHALL be unavailable and return a stable diagnostic
+- **AND** startup and reads SHALL continue for independent Topics
+- **AND** the existing current and historical bytes SHALL be preserved.
+
+#### Scenario: Legacy candidate has the wrong Topic identity
+
+- **WHEN** a historical candidate's manifest or metadata does not match the identity implied by its supported old path
+- **THEN** that candidate SHALL be isolated with an identity or mismatch diagnostic
+- **AND** it SHALL preserve the candidate bytes.
+
+#### Scenario: Runtime enumeration encounters a verified recovery copy
+
+- **WHEN** startup has verified a historical Topic directory and its authoritative new-path current snapshot
+- **THEN** runtime Topic enumeration SHALL exclude the historical copy before counting candidates or reading their content
+- **AND** only the authoritative current snapshot SHALL contribute a candidate for that Topic.
+
+#### Scenario: Authoritative current snapshot becomes unreadable
+
+- **WHEN** an authoritative current snapshot becomes unreadable after successful startup
+- **THEN** runtime Topic enumeration SHALL report the current source as unavailable without reading the retained historical copy as a fallback.

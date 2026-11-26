@@ -86,9 +86,19 @@ validates the embedded Topic identity and snapshot basis. A validated v2 current
 snapshot is the sole runtime authority; a retained historical snapshot may have
 a different manifest or artifact basis. Only when the v2 current snapshot is
 absent does startup promote and verify a historical snapshot under the v2 path
-through the canonical transaction machinery. It keeps the historical bytes as
-recovery evidence. Invalid v2 current content fails startup; normal reads use
-only the v2 path after startup succeeds.
+through the canonical transaction machinery. A historical source can include
+unreferenced export files under its assets directory. Migration leaves these
+files in the historical tree and promotes the validated Topic content.
+
+A Topic with invalid v2 current content remains unavailable until repaired.
+Its current files and historical copies are retained. Other Topics are read,
+migrated, and recovered independently. During TypeScript adoption, the
+repository keeps a migration backup, the original graph rows, and a private
+record of Topics pending repair. Startup retries those entries against the
+retained sources. It verifies the new current basis before committing the
+application state and projection and clearing the pending record.
+Complete durable bundle publication requires all pending Topic content to be
+recovered, so a partial migration cannot publish a misleading full snapshot.
 
 Topic enumeration uses the historical directories confirmed by startup
 migration to exclude recovery copies before counting or reading search
